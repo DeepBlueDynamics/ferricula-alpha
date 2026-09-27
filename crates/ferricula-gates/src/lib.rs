@@ -22,6 +22,8 @@ use ferricula_cognition::sati::Valence;
 use ferricula_cognition::AgentId;
 use serde::{Deserialize, Serialize};
 
+pub mod ollaya;
+
 pub const VERSION: &str = "ferricula-gates/2.0.0-alpha.0";
 /// Prompt-set version; bump on any prompt text change.
 pub const PROMPT_VERSION: &str = "prompts/2026-09-26.v1";
@@ -233,7 +235,7 @@ fn argmax(v: &[(String, f32)]) -> (String, f32) {
 // ---------------------------------------------------------------- prompts
 // English prompts mirror research/gates/prompts (PROMPT_VERSION pinned).
 
-const VEDANA_PROMPT: &str = include_str!("../../../../research/gates/prompts/gate_vedana_en.txt");
+const VEDANA_PROMPT: &str = include_str!("../prompts/gate_vedana_en.txt");
 
 const SATI_RECALL_PROMPT: &str = r#"You are the sati-recall gate of an Abhidhamma memory system.
 
