@@ -8,3 +8,4 @@ Dockerfile text eol=lf
 *.py text eol=lf
 *.pdf binary
 *.bin binary
+audit/bench/** -text
