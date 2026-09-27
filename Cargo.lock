@@ -622,6 +622,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
 
 [[package]]
+name = "ferricula-bench"
+version = "2.0.0-alpha.0"
+dependencies = [
+ "anyhow",
+ "ferricula-cognition",
+ "ferricula-gates",
+ "ferricula-ingest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "ureq 2.12.1",
+ "uuid",
+]
+
+[[package]]
 name = "ferricula-cognition"
 version = "2.0.0-alpha.0"
 dependencies = [

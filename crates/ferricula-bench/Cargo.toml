@@ -1,0 +1,22 @@
+[package]
+name = "ferricula-bench"
+version.workspace = true
+edition = "2024"
+license-file.workspace = true
+description = "R4 benchmarks: gate calibration, document-memory retrieval, long-term memory skeleton; every run appends a ledger row"
+
+[[bin]]
+name = "ferricula-bench"
+path = "src/main.rs"
+
+[dependencies]
+ferricula-cognition = { path = "../ferricula-cognition" }
+ferricula-gates = { path = "../ferricula-gates" }
+ferricula-ingest = { path = "../ferricula-ingest" }
+anyhow = "1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+ureq = { version = "2.12", features = ["json"] }
+uuid = { version = "1", features = ["v4"] }
+tempfile = "3"
