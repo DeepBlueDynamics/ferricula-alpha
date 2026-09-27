@@ -779,15 +779,34 @@ pub(super) fn log_entry(call: &ToolCall, result: &Value, result_bytes: usize) ->
     if let Some(cite) = result.get("cite") {
         cites.push(cite.clone());
     }
+    // Provenance fields for the UI. Web text itself is never kept (reading
+    // a page stores nothing); its address, title and date are metadata.
+    let pick = |key: &str| result.get(key).cloned().filter(|v| !v.is_null());
     json!({
         "name": call.name,
         "arguments": call.arguments,
+        "ts": now(),
         "error": result.get("error"),
         "cites": cites,
         "fragment": result.get("fragment"),
         "complete": result.get("complete"),
         "next_from": result.get("next_from"),
         "result_bytes": result_bytes,
+        "corpus": pick("corpus"),
+        "source": pick("source"),
+        "url": pick("url"),
+        "date": pick("date"),
+        "doc_id": pick("doc_id"),
+        "sections": pick("sections"),
+        "duplicate": pick("duplicate"),
+        "ok": pick("ok"),
+        "mode": pick("mode"),
+        "gate": pick("gate"),
+        "queued": pick("queued"),
+        "memory_id": pick("memory_id"),
+        "verdict_id": pick("verdict_id"),
+        "page_bytes": pick("page_bytes"),
+        "web_panes": pick("web_panes"),
     })
 }
 
