@@ -183,13 +183,19 @@ impl SteveRuntime {
                     runtime.config.budgets.max_model_usd_per_day);
                 // Account for an attempted curator even if its response is rejected.
                 runtime.persist_model_usage()?;
-                let briefing = briefing_result?;
-                // No briefing is attached to ChatTurn or written into source memory.
-                let rendered = briefing.render();
-                inference.system.push_str("\nEphemeral memory briefing (guidance, not source evidence):\n");
-                inference.system.push_str(&rendered);
-                inference.estimated_input_tokens = inference.estimated_input_tokens
-                    .saturating_add(u32::try_from(rendered.len() + 80)?);
+                // The briefing is optional guidance: a rejected or failed curator
+                // degrades to un-curated chat instead of failing the turn.
+                match briefing_result {
+                    Ok(briefing) => {
+                        // No briefing is attached to ChatTurn or written into source memory.
+                        let rendered = briefing.render();
+                        inference.system.push_str("\nEphemeral memory briefing (guidance, not source evidence):\n");
+                        inference.system.push_str(&rendered);
+                        inference.estimated_input_tokens = inference.estimated_input_tokens
+                            .saturating_add(u32::try_from(rendered.len() + 80)?);
+                    }
+                    Err(error) => eprintln!("chat: curator skipped: {error:#}"),
+                }
             }
             let completion = runtime.router.complete_with_budget(
                 &inference, &runtime.transport, SystemTime::now(),
@@ -207,7 +213,13 @@ impl SteveRuntime {
                 turn.model = Some(model);
                 turn.reply = Some(reply);
             }
-            _ => {
+            failure => {
+                // Operator-side log only; the durable turn keeps the bounded message.
+                match failure {
+                    Ok(Err(error)) => eprintln!("chat: turn failed: {error:#}"),
+                    Err(error) => eprintln!("chat: turn task panicked: {error}"),
+                    Ok(Ok(_)) => unreachable!(),
+                }
                 turn.status = "failed".into();
                 // Provider errors may contain sensitive URLs or bodies. Keep the
                 // public durable failure bounded and do not fabricate a reply.

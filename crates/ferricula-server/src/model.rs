@@ -131,6 +131,8 @@ pub struct RouteDecision {
     pub timeout_ms: u64,
     pub max_concurrency: u32,
     pub api_key_env: String,
+    /// Output headroom for thinking models, copied from the profile.
+    pub reasoning_tokens: u32,
     pub base_url: String,
     pub no_model: bool,
     pub step_index: usize,
@@ -502,6 +504,7 @@ impl ModelRouter {
                 timeout_ms: profile.timeout_ms,
                 max_concurrency: profile.max_concurrency,
                 api_key_env: profile.api_key_env.clone(),
+                reasoning_tokens: profile.reasoning_tokens,
                 base_url: profile.base_url.clone(),
                 no_model: profile.is_no_model(),
                 step_index,
@@ -520,6 +523,7 @@ impl ModelRouter {
             timeout_ms: 1,
             max_concurrency: 1024,
             api_key_env: String::new(),
+            reasoning_tokens: 0,
             base_url: String::new(),
             no_model: true,
             step_index: 0,
@@ -626,7 +630,8 @@ impl ModelRouter {
                     body: OpenAiChatRequest {
                         model: decision.model.clone(),
                         messages,
-                        max_tokens: request.max_tokens,
+                        max_tokens: request.max_tokens
+                            .map(|t| t.saturating_add(decision.reasoning_tokens)),
                         temperature: request.temperature,
                     },
                 })
@@ -651,7 +656,8 @@ impl ModelRouter {
                     timeout_ms: decision.timeout_ms,
                     body: AnthropicMessagesRequest {
                         model: decision.model.clone(),
-                        max_tokens: request.max_tokens.unwrap_or(1024),
+                        max_tokens: request.max_tokens.unwrap_or(1024)
+                            .saturating_add(decision.reasoning_tokens),
                         system: if request.system.trim().is_empty() {
                             None
                         } else {
@@ -764,6 +770,7 @@ impl ModelRouter {
             timeout_ms: 1,
             max_concurrency: 1024,
             api_key_env: String::new(),
+            reasoning_tokens: 0,
             base_url: String::new(),
             no_model: true,
             step_index: 0,

@@ -28,6 +28,8 @@ pub struct RuntimeConfig {
     /// Convenience overrides for the built-in `local_ollama` profile.
     pub ollama_base_url: Option<String>,
     pub ollama_model: Option<String>,
+    /// Output headroom for a thinking model on `local_ollama` (e.g. glm-5.3).
+    pub ollama_reasoning_tokens: Option<u32>,
     pub initial_mode: String,
     /// Generate an ephemeral briefing from scoped raw recovered memories before chat.
     /// Adds a separately budgeted model call; never writes the briefing to memory.
@@ -66,6 +68,7 @@ impl Default for RuntimeConfig {
             private_context_profiles: Vec::new(),
             ollama_base_url: None,
             ollama_model: None,
+            ollama_reasoning_tokens: None,
             initial_mode: "asleep".into(),
             curator_enabled: false,
             schedule: ScheduleConfig::default(),
@@ -107,13 +110,18 @@ impl RuntimeConfig {
                     .push(crate::model_config::ModelCapability::PrivateContext);
             }
         }
-        if config.ollama_base_url.is_some() || config.ollama_model.is_some() {
+        if config.ollama_base_url.is_some() || config.ollama_model.is_some()
+            || config.ollama_reasoning_tokens.is_some()
+        {
             let profile = config
                 .models
                 .profiles
                 .iter_mut()
                 .find(|profile| profile.id == "local_ollama")
                 .context("Ollama overrides require the built-in local_ollama profile")?;
+            if let Some(tokens) = config.ollama_reasoning_tokens {
+                profile.reasoning_tokens = tokens;
+            }
             if let Some(base_url) = &config.ollama_base_url {
                 profile.base_url = base_url.clone();
             }

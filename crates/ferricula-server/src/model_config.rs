@@ -188,6 +188,10 @@ pub struct ModelProfile {
     /// Environment variable holding the API key. Empty for local/none providers.
     #[serde(default)]
     pub api_key_env: String,
+    /// Extra output tokens a thinking model spends before visible content.
+    /// Added to every request's `max_tokens` so reasoning cannot starve the answer.
+    #[serde(default)]
+    pub reasoning_tokens: u32,
 }
 
 impl ModelProfile {
@@ -256,6 +260,7 @@ impl ModelRoutingConfig {
                     max_concurrency: 1024,
                     timeout_ms: 1,
                     api_key_env: String::new(),
+                    reasoning_tokens: 0,
                 },
                 ModelProfile {
                     id: "local_ollama".into(),
@@ -273,6 +278,7 @@ impl ModelRoutingConfig {
                     max_concurrency: 2,
                     timeout_ms: 120_000,
                     api_key_env: String::new(),
+                    reasoning_tokens: 0,
                 },
                 ModelProfile {
                     id: "anthropic_haiku".into(),
@@ -293,6 +299,7 @@ impl ModelRoutingConfig {
                     max_concurrency: 4,
                     timeout_ms: 90_000,
                     api_key_env: "ANTHROPIC_API_KEY".into(),
+                    reasoning_tokens: 0,
                 },
                 ModelProfile {
                     id: "anthropic_sonnet".into(),
@@ -314,6 +321,7 @@ impl ModelRoutingConfig {
                     max_concurrency: 2,
                     timeout_ms: 120_000,
                     api_key_env: "ANTHROPIC_API_KEY".into(),
+                    reasoning_tokens: 0,
                 },
             ],
             routes: vec![
