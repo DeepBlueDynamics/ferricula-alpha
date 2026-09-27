@@ -165,8 +165,9 @@ impl ThermoLayer {
             fs::create_dir_all(parent)?;
         }
         let tmp = self.path.with_extension("tmp");
-        fs::write(&tmp, bytes).with_context(|| format!("write {}", tmp.display()))?;
-        fs::rename(&tmp, &self.path).with_context(|| format!("rename {}", self.path.display()))?;
+        // fsync the temp file, rename, fsync the directory.
+        crate::persist::write_atomic_durable(&self.path, &tmp, &bytes)
+            .with_context(|| format!("save {}", self.path.display()))?;
         self.dirty = false;
         Ok(())
     }

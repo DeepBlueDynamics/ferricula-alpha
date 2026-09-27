@@ -86,9 +86,23 @@ pub fn extract(source: &Source, config: &ExtractConfig) -> Result<Extracted> {
             }
             let (markdown, final_url) = grub_markdown(url, config)?;
             let title = first_heading(&markdown).unwrap_or_else(|| final_url.clone());
-            Ok(Extracted { title, origin: final_url, pages: vec![markdown], paged: false })
+            let page = Extracted { title, origin: final_url, pages: vec![markdown], paged: false };
+            // Web pages are screened: a paywall, login/cookie wall or a
+            // near-empty page is an error carrying a typed `Rejected`.
+            crate::screen::screen(&page)?;
+            Ok(page)
         }
     }
+}
+
+/// [`extract`], then [`screen`](crate::screen::screen) whatever the source
+/// kind (inline text and PDFs included). A refusal is an error whose chain
+/// holds a [`Rejected`](crate::screen::Rejected); see
+/// [`rejection`](crate::screen::rejection).
+pub fn extract_screened(source: &Source, config: &ExtractConfig) -> Result<Extracted> {
+    let doc = extract(source, config)?;
+    crate::screen::screen(&doc)?;
+    Ok(doc)
 }
 
 /// PDF text per page. pdf-extract can panic on malformed files, so the
