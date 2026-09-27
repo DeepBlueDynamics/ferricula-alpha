@@ -12,6 +12,7 @@ pub mod gates;
 pub mod identity;
 pub mod karmic;
 pub mod life;
+pub mod meditation;
 pub mod outcome;
 pub mod pali;
 pub mod patthana;

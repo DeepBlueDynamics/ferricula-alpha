@@ -52,6 +52,12 @@ pub struct DriveConfig {
     pub dream_on_sleep: bool,
     /// A question left by a dream may wake the agent.
     pub wake_on_dream_question: bool,
+    /// Minutes after being woken (by the operator or a dream question)
+    /// during which sleep pressure cannot put the agent back to sleep.
+    pub wake_grace_min: u32,
+    /// Falling asleep again within this many minutes of such a wake resumes
+    /// the interrupted sleep: if it already dreamed, it does not dream again.
+    pub resume_sleep_within_min: u32,
 }
 
 impl Default for DriveConfig {
@@ -69,6 +75,8 @@ impl Default for DriveConfig {
             curiosity_cooldown_min: 20,
             dream_on_sleep: true,
             wake_on_dream_question: false,
+            wake_grace_min: 30,
+            resume_sleep_within_min: 120,
         }
     }
 }
@@ -96,6 +104,12 @@ pub struct Drives {
     /// Day number (epoch seconds / 86400) the counter belongs to.
     pub curiosity_day: u64,
     pub dreamed_this_sleep: bool,
+    /// Sleep is held off until this time (epoch seconds) after a wake.
+    #[serde(default)]
+    pub engaged_until: Option<u64>,
+    /// When the operator or a dream question last woke the agent out of sleep.
+    #[serde(default)]
+    pub woken_at: Option<u64>,
 }
 
 impl Drives {
@@ -109,6 +123,8 @@ impl Drives {
             curiosity_today: 0,
             curiosity_day: now / 86_400,
             dreamed_this_sleep: false,
+            engaged_until: None,
+            woken_at: None,
         }
     }
 }
@@ -182,6 +198,7 @@ pub fn step(d: &mut Drives, cfg: &DriveConfig, stimulus: &Stimulus, now: u64) ->
         Stimulus::Operator { novelty } => {
             if d.phase == Phase::Asleep {
                 urges.push(Urge::Wake { reason: WakeReason::Operator });
+                woken(d, cfg, now);
             }
             relieve(d, cfg, *novelty);
             d.phase = Phase::Engaged;
@@ -209,6 +226,7 @@ pub fn step(d: &mut Drives, cfg: &DriveConfig, stimulus: &Stimulus, now: u64) ->
             if let Some(q) = question.as_ref().filter(|q| !q.trim().is_empty()) {
                 if cfg.wake_on_dream_question && d.phase == Phase::Asleep {
                     d.phase = Phase::Engaged;
+                    woken(d, cfg, now);
                     urges.push(Urge::Wake { reason: WakeReason::DreamQuestion(q.clone()) });
                     return urges;
                 }
@@ -236,9 +254,14 @@ pub fn step(d: &mut Drives, cfg: &DriveConfig, stimulus: &Stimulus, now: u64) ->
             d.boredom = 0.0;
             urges.push(Urge::Wake { reason: WakeReason::Rested });
         }
-        Phase::Resting | Phase::Engaged if d.sleep_pressure >= cfg.sleep_threshold => {
+        Phase::Resting | Phase::Engaged
+            if d.sleep_pressure >= cfg.sleep_threshold && d.engaged_until.is_none_or(|t| now >= t) =>
+        {
             d.phase = Phase::Asleep;
-            d.dreamed_this_sleep = false;
+            // Resuming an interrupted sleep that already dreamed: no second dream.
+            let resumed = d.woken_at
+                .is_some_and(|w| now.saturating_sub(w) < u64::from(cfg.resume_sleep_within_min) * 60);
+            d.dreamed_this_sleep = d.dreamed_this_sleep && resumed;
             urges.push(Urge::Sleep);
             urges.push(Urge::Consolidate);
         }
@@ -252,6 +275,11 @@ pub fn step(d: &mut Drives, cfg: &DriveConfig, stimulus: &Stimulus, now: u64) ->
         _ => {}
     }
     urges
+}
+
+fn woken(d: &mut Drives, cfg: &DriveConfig, now: u64) {
+    d.woken_at = Some(now);
+    d.engaged_until = Some(now + u64::from(cfg.wake_grace_min) * 60);
 }
 
 fn relieve(d: &mut Drives, cfg: &DriveConfig, novelty: f32) {
@@ -464,6 +492,60 @@ mod tests {
         let urges = step(&mut d, &cfg, &Stimulus::Operator { novelty: 0.5 }, T0 + 1);
         assert_eq!(urges, vec![Urge::Wake { reason: WakeReason::Operator }]);
         assert_eq!(d.phase, Phase::Engaged);
+    }
+
+    #[test]
+    fn operator_wake_of_a_tired_agent_is_only_a_wake() {
+        let cfg = DriveConfig::default();
+        let mut d = Drives::new(T0);
+        d.phase = Phase::Asleep;
+        d.sleep_pressure = 1.2;
+        d.dreamed_this_sleep = true;
+        let urges = step(&mut d, &cfg, &Stimulus::Operator { novelty: 0.5 }, T0 + 60);
+        assert_eq!(urges, vec![Urge::Wake { reason: WakeReason::Operator }]);
+        assert_eq!(d.phase, Phase::Engaged);
+        // The conversation continues and ends inside the grace window: no sleep.
+        assert!(step(&mut d, &cfg, &Stimulus::TokensSpent { tokens: 20_000 }, T0 + 5 * 60).is_empty());
+        assert!(step(&mut d, &cfg, &Stimulus::Settled, T0 + 10 * 60).is_empty());
+        assert!(step(&mut d, &cfg, &Stimulus::Tick, T0 + 30 * 60).is_empty());
+        assert_eq!(d.phase, Phase::Resting);
+        // After the grace the pressure wins, but the resumed sleep does not dream twice.
+        let urges = step(&mut d, &cfg, &Stimulus::Tick, T0 + 32 * 60);
+        assert_eq!(urges, vec![Urge::Sleep, Urge::Consolidate]);
+        assert!(d.dreamed_this_sleep);
+        assert!(step(&mut d, &cfg, &Stimulus::Consolidated, T0 + 33 * 60).is_empty());
+        // It still wakes rested later.
+        let urges = step(&mut d, &cfg, &Stimulus::Tick, T0 + 12 * 3600);
+        assert_eq!(urges, vec![Urge::Wake { reason: WakeReason::Rested }]);
+    }
+
+    #[test]
+    fn a_later_sleep_dreams_again() {
+        let cfg = DriveConfig::default();
+        let mut d = Drives::new(T0);
+        d.phase = Phase::Asleep;
+        d.sleep_pressure = 1.2;
+        d.dreamed_this_sleep = true;
+        step(&mut d, &cfg, &Stimulus::Operator { novelty: 0.5 }, T0);
+        step(&mut d, &cfg, &Stimulus::Settled, T0 + 60);
+        d.boredom = 0.0;
+        // Past both windows, with curiosity disabled so only pressure acts.
+        let cfg = DriveConfig { max_curiosity_per_day: 0, ..cfg };
+        let urges = step(&mut d, &cfg, &Stimulus::Tick, T0 + 3 * 3600);
+        assert_eq!(urges, vec![Urge::Sleep, Urge::Consolidate]);
+        assert!(!d.dreamed_this_sleep);
+        assert_eq!(step(&mut d, &cfg, &Stimulus::Consolidated, T0 + 3 * 3600 + 60), vec![Urge::Dream]);
+    }
+
+    #[test]
+    fn old_drive_state_and_config_still_load() {
+        let d: Drives = serde_json::from_str(
+            r#"{"phase":"asleep","boredom":0.0,"sleep_pressure":0.5,"last_update":1,"last_curiosity_at":null,
+                "curiosity_today":0,"curiosity_day":0,"dreamed_this_sleep":true}"#,
+        ).unwrap();
+        assert_eq!((d.engaged_until, d.woken_at), (None, None));
+        let cfg: DriveConfig = serde_json::from_str(r#"{"sleep_threshold":0.9}"#).unwrap();
+        assert_eq!((cfg.wake_grace_min, cfg.resume_sleep_within_min), (30, 120));
     }
 
     #[test]
