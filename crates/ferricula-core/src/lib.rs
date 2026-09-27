@@ -6,6 +6,7 @@ pub mod persist;
 pub mod prime_tree;
 pub mod skg;
 pub mod sparse;
+pub mod thermo;
 pub mod transform;
 
 pub use engine::Engine;
