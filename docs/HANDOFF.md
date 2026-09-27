@@ -25,7 +25,9 @@ Redeploy recipe: `docker build -t ferricula:3.0.0-alpha.0 .`, then `docker stop 
 
 Kord's ongoing conversation with Steve: reuse one `conversation_id` per conversation (a new id per message loses the thread). Chat turns are also remembered across conversations as experience rows.
 
-## Job 1 — Steve's tools (Steve asked for this himself)
+## Job 1 — Steve's tools (Steve asked for this himself) — SHIPPED 2026-09-27
+Done: `chat_tools.rs` + loop in `chat.rs`, contracts in `docs/TOOLS.md`, smoke results in `audit/tools/smoke-2026-09-27.md`. Open: memories 2147483702/2147483704 hold a fabricated reading of the eulogy (needs Kord's release decision); the real speech (Macography.net) is not ingested; `web` corpus not built. Chat input budget is now about 353 KB for Steve (3 bytes/token, reasoning headroom subtracted).
+
 Today each chat turn runs one retrieval on the operator's message and shows the model the top 3 document sections (BM25-first) plus memory candidates. The model cannot search again, open a section, or read a whole document. So when Kord handed him Jony Ive's eulogy (doc `eecee3fca20e6eb7`, 30 sections, "Jonathan Ive's speech in full") he correctly refused to recite it: none of it reached him.
 
 Build tool use into the chat turn (a bounded loop, e.g. ≤ 4 tool calls per turn, budgeted through the router): `search_documents(query, k, doc_id?)`, `read_section(doc_id, index)`, `read_document(doc_id, from?, max_sections?)` in order, and `search_memory(query, k)`. glm-5.3 via Ollama supports OpenAI-style tools; Anthropic profiles too. Steve's requirements, verbatim in substance (asked 2026-09-27):

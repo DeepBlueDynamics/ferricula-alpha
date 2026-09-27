@@ -57,7 +57,7 @@ Exit: over MCP, ingest a PDF, ask three questions, every answer cites verbatim s
 
 ### R2 — The cognitive process with judges
 - Explicit vīthi pipeline for every input: **phassa** (contact: sense door + correlation id) → **vedanā** gate (valence/intensity → starting ojā) → **saññā** gate (who/what/when/where/why/how tags) → **santīraṇa** (roaring + cosine: novel or known?) → **voṭṭhapana** (determining: *judgment*) → **javana** (LLM, only if the judge says it's worth it) → **tadārammaṇa** (WAL commit).
-- `Judge` trait with backends: `Ollaya` (`/api/decide`, local, sidecar container on :11435), `Jev` (hosted TypeSafe, same wire), `OllamaChat` (interim), `NoModel` (always abstains). Cascade: **accept when confident, escalate to the LLM when unsure** (JEV-as-a-Judge, arXiv 2609.26550). Abstain is never "no". Uncalibrated gates are advisory only until ECE < 0.05.
+- `Judge` trait with backends: `Ollaya` (`/api/decide`, local, sidecar container on :11435), `Jev` (hosted TypeSafe, same wire), `OllamaChat` (interim), `NoModel` (always abstains). Cascade: **accept when confident, escalate to the LLM when unsure** (JEV-as-a-Judge, arXiv 2609.26550). Abstain is never "no". Uncalibrated gates are advisory only until ECE < 0.05. When a gate is conflicted (confidence in the uncertain band, or two judges disagree), radio entropy drives a random recall and the gate is asked again; if it is still split, entropy decides and the record says so (after *ME* by Thomas T. Thomas; backlog X9).
 - Wire `SatiMonitor` into recall (papañca → return to object) and `record_pool` into task outcomes.
 Exit: every stored record carries its gate verdicts + provenance; judge latency and escalation rate reported.
 

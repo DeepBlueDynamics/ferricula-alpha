@@ -316,7 +316,7 @@ mod tests {
     fn hit(id: u32, score: f32) -> MemoryHit {
         MemoryHit {
             id, score, state: LifecycleStateView::Active, fidelity: 1.0, importance: 0.0,
-            keystone: false, tags: BTreeMap::new(), refs: None,
+            keystone: false, created_at: 0, tags: BTreeMap::new(), refs: None,
         }
     }
 

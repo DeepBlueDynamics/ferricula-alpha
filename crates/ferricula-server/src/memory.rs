@@ -21,6 +21,8 @@ pub struct MemoryHit {
     pub fidelity: f32,
     pub importance: f32,
     pub keystone: bool,
+    /// Record time (unix seconds) from the lifecycle envelope.
+    pub created_at: u64,
     pub tags: BTreeMap<String, String>,
     pub refs: Option<ferricula_core::MemoryRef>,
 }
@@ -104,6 +106,7 @@ impl MemoryRuntime {
                     fidelity: record.fidelity,
                     importance: record.importance,
                     keystone: record.keystone,
+                    created_at: record.created_at,
                     tags: row.tags.clone(),
                     refs: row.refs.clone(),
                 })
@@ -160,6 +163,7 @@ impl MemoryRuntime {
                 fidelity: record.fidelity,
                 importance: record.importance,
                 keystone: record.keystone,
+                created_at: record.created_at,
                 tags: row.tags.clone(),
                 refs: row.refs.clone(),
             });
@@ -281,6 +285,7 @@ pub fn lexical_hits_with(engine: &DurableEngine, query: &str, limit: usize, incl
             fidelity: record.fidelity,
             importance: record.importance,
             keystone: record.keystone,
+            created_at: record.created_at,
             tags: row.tags.clone(),
             refs: row.refs.clone(),
         });
@@ -426,6 +431,7 @@ impl ExperienceStore {
                     fidelity: record.fidelity,
                     importance: record.importance,
                     keystone: record.keystone,
+                    created_at: record.created_at,
                     tags: row.tags.clone(),
                     refs: row.refs.clone(),
                 })

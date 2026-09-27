@@ -50,11 +50,17 @@ impl InferenceTransport for HttpInferenceTransport {
                     request = request.bearer_auth(key);
                 }
                 let raw: Value = request.send()?.error_for_status()?.json()?;
-                let text = raw
-                    .pointer("/choices/0/message/content")
-                    .and_then(Value::as_str)
-                    .context("OpenAI-compatible response contained no message content")?
-                    .to_string();
+                let message = raw.pointer("/choices/0/message")
+                    .context("OpenAI-compatible response contained no message")?;
+                let content = message.get("content").and_then(Value::as_str).unwrap_or_default();
+                let native = native_tool_calls(message);
+                if content.is_empty() && native.is_empty() && message.get("content").is_none_or(Value::is_null) {
+                    bail!("OpenAI-compatible response contained no message content");
+                }
+                // Some servers (Ollama with GLM's chat template) parse the
+                // text protocol's `<use_tool>` blocks into structured
+                // `tool_calls`; put them back so the chat loop sees them.
+                let text = if native.is_empty() { content.to_string() } else { format!("{content}{native}") };
                 Ok(ProviderResponse {
                     text,
                     input_tokens: usage_u32(&raw, "/usage/prompt_tokens"),
@@ -101,6 +107,22 @@ impl InferenceTransport for HttpInferenceTransport {
     }
 }
 
+/// Structured `message.tool_calls` rendered as `<use_tool>` blocks
+/// (`arguments` may be a JSON object or a JSON-encoded string).
+fn native_tool_calls(message: &Value) -> String {
+    let Some(calls) = message.get("tool_calls").and_then(Value::as_array) else { return String::new() };
+    calls.iter().filter_map(|call| {
+        let function = call.get("function")?;
+        let name = function.get("name")?.as_str()?;
+        let arguments = match function.get("arguments") {
+            Some(Value::String(s)) => serde_json::from_str(s).unwrap_or_else(|_| serde_json::json!({})),
+            Some(value @ Value::Object(_)) => value.clone(),
+            _ => serde_json::json!({}),
+        };
+        Some(format!("<use_tool>{}</use_tool>", serde_json::json!({ "name": name, "arguments": arguments })))
+    }).collect()
+}
+
 fn usage_u32(value: &Value, pointer: &str) -> u32 {
     value
         .pointer(pointer)
@@ -112,6 +134,19 @@ fn usage_u32(value: &Value, pointer: &str) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn structured_tool_calls_become_text_blocks() {
+        let message = serde_json::json!({ "content": "", "tool_calls": [
+            { "function": { "name": "read_document", "arguments": { "doc_id": "eecee3fca20e6eb7" } } },
+            { "function": { "name": "search_memory", "arguments": "{\"query\":\"fence\"}" } },
+        ]});
+        let text = native_tool_calls(&message);
+        assert_eq!(text.matches("<use_tool>").count(), 2);
+        assert!(text.contains("\"doc_id\":\"eecee3fca20e6eb7\""));
+        assert!(text.contains("\"query\":\"fence\""));
+        assert_eq!(native_tool_calls(&serde_json::json!({ "content": "hi" })), "");
+    }
 
     #[test]
     fn missing_usage_is_zero() {

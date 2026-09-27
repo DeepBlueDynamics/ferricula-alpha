@@ -93,6 +93,7 @@ fn turn_retains_reported_origin_and_can_be_failed() {
         document_evidence: serde_json::json!([]),
         error: None,
         remembered_ids: Vec::new(),
+        tool_calls: Vec::new(),
     };
     t.status = "failed".into();
     t.error = Some("no eligible local private-context model".into());

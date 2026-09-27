@@ -50,6 +50,9 @@ use crate::sleep_cycle::{
 mod chat;
 pub use chat::{ChatRequest, ChatTurn, InputOrigin};
 
+#[path = "chat_tools.rs"]
+mod chat_tools;
+
 #[path = "documents.rs"]
 mod documents;
 pub use documents::{IngestOutcome, MAX_NOTE_BYTES};

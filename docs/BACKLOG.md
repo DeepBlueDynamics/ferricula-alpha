@@ -8,7 +8,7 @@ Sizes: S < 1 day · M 1–3 days · L > 3 days.
 
 ## Now
 
-**N0. Steve's in-chat tools** (search / read section / read document, bounded tool loop) — see docs/HANDOFF.md Job 1; Steve's own requirements: stable section ids, documented search behavior with fragment flags, written tool contracts (docs/TOOLS.md), smoke test on the eulogy doc `eecee3fca20e6eb7`. Plus Job 2 fixes: retry empty thinking-model answers, `/dashboard`, curiosity cut ≈ 0.1, strip nav junk, empty-query curiosity.
+**N0. Steve's in-chat tools** — **shipped 2026-09-27** (docs/TOOLS.md); Job 2 fixes still open. (search / read section / read document, bounded tool loop) — see docs/HANDOFF.md Job 1; Steve's own requirements: stable section ids, documented search behavior with fragment flags, written tool contracts (docs/TOOLS.md), smoke test on the eulogy doc `eecee3fca20e6eb7`. Plus Job 2 fixes: retry empty thinking-model answers, `/dashboard`, curiosity cut ≈ 0.1, strip nav junk, empty-query curiosity.
 
 
 **N1. Dense recall + backfill + remembered turns** · L · in progress (r2b)
@@ -55,6 +55,13 @@ MCP `ferricula_remember` and `ferricula_walk` absent (`mcp.rs:273-396`); `/memor
 
 **X8. 72-hour soak (R3 exit)** · M (wall clock)
 After N1, N2, N3, X1, X5 (+X4 if ready): store never shrinks, budget never exceeded, talk → curiosity → sleep → dream → operator wake, cost/day, curiosity yield, wake latency, no double dream.
+
+**X9. Entropy breaks indecision** (Kord, 2026-09-27; after *ME* by Thomas T. Thomas)
+When a gate is **conflicted** (it can't decide), radio entropy drives a random recall, and the gate is asked again with what surfaced. Being conflicted is not the same as being unable to judge:
+- *Indeterminate* (this item): the gate answered but its confidence is in the uncertain band (`AbstainReason::LowConfidence`, p near 0.5), or two judges disagree (Ollaya vs the JEV backup once it exists).
+- *Unable to judge* (not this item): input cut off, sidecar unreachable, invalid output. Fix the input or escalate; don't roll dice.
+Mechanism: draw entropy (source recorded) → sample k memories by entropy from the gate state's hybrid recall pool, plus one far memory (the dream's `far_from_residue` sampler) → append them to the gate state (within Laya's 512-token window) → re-ask once. If it's still indeterminate, entropy decides, weighted by p, and the record says `decided_by: chance`. Journal every step: the draw, the memories surfaced, p before and after, the final decision. Applies to every gate that reaches voṭṭhapana (curiosity, worth-deliberating, ingest), and is how X2's determining stage handles a split verdict.
+Exit: forced-indeterminate gate calls show entropy-drawn recall in the journal; the re-ask p differs from the first p on some calls; `decided_by: chance` appears only after a failed re-ask; replaying the same recorded entropy stream gives the same decisions.
 
 ## Later
 
