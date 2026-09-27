@@ -71,7 +71,12 @@ impl EntropySource {
         if down.is_some_and(|until| Instant::now() < until) {
             return None;
         }
-        match fetch_radio_entropy(url, n).filter(|b| b.len() >= n) {
+        let fetched = if url.trim_start().starts_with("https://") {
+            fetch_https(url, n)
+        } else {
+            fetch_radio_entropy(url, n)
+        };
+        match fetched.filter(|b| b.len() >= n) {
             Some(bytes) => {
                 *down = None;
                 Some(bytes)
@@ -82,6 +87,16 @@ impl EntropySource {
             }
         }
     }
+}
+
+/// `GET {url}/api/entropy?bytes=n&format=json` over TLS (e.g. the public
+/// sdr-rand relay). The plain-socket client in `clock` only speaks HTTP.
+fn fetch_https(url: &str, n: usize) -> Option<Vec<u8>> {
+    let endpoint = format!("{}/api/entropy?bytes={n}&format=json", url.trim().trim_end_matches('/'));
+    let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(3)).build();
+    let body: serde_json::Value = agent.get(&endpoint).call().ok()?.into_json().ok()?;
+    let bytes = crate::clock::hex_decode(body.get("entropy_hex")?.as_str()?);
+    (!bytes.is_empty()).then_some(bytes)
 }
 
 fn os_u64() -> u64 {
@@ -113,5 +128,19 @@ mod tests {
         }
         // Backed off: no further 500 ms connection attempts.
         assert!(started.elapsed() < Duration::from_millis(400));
+    }
+}
+
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+
+    /// `RADIO_URL=https://sdrrand.nuts.services cargo test -p ferricula-cognition -- --ignored radio`
+    #[test]
+    #[ignore]
+    fn radio_draw_from_env() {
+        let draw = EntropySource::from_env().draw();
+        println!("{draw:?}");
+        assert_eq!(draw.source, EntropyKind::Radio);
     }
 }

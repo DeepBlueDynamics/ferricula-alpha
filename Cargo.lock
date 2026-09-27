@@ -651,6 +651,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
+ "ureq 2.12.1",
  "webpki-roots 0.26.11",
  "x25519-dalek",
 ]
