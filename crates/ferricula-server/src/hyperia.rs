@@ -8,6 +8,14 @@ use serde_json::{Value, json};
 
 pub const TOKEN_ENV: &str = "HYPERIA_TOKEN";
 
+/// Hyperia listens on IPv4 loopback. From a container, host.docker.internal
+/// also resolves to an IPv6 address that is unreachable, so bind the client
+/// to IPv4 and never try IPv6.
+fn client_builder() -> reqwest::blocking::ClientBuilder {
+    reqwest::blocking::Client::builder()
+        .local_address(Some(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED)))
+}
+
 pub fn token() -> Option<String> {
     std::env::var(TOKEN_ENV).ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
 }
@@ -25,7 +33,7 @@ pub fn speak(base_url: &str, token: &str, text: &str, voice: Option<&str>, speed
     }
     let url = format!("{}/api/tts", base_url.trim_end_matches('/'));
     // Playback can wait up to 120 s for its turn in Hyperia's queue.
-    let client = reqwest::blocking::Client::builder().timeout(Duration::from_secs(240)).build()?;
+    let client = client_builder().timeout(Duration::from_secs(240)).build()?;
     let reply: Value = client.post(&url).bearer_auth(token).json(&body).send()
         .context("Hyperia unreachable")?
         .json().context("Hyperia reply was not JSON")?;
@@ -38,7 +46,7 @@ pub fn speak(base_url: &str, token: &str, text: &str, voice: Option<&str>, speed
 /// Web panes open in Hyperia: `(pane id, name)` for every pane of kind `web`.
 pub fn web_panes(base_url: &str, token: &str) -> Result<Vec<(String, String)>> {
     let url = format!("{}/api/status", base_url.trim_end_matches('/'));
-    let client = reqwest::blocking::Client::builder().timeout(Duration::from_secs(10)).build()?;
+    let client = client_builder().timeout(Duration::from_secs(10)).build()?;
     let status: Value = client.get(&url).bearer_auth(token).send().context("Hyperia unreachable")?
         .json().context("Hyperia status was not JSON")?;
     let mut panes = Vec::new();
@@ -62,7 +70,7 @@ pub fn web_panes(base_url: &str, token: &str) -> Result<Vec<(String, String)>> {
 /// ungranted caller gets 202 while Kord is asked, returned as an error.
 pub fn web_pane_content(base_url: &str, token: &str, pane_id: &str) -> Result<Value> {
     let url = format!("{}/api/web-pane/content", base_url.trim_end_matches('/'));
-    let client = reqwest::blocking::Client::builder().timeout(Duration::from_secs(30)).build()?;
+    let client = client_builder().timeout(Duration::from_secs(30)).build()?;
     let resp = client.post(&url).query(&[("pane", pane_id)]).bearer_auth(token).send().context("Hyperia unreachable")?;
     if resp.status().as_u16() == 202 {
         bail!("Hyperia is asking Kord to approve web-pane access for this agent; try again after he approves");
