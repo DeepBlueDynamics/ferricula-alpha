@@ -91,6 +91,12 @@ pub enum LinkEvent {
     ConsolidatedInto,
     /// A memory written after another was deliberately released.
     AfterRelease,
+    /// A verdict that takes a memory as its object and marks it disputed
+    /// (a conflict flagged, no winner yet).
+    Disputes,
+    /// A verdict, settled by evidence, that replaces a memory's claim; it
+    /// predominates over the memory wherever the two meet.
+    Supersedes,
 }
 
 impl LinkEvent {
@@ -107,6 +113,8 @@ impl LinkEvent {
             SimilarityHypothesis => Paccaya::Sampayutta,
             ConsolidatedInto => Paccaya::Annamanna,
             AfterRelease => Paccaya::Vigata,
+            Disputes => Paccaya::Arammana,
+            Supersedes => Paccaya::Adhipati,
         }
     }
 

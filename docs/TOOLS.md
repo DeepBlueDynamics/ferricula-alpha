@@ -2,7 +2,7 @@
 
 _Status: shipped 2026-09-27 on `v3/r0`. Code: `crates/ferricula-server/src/chat_tools.rs` (tools, protocol) and `chat.rs` (the loop). Spec lineage: Job 1 in `docs/HANDOFF.md`; the `document`/`memory` half of `SEARCH_TOOL.md` (the `web` corpus and `ferricula_ingest` from chat are not built yet)._
 
-In a chat turn the agent can look things up before it answers: search its documents, open a section, read a whole document in order, and search its memories. Before this, every turn saw one retrieval on the operator's message (the top 3 sections, cut to 1,200 bytes each) and could not look further.
+In a chat turn the agent can look things up before it answers: search its documents, open a section, read a whole document in order, and search its memories. It can also record a verdict that one of its memories is disputed or superseded (`mark_disputed`, its only write). Before this, every turn saw one retrieval on the operator's message (the top 3 sections, cut to 1,200 bytes each) and could not look further.
 
 ## The loop
 
@@ -79,6 +79,16 @@ Returns whole consecutive sections in order, at most 60,000 bytes per call (or t
 
 Returns `{tool, query, ranking, results: [...], dropped_no_provenance, note}`. Each result: `corpus: "memory"`, `rank`, `score` (fused RRF), `memory_id`, `cite`, `source` (`conversation`, `curiosity`, or the channel), `channel` (`hearing`, `thinking`, `reading`, `dream`, …), `store` (`recovered`/`experience`), `state` (`active`/`forgiven`/`archived`), `date`, `doc_id` (for readings), `text` (at most 2,000 bytes), `fragment`, `arms`, and `dream: true` on dreams. Document sections found by the same recall are not returned here; use `search_documents`.
 
+### `mark_disputed(memory_id, kind, reason, evidence?)` — the one write
+| Argument | Type | Default | Limits |
+|---|---|---|---|
+| `memory_id` | int | required | a recovered (faded included) or experience memory |
+| `kind` | `"disputes"` | `"supersedes"` | required | |
+| `reason` | string | required | 10–1,000 bytes |
+| `evidence` | cite handle | none | **required for `supersedes`**; must be a `[doc <doc_id>§<index>]` whose document was shown this turn |
+
+Writes a new experience row on channel `verdict`, **keystone** (it never decays), tagged `kind`, `target`, `reason`, `evidence`, `conversation_id`, `request_id`, text "My verdict: memory N is disputed/superseded. …", with a causal edge verdict → memory labelled `paccaya:arammana` (disputes: the memory is the verdict's object) or `paccaya:adhipati` (supersedes: the verdict predominates). The disputed memory is never changed or deleted. From then on `search_memory` results and chat memory candidates for that memory carry `verdicts: [{verdict_id, cite, kind, reason, evidence, date}]`, and the prompt tells the model to say so and weigh it. Rules follow the agent's own design (2026-09-27): evidence settles; the agent writes the verdict; the operator is the court of appeal; a judge may only ever flag (`disputes`), never crown (`supersedes`); chance never decides what is true. Returns `{ok, verdict_id, cite, memory_id, kind, evidence, target_text, note}`.
+
 ## Errors
 
 Errors come back as a tool result `{"error": "..."}` and count toward the 4 calls:
@@ -93,6 +103,7 @@ Errors come back as a tool result `{"error": "..."}` and count toward the 4 call
 | Unknown document | `no document with doc_id '…'; use search_documents to find one …` |
 | Section out of range | `document '…' has sections 0 to N; there is no section i` |
 | Offset / from past end | `offset … is past the end of the section (… bytes)` / `'from' … is past the end` |
+| `mark_disputed` without evidence for supersedes / unseen evidence / unknown memory | `supersedes needs evidence …` / `evidence [doc …] was not shown to you in this turn …` / `no memory with id N` |
 | Over budget | `tool budget for this message is spent; answer with what you have` |
 | No room left | `no room left in this turn's context for more tool results; answer with what you have` |
 

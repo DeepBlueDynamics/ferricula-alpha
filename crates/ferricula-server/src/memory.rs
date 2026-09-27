@@ -377,6 +377,36 @@ pub fn bounded_chars(text: &str, max: usize) -> String {
     out
 }
 
+/// What a verdict says about the memory it takes as its object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerdictKind {
+    /// A conflict flagged, no winner yet.
+    Disputes,
+    /// Settled by evidence: the memory's claim is replaced.
+    Supersedes,
+}
+
+impl VerdictKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Disputes => "disputes",
+            Self::Supersedes => "supersedes",
+        }
+    }
+}
+
+/// A verdict to record about an earlier memory (recovered or experience).
+#[derive(Debug, Clone)]
+pub struct VerdictEvent {
+    pub target: u32,
+    pub kind: VerdictKind,
+    pub reason: String,
+    /// Cite handle of the evidence that settled it (required for supersedes).
+    pub evidence: Option<String>,
+    pub conversation_id: Option<uuid::Uuid>,
+    pub request_id: Option<uuid::Uuid>,
+}
+
 /// A reading experience to record for an ingested document.
 #[derive(Debug, Clone)]
 pub struct ReadingEvent {
@@ -462,6 +492,65 @@ impl ExperienceStore {
             .min()
     }
 
+    /// Record a verdict about an earlier memory: a new keystone row (a
+    /// verdict never decays) on channel `verdict`, plus a causal edge to the
+    /// memory it takes as its object (`paccaya:arammana` for disputes,
+    /// `paccaya:adhipati` for supersedes). The earlier memory is never
+    /// changed. Returns the verdict's id.
+    pub fn remember_verdict(&self, verdict: &VerdictEvent) -> Result<u32> {
+        let event = match verdict.kind {
+            VerdictKind::Disputes => ferricula_cognition::patthana::LinkEvent::Disputes,
+            VerdictKind::Supersedes => ferricula_cognition::patthana::LinkEvent::Supersedes,
+        };
+        let mut tags = BTreeMap::new();
+        tags.insert("channel".to_string(), "verdict".to_string());
+        tags.insert("source".to_string(), "verdict".to_string());
+        tags.insert("kind".to_string(), verdict.kind.as_str().to_string());
+        tags.insert("target".to_string(), verdict.target.to_string());
+        tags.insert("reason".to_string(), verdict.reason.clone());
+        if let Some(cite) = &verdict.evidence {
+            tags.insert("evidence".to_string(), cite.clone());
+        }
+        if let Some(id) = verdict.conversation_id {
+            tags.insert("written_in_conversation".to_string(), id.to_string());
+        }
+        if let Some(id) = verdict.request_id {
+            tags.insert("written_in_request".to_string(), id.to_string());
+        }
+        let text = format!(
+            "My verdict: memory {} is {}. {}{}",
+            verdict.target,
+            match verdict.kind { VerdictKind::Disputes => "disputed", VerdictKind::Supersedes => "superseded" },
+            verdict.reason,
+            verdict.evidence.as_ref().map(|c| format!(" Evidence: {c}.")).unwrap_or_default(),
+        );
+        tags.insert("text".to_string(), text);
+        let mut inner = self.inner.lock().expect("experience store poisoned");
+        let id = inner.reserve_id()?;
+        let row = Row { id, tags, vector: Vec::new(), refs: None };
+        let mut record = MemoryRecord::new(id);
+        record.keystone = true;
+        record.importance = 1.0;
+        record.provenance = Provenance::Ingested;
+        inner.engine.remember(row, record)?;
+        inner.engine.connect(id, verdict.target, event.condition().label(), 1.0, EdgeKind::Causal)?;
+        inner.engine.checkpoint()?;
+        Ok(id)
+    }
+
+    /// Every verdict row: `(verdict id, target id, kind, tags, created_at)`.
+    pub fn verdicts(&self) -> Vec<(u32, u32, String, BTreeMap<String, String>, u64)> {
+        let inner = self.inner.lock().expect("experience store poisoned");
+        inner.engine.engine().rows_iter()
+            .filter(|row| row.tags.get("channel").map(String::as_str) == Some("verdict"))
+            .filter_map(|row| {
+                let target = row.tags.get("target")?.parse().ok()?;
+                let created = inner.engine.memory_store().get(row.id).map_or(0, |r| r.created_at);
+                Some((row.id, target, row.tags.get("kind").cloned().unwrap_or_default(), row.tags.clone(), created))
+            })
+            .collect()
+    }
+
     /// Every experience row with its lifecycle record, in id order.
     pub fn rows(&self) -> Vec<(Row, MemoryRecord)> {
         let inner = self.inner.lock().expect("experience store poisoned");
@@ -518,6 +607,11 @@ impl ExperienceStore {
         let request = turn.request_id.to_string();
         let mut previous: Option<(u32, u32)> = None; // (turn index, last row id)
         for row in inner.engine.engine().rows_iter() {
+            // Only conversation rows count (a verdict written during a turn
+            // once carried that turn's ids).
+            if row.tags.get("source").map(String::as_str) != Some("conversation") {
+                continue;
+            }
             if row.tags.get("conversation_id") != Some(&conversation) {
                 continue;
             }
