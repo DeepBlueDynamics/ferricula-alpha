@@ -6,6 +6,7 @@ use ferricula_core::{DurableEngine, LifecycleState};
 use serde::{Deserialize, Serialize};
 
 pub mod api;
+pub mod auth;
 pub mod harness;
 pub mod hyperia;
 pub mod comfy;

@@ -540,6 +540,7 @@ pub struct RuntimeStatus {
 pub struct AgentRuntime {
     pub config: RuntimeConfig,
     pub inspection: Inspection,
+    pub auth: Arc<crate::auth::AuthManager>,
     state_path: PathBuf,
     usage_path: PathBuf,
     usage_write: Mutex<()>,
@@ -717,7 +718,9 @@ impl AgentRuntime {
             None => embeddings::EmbeddingsPlane::open(&config.embeddings)?,
         };
         let meaning = meaning_plane::MeaningPlane::open(&config, &memory)?;
+        let auth = crate::auth::AuthManager::new(&config.auth, &config.state_dir)?;
         let runtime = Arc::new(Self {
+            auth,
             chat,
             documents,
             life,
@@ -869,13 +872,12 @@ impl AgentRuntime {
         if !self.config.require_operator_auth {
             return true;
         }
-        let Ok(expected) = std::env::var(&self.config.operator_token_env) else {
-            return false;
-        };
-        let supplied = authorization
-            .and_then(|h| h.strip_prefix("Bearer "))
-            .unwrap_or_default();
-        constant_time_eq(expected.as_bytes(), supplied.as_bytes())
+        let bearer = authorization.and_then(|h| h.strip_prefix("Bearer "));
+        let expected = std::env::var(&self.config.operator_token_env).ok();
+        match self.auth.check_authorization(bearer, None, expected.as_deref()) {
+            crate::auth::AuthCheckResult::Authorized(id) => id.role == "operator",
+            _ => false,
+        }
     }
 
     pub fn set_mode(&self, mode: ActivityMode) -> Result<()> {
@@ -2030,6 +2032,7 @@ fn atomic_json_write(path: &Path, value: &impl Serialize) -> Result<()> {
     fs::rename(&tmp, path).with_context(|| format!("failed to replace {}", path.display()))
 }
 
+#[allow(dead_code)]
 fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     let mut diff = left.len() ^ right.len();
     for i in 0..left.len().max(right.len()) {

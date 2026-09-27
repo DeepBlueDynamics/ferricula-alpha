@@ -78,6 +78,8 @@ pub struct RuntimeConfig {
     /// How the agent names its operator in conversation memories
     /// ("<operator_name> said: ..."). Persona-neutral default.
     pub operator_name: String,
+    /// Operator authentication, nuts-auth integration, and session management.
+    pub auth: AuthConfig,
 }
 
 /// `[life]`: the agent's own life between conversations. Drive knobs are
@@ -169,6 +171,107 @@ impl LifeConfig {
     }
 }
 
+/// Authentication mode for the server.
+/// - `Static`: traditional static bearer token (`FERRICULA_OPERATOR_TOKEN`) only.
+/// - `Both`: phase A0 coexistence — accepts static token, nuts-auth session cookie, or nuts-auth Bearer token.
+/// - `Nuts`: nuts-auth only (phase A2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AuthMode {
+    #[default]
+    Static,
+    Both,
+    Nuts,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentAuthRule {
+    pub actor: String,
+    pub role: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AuthConfig {
+    pub mode: AuthMode,
+    /// Allowlist of nuts-auth user_id UUIDs that have operator privileges.
+    pub operators: Vec<String>,
+    /// Optional agent authorizations by actor name (for ahp_ tokens).
+    pub agents: Vec<AgentAuthRule>,
+    pub login_url: String,
+    pub jwks_url: String,
+    pub validate_url: String,
+    /// Public base URL for building callback/redirect URLs (e.g. "https://agent.example.com").
+    /// If None, derived from `runtime.config.bind` (e.g. "http://127.0.0.1:<port>").
+    pub public_url: Option<String>,
+    /// Whether to trust `X-Forwarded-Proto` header from reverse proxies when detecting scheme.
+    pub trust_proxy: bool,
+    pub require_iss: bool,
+    pub require_aud: bool,
+    pub expected_iss: Option<String>,
+    pub expected_aud: Option<String>,
+    pub session_hours: u64,
+    pub ahp_cache_minutes: u64,
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            mode: AuthMode::Static,
+            operators: Vec::new(),
+            agents: Vec::new(),
+            login_url: "https://auth.nuts.services/login".into(),
+            jwks_url: "https://auth.nuts.services/.well-known/jwks.json".into(),
+            validate_url: "https://auth.nuts.services/api/validate".into(),
+            public_url: None,
+            trust_proxy: false,
+            require_iss: false,
+            require_aud: false,
+            expected_iss: None,
+            expected_aud: None,
+            session_hours: 12,
+            ahp_cache_minutes: 10,
+        }
+    }
+}
+
+impl AuthConfig {
+    pub fn login_enabled(&self) -> bool {
+        matches!(self.mode, AuthMode::Both | AuthMode::Nuts)
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        if self.login_enabled() {
+            for (name, url) in [
+                ("auth.login_url", &self.login_url),
+                ("auth.jwks_url", &self.jwks_url),
+                ("auth.validate_url", &self.validate_url),
+            ] {
+                if !(url.starts_with("http://") || url.starts_with("https://")) || url.contains('@') {
+                    bail!("{name} must be an http(s) URL without inline credentials");
+                }
+            }
+        }
+        if let Some(ref url) = self.public_url {
+            if !(url.starts_with("http://") || url.starts_with("https://")) || url.contains('@') {
+                bail!("auth.public_url must be an http(s) URL without inline credentials");
+            }
+        }
+        if self.session_hours == 0 || self.session_hours > 24 * 365 {
+            bail!("auth.session_hours must be in 1..=8760");
+        }
+        if self.ahp_cache_minutes > 1440 {
+            bail!("auth.ahp_cache_minutes cannot exceed 1440");
+        }
+        for agent in &self.agents {
+            if agent.role != "operator" && agent.role != "reader" {
+                bail!("auth.agents role must be 'operator' or 'reader', got {:?}", agent.role);
+            }
+        }
+        Ok(())
+    }
+}
+
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
@@ -201,6 +304,7 @@ impl Default for RuntimeConfig {
             recall: RecallConfig::default(),
             hyperia: HyperiaConfig::default(),
             operator_name: "The operator".into(),
+            auth: AuthConfig::default(),
         }
     }
 }
@@ -306,6 +410,7 @@ impl RuntimeConfig {
             bail!("operator authentication is required when binding beyond loopback");
         }
         self.models.validate()?;
+        self.auth.validate()?;
         if self.expected_agent_id.trim().is_empty()
             || self.models.identity.agent_id != self.expected_agent_id
         {
@@ -1187,5 +1292,62 @@ name = "Memory Bench"
         );
         assert_eq!(url_host("ftp://x"), None);
         assert_eq!(url_host("https://"), None);
+    }
+
+    #[test]
+    fn auth_section_defaults_and_parses() {
+        let config = RuntimeConfig::default();
+        assert_eq!(config.auth.mode, AuthMode::Static);
+        assert!(!config.auth.login_enabled());
+        assert_eq!(config.auth.session_hours, 12);
+        assert_eq!(config.auth.ahp_cache_minutes, 10);
+        assert!(config.auth.operators.is_empty());
+        assert_eq!(config.auth.public_url, None);
+        assert!(!config.auth.trust_proxy);
+
+        let parsed: RuntimeConfig = toml::from_str(
+            r#"
+            [auth]
+            mode = "both"
+            operators = ["e6a86c62-3bf9-4b82-9017-0599a80b6239"]
+            public_url = "https://agent.example.com"
+            trust_proxy = true
+            session_hours = 24
+            ahp_cache_minutes = 15
+            require_iss = true
+            expected_iss = "https://auth.nuts.services"
+
+            [[auth.agents]]
+            actor = "claude-code"
+            role = "operator"
+        "#,
+        )
+        .unwrap();
+        parsed.validate().unwrap();
+        assert_eq!(parsed.auth.mode, AuthMode::Both);
+        assert!(parsed.auth.login_enabled());
+        assert_eq!(parsed.auth.operators, vec!["e6a86c62-3bf9-4b82-9017-0599a80b6239"]);
+        assert_eq!(parsed.auth.public_url.as_deref(), Some("https://agent.example.com"));
+        assert!(parsed.auth.trust_proxy);
+        assert_eq!(parsed.auth.session_hours, 24);
+        assert_eq!(parsed.auth.ahp_cache_minutes, 15);
+        assert!(parsed.auth.require_iss);
+        assert_eq!(parsed.auth.expected_iss.as_deref(), Some("https://auth.nuts.services"));
+        assert_eq!(parsed.auth.agents.len(), 1);
+        assert_eq!(parsed.auth.agents[0].actor, "claude-code");
+        assert_eq!(parsed.auth.agents[0].role, "operator");
+
+        let mut bad = RuntimeConfig::default();
+        bad.auth.session_hours = 0;
+        assert!(bad.validate().is_err());
+
+        let mut bad_mode = RuntimeConfig::default();
+        bad_mode.auth.mode = AuthMode::Both;
+        bad_mode.auth.login_url = "ftp://invalid".into();
+        assert!(bad_mode.validate().is_err());
+
+        let mut bad_pub = RuntimeConfig::default();
+        bad_pub.auth.public_url = Some("ftp://invalid".into());
+        assert!(bad_pub.validate().is_err());
     }
 }
