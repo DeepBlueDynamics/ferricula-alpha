@@ -21,6 +21,7 @@ Tools:
   ferricula_ingest        POST /documents       (text | url | local PDF/text path | pdf_base64)
   ferricula_documents     GET  /documents
   ferricula_read_section  GET  /documents/{doc_id}/sections/{index}
+  ferricula_life          GET  /life                (drives, life journal, last dream)
 
 The v2 names steve_status / steve_identity / steve_recall / steve_chat are
 accepted by tools/call as deprecated aliases but are not listed.
@@ -201,6 +202,15 @@ def tool_read_section(args):
     return http_request(f"/documents/{urllib.parse.quote(doc_id, safe='')}/sections/{index}")
 
 
+def tool_life(args):
+    journal = args.get("journal", 20)
+    try:
+        journal = max(0, min(int(journal), 200))
+    except (TypeError, ValueError):
+        return {"error": "journal must be an integer"}, True
+    return http_request(f"/life?journal={journal}")
+
+
 TOOLS = {
     "ferricula_status": (tool_status, {
         "description": "Read-only agent runtime status (identity, mode, memory counts). No memory text.",
@@ -258,6 +268,19 @@ TOOLS = {
     "ferricula_documents": (tool_documents, {
         "description": "List documents the agent has read (doc_id, title, origin, pages, sections).",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    }),
+    "ferricula_life": (tool_life, {
+        "description": "Read-only status of the agent's life between conversations: phase, boredom, "
+                       "sleep_pressure, curiosity_today, life model calls today, recent journal entries "
+                       "(curiosity excursions, sleep, consolidation, dreams, wakes) and the last dream "
+                       "with its question. Dreams are labeled as dreams, never evidence.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "journal": {"type": "integer", "minimum": 0, "maximum": 200, "default": 20},
+            },
+            "additionalProperties": False,
+        },
     }),
     "ferricula_read_section": (tool_read_section, {
         "description": "Return one document section's exact text and citation handle.",

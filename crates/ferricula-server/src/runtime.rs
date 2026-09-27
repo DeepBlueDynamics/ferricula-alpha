@@ -39,6 +39,7 @@ use crate::memory_overlay::{
 use crate::mention_ingest::{MentionIngest, MentionIngestState};
 use crate::model::{ChatMessage, InferenceRequest, ModelRouter, UsageEntry};
 use crate::model_config::{ModelCapability, TaskClass};
+use crate::model::InferenceTransport;
 use crate::model_transport::HttpInferenceTransport;
 use crate::nutnews::NutNewsClient;
 use crate::sleep_cycle::{
@@ -52,6 +53,10 @@ pub use chat::{ChatRequest, ChatTurn, InputOrigin};
 #[path = "documents.rs"]
 mod documents;
 pub use documents::{IngestOutcome, MAX_NOTE_BYTES};
+
+#[path = "life.rs"]
+mod life;
+pub use life::LifeUrgeRequest;
 
 fn now() -> u64 {
     SystemTime::now()
@@ -531,15 +536,25 @@ pub struct AgentRuntime {
     council: WisdomCouncil,
     memory: MemoryRuntime,
     router: ModelRouter,
-    transport: HttpInferenceTransport,
+    transport: Arc<dyn InferenceTransport>,
     persona: crate::persona::Persona,
     chat: chat::ChatStore,
     episodes: Mutex<ferricula_episode::EpisodeAdapter>,
     documents: documents::DocumentPlane,
+    life: life::LifePlane,
 }
 
 impl AgentRuntime {
     pub fn open(config: RuntimeConfig, inspection: Inspection) -> Result<Arc<Self>> {
+        Self::open_with_transport(config, inspection, Arc::new(HttpInferenceTransport))
+    }
+
+    /// Open with an explicit model transport (tests inject scripted fakes).
+    pub fn open_with_transport(
+        config: RuntimeConfig,
+        inspection: Inspection,
+        transport: Arc<dyn InferenceTransport>,
+    ) -> Result<Arc<Self>> {
         config.validate()?;
         if inspection.agent_id != config.expected_agent_id {
             bail!("mounted memory identity does not match expected_agent_id");
@@ -663,9 +678,11 @@ impl AgentRuntime {
         let episodes = ferricula_episode::EpisodeAdapter::open_in_state_dir(&config.state_dir)?;
         let chat = chat::ChatStore::open(&config.state_dir)?;
         let documents = documents::DocumentPlane::open(&config.state_dir, memory.ids())?;
+        let life = life::LifePlane::open(&config, router.ledger().entries().len())?;
         Ok(Arc::new(Self {
             chat,
             documents,
+            life,
             episodes: Mutex::new(episodes),
             config,
             inspection,
@@ -680,7 +697,7 @@ impl AgentRuntime {
             council: WisdomCouncil,
             memory,
             router,
-            transport: HttpInferenceTransport,
+            transport,
             persona,
         }))
     }
@@ -1354,7 +1371,7 @@ impl AgentRuntime {
         let outcome = tokio::task::spawn_blocking(move || {
             let result = runtime.router.complete_with_budget(
                 &request,
-                &runtime.transport,
+                &*runtime.transport,
                 SystemTime::now(),
                 call_cap,
             );
@@ -1755,7 +1772,7 @@ impl AgentRuntime {
         let (decision, response) = tokio::task::spawn_blocking(move || {
             let result = runtime.router.complete_with_budget(
                 &request,
-                &runtime.transport,
+                &*runtime.transport,
                 SystemTime::now(),
                 runtime.config.budgets.max_model_usd_per_day,
             );

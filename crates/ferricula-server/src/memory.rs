@@ -69,6 +69,45 @@ impl MemoryRuntime {
             .collect()
     }
 
+    /// Up to `n` distinct Active recovered memories that carry text, drawn
+    /// by a splitmix64 stream from `seed`. Read-only.
+    pub fn sample(&self, seed: u64, n: usize) -> Vec<MemoryHit> {
+        let engine = self.engine.lock().expect("memory engine poisoned");
+        let mut pool: Vec<&Row> = engine
+            .engine()
+            .rows_iter()
+            .filter(|row| {
+                row.tags.get("text").is_some_and(|t| !t.trim().is_empty())
+                    && engine
+                        .memory_store()
+                        .get(row.id)
+                        .is_some_and(|r| r.state == LifecycleState::Active)
+            })
+            .collect();
+        let mut state = seed;
+        let mut out = Vec::new();
+        while out.len() < n && !pool.is_empty() {
+            state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+            let mut z = state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            z ^= z >> 31;
+            let row = pool.swap_remove((z % pool.len() as u64) as usize);
+            let Some(record) = engine.memory_store().get(row.id) else { continue };
+            out.push(MemoryHit {
+                id: row.id,
+                score: 0.0,
+                state: record.state.into(),
+                fidelity: record.fidelity,
+                importance: record.importance,
+                keystone: record.keystone,
+                tags: row.tags.clone(),
+                refs: row.refs.clone(),
+            });
+        }
+        out
+    }
+
     /// Highest id present in the recovered base (rows or records), if any.
     pub fn max_id(&self) -> Option<u32> {
         let engine = self.engine.lock().expect("memory engine poisoned");
@@ -179,6 +218,19 @@ struct ExperienceInner {
     high_water: Option<u32>,
 }
 
+impl ExperienceInner {
+    /// Allocate the next id and reserve it durably first: a crash after
+    /// this point leaks an id but can never hand the same id to two memories.
+    fn reserve_id(&mut self) -> Result<u32> {
+        let id = allocate_experience_id(&self.recovered_ids, max_id(&self.engine), self.high_water)?;
+        let tmp = self.high_water_path.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_vec(&id)?)?;
+        std::fs::rename(&tmp, &self.high_water_path)?;
+        self.high_water = Some(id);
+        Ok(id)
+    }
+}
+
 /// A reading experience to record for an ingested document.
 #[derive(Debug, Clone)]
 pub struct ReadingEvent {
@@ -238,17 +290,55 @@ impl ExperienceStore {
             .min()
     }
 
+    /// Every experience row with its lifecycle record, in id order.
+    pub fn rows(&self) -> Vec<(Row, MemoryRecord)> {
+        let inner = self.inner.lock().expect("experience store poisoned");
+        inner
+            .engine
+            .engine()
+            .rows_iter()
+            .filter_map(|row| {
+                let record = inner.engine.memory_store().get(row.id)?;
+                Some((row.clone(), record.clone()))
+            })
+            .collect()
+    }
+
+    /// Graph edges of the experience store (for a scratch consolidation).
+    pub fn edges(&self) -> Vec<ferricula_core::graph::Edge> {
+        let inner = self.inner.lock().expect("experience store poisoned");
+        inner.engine.graph().all_edges()
+    }
+
+    /// Record one general experience (a thought, a dream, ...) under
+    /// `channel`; returns its id. `tags` may add fields; `channel` and
+    /// `text` always win.
+    pub fn remember(
+        &self,
+        channel: &str,
+        text: &str,
+        mut tags: BTreeMap<String, String>,
+        refs: Option<MemoryRef>,
+        importance: f32,
+    ) -> Result<u32> {
+        let mut inner = self.inner.lock().expect("experience store poisoned");
+        let id = inner.reserve_id()?;
+        tags.insert("channel".to_string(), channel.to_string());
+        tags.insert("text".to_string(), text.to_string());
+        let row = Row { id, tags, vector: Vec::new(), refs };
+        let mut record = MemoryRecord::new(id);
+        record.importance = importance;
+        record.provenance = Provenance::Ingested;
+        inner.engine.remember(row, record)?;
+        inner.engine.checkpoint()?;
+        Ok(id)
+    }
+
     /// Record "I read X" as one durable experience memory; returns its id.
     /// The WAL entry is appended and the store checkpointed before return.
     pub fn remember_reading(&self, event: &ReadingEvent) -> Result<u32> {
         let mut inner = self.inner.lock().expect("experience store poisoned");
-        let id = allocate_experience_id(&inner.recovered_ids, max_id(&inner.engine), inner.high_water)?;
-        // Reserve the id durably first: a crash after this point leaks an id
-        // but can never hand the same id to two memories.
-        let tmp = inner.high_water_path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec(&id)?)?;
-        std::fs::rename(&tmp, &inner.high_water_path)?;
-        inner.high_water = Some(id);
+        let id = inner.reserve_id()?;
 
         let mut tags = BTreeMap::new();
         tags.insert("channel".to_string(), "reading".to_string());
