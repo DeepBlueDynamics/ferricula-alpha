@@ -8,6 +8,9 @@ Sizes: S < 1 day · M 1–3 days · L > 3 days.
 
 ## Now
 
+**N0. Steve's in-chat tools** (search / read section / read document, bounded tool loop) — see docs/HANDOFF.md Job 1; Steve's own requirements: stable section ids, documented search behavior with fragment flags, written tool contracts (docs/TOOLS.md), smoke test on the eulogy doc `eecee3fca20e6eb7`. Plus Job 2 fixes: retry empty thinking-model answers, `/dashboard`, curiosity cut ≈ 0.1, strip nav junk, empty-query curiosity.
+
+
 **N1. Dense recall + backfill + remembered turns** · L · in progress (r2b)
 Steve recalls by meaning across recovered memory, experience and document sections, and remembers what was said in earlier conversations. Today recall is lexical + BM25 (`documents.rs:146-162`), chat turns are never written as experience (`chat.rs:110-293`), the curator reads only recovered memory (`chat.rs:231-233`). (r2b) adds `meaning.rs`/`meaning_plane.rs`, dense + graph arms in fused recall, `remember_turn` (hearing/thinking rows), curator on fused hits, dream-grounding prompt and metric, `is_dream_image` filtering for dream traces and the dense index. Still open inside N1: curiosity seeds and the lexical path still admit v1 `[dream image]` memories.
 Exit: over MCP "Dad or Paul?" recalls memory 3802021270; a new conversation recalls "Kord names his iPhones Steve"; 30-query recovered-recall bench and docs paraphrase hybrid R@1 > 0.71 with ledger rows; shivvr stopped → `embeddings: degraded`, chat works; 0 all-zero vectors left.
