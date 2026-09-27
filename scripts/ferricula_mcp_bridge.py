@@ -16,15 +16,20 @@ Configuration (environment only):
 Tools:
   ferricula_status    GET  /status
   ferricula_identity  GET  /identity
-  ferricula_recall    POST /memory/recall   (lexical candidates; metadata, not source text)
-  ferricula_chat      POST /chat            (the runtime routes the model call; durable turns)
+  ferricula_recall        POST /memory/recall   (hybrid: memory metadata + verbatim document sections)
+  ferricula_chat          POST /chat            (the runtime routes the model call; durable turns)
+  ferricula_ingest        POST /documents       (text | url | local PDF/text path | pdf_base64)
+  ferricula_documents     GET  /documents
+  ferricula_read_section  GET  /documents/{doc_id}/sections/{index}
 
 The v2 names steve_status / steve_identity / steve_recall / steve_chat are
 accepted by tools/call as deprecated aliases but are not listed.
 """
 
+import base64
 import json
 import os
+import urllib.parse
 import sys
 import urllib.error
 import urllib.request
@@ -136,6 +141,66 @@ def tool_chat(args):
     }, turn.get("status") != "completed" or not turn.get("reply")
 
 
+MAX_DOCUMENT_BYTES = int(os.environ.get("FERRICULA_MAX_DOCUMENT_BYTES", str(32 * 1024 * 1024)))
+
+
+def tool_ingest(args):
+    note = args.get("note")
+    sources = [k for k in ("text", "url", "path", "pdf_base64") if args.get(k)]
+    if len(sources) != 1:
+        return {"error": "provide exactly one of text, url, path, or pdf_base64"}, True
+    kind = sources[0]
+    if kind == "text":
+        body = {"kind": "text", "text": str(args["text"])}
+        if args.get("title"):
+            body["title"] = str(args["title"])
+    elif kind == "url":
+        body = {"kind": "url", "url": str(args["url"])}
+    elif kind == "pdf_base64":
+        body = {"kind": "pdf", "name": str(args.get("name") or "document.pdf"),
+                "base64": str(args["pdf_base64"])}
+    else:
+        path = os.path.expanduser(str(args["path"]))
+        try:
+            size = os.path.getsize(path)
+            if size > MAX_DOCUMENT_BYTES:
+                return {"error": f"{path} is {size} bytes; limit is {MAX_DOCUMENT_BYTES}"}, True
+            with open(path, "rb") as f:
+                data = f.read()
+        except OSError as e:
+            return {"error": f"cannot read {path}: {e}"}, True
+        name = args.get("name") or os.path.basename(path)
+        if data.startswith(b"%PDF"):
+            # Encoded client-side: the runtime never reads the caller's filesystem.
+            body = {"kind": "pdf", "name": str(name), "base64": base64.b64encode(data).decode("ascii")}
+        else:
+            try:
+                text = data.decode("utf-8")
+            except UnicodeDecodeError:
+                return {"error": f"{path} is neither a PDF nor UTF-8 text"}, True
+            body = {"kind": "text", "text": text, "title": str(args.get("title") or name)}
+    if note:
+        body["note"] = str(note)
+    return http_request("/documents", "POST", body, timeout=CHAT_TIMEOUT)
+
+
+def tool_documents(_args):
+    return http_request("/documents")
+
+
+def tool_read_section(args):
+    doc_id = str(args.get("doc_id", "")).strip()
+    if not doc_id:
+        return {"error": "doc_id is required"}, True
+    try:
+        index = int(args.get("index"))
+        if index < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        return {"error": "index must be a non-negative integer"}, True
+    return http_request(f"/documents/{urllib.parse.quote(doc_id, safe='')}/sections/{index}")
+
+
 TOOLS = {
     "ferricula_status": (tool_status, {
         "description": "Read-only agent runtime status (identity, mode, memory counts). No memory text.",
@@ -146,7 +211,9 @@ TOOLS = {
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     }),
     "ferricula_recall": (tool_recall, {
-        "description": "Read-only lexical memory candidate lookup. Returns ids, scores, tags, and refs.",
+        "description": "Read-only hybrid recall: recovered-memory and experience hits (ids, tags, refs) "
+                       "fused by rank with document sections carrying verbatim text and a "
+                       "[doc id\u00a7index p.page] citation.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -167,6 +234,40 @@ TOOLS = {
                 "conversation_id": {"type": "string", "description": "Optional UUID to continue a conversation"},
             },
             "required": ["message"],
+            "additionalProperties": False,
+        },
+    }),
+    "ferricula_ingest": (tool_ingest, {
+        "description": "Hand the agent a document to read: inline text/markdown, a URL (web page or PDF), "
+                       "a local file path (PDF is base64-encoded client-side; other files are sent as UTF-8 text), "
+                       "or pdf_base64. Stored verbatim and remembered as an 'I read X' experience.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "Inline text or markdown"},
+                "title": {"type": "string", "description": "Optional title for text"},
+                "url": {"type": "string", "description": "http(s) URL of a web page or PDF"},
+                "path": {"type": "string", "description": "Local path to a PDF or text/markdown file"},
+                "pdf_base64": {"type": "string", "description": "Base64-encoded PDF bytes"},
+                "name": {"type": "string", "description": "File name for a PDF"},
+                "note": {"type": "string", "description": "Optional: why you are giving the agent this"},
+            },
+            "additionalProperties": False,
+        },
+    }),
+    "ferricula_documents": (tool_documents, {
+        "description": "List documents the agent has read (doc_id, title, origin, pages, sections).",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    }),
+    "ferricula_read_section": (tool_read_section, {
+        "description": "Return one document section's exact text and citation handle.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "doc_id": {"type": "string"},
+                "index": {"type": "integer", "minimum": 0},
+            },
+            "required": ["doc_id", "index"],
             "additionalProperties": False,
         },
     }),

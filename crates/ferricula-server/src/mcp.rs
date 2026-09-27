@@ -4,8 +4,10 @@
 //! Advertise only this revision. Older initialize proposals receive
 //! **2025-06-18**; the client decides compatibility. Subsequent
 //! `MCP-Protocol-Version` headers other than **2025-06-18** are rejected.
-//! Tools: `ferricula_status`, `ferricula_recall` (read-only), `ferricula_chat`
-//! (operator chat). The v2 names `steve_status`/`steve_recall`/`steve_chat`
+//! Tools: `ferricula_status`, `ferricula_recall` (read-only hybrid recall
+//! with verbatim document sections), `ferricula_chat` (operator chat),
+//! `ferricula_ingest` (hand the agent a document), `ferricula_documents`
+//! (list read documents), `ferricula_read_section` (one verbatim section). The v2 names `steve_status`/`steve_recall`/`steve_chat`
 //! are still accepted by `tools/call` as deprecated aliases for one release,
 //! but are not advertised in `tools/list`.
 //! Operator bearer auth required on `POST /mcp`. Damascus is not a launch blocker.
@@ -240,7 +242,7 @@ fn initialize_result(runtime: &AgentRuntime, _params: &Value) -> Result<Value, V
             "agent_id": runtime.inspection.agent_id
         },
         "instructions": format!(
-            "Ferricula MCP for {}. ferricula_status and ferricula_recall are read-only and require operator auth. Recall returns metadata (ids/tags/refs), not hydrated source text. ferricula_chat sends one operator message through POST /chat and returns reply plus conversation_id. Damascus work-broker is not mounted.",
+            "Ferricula MCP for {}. All tools require operator auth. ferricula_ingest hands the agent a document (text, url, or base64 PDF) to read; it is stored verbatim and the agent remembers reading it. ferricula_documents lists what it has read; ferricula_read_section returns one section's exact text. ferricula_recall is read-only hybrid recall: recovered memory and experience metadata plus verbatim document sections, fused by rank, each section with a [doc id§index p.page] citation. ferricula_chat sends one operator message through POST /chat and returns reply plus conversation_id; replies cite document sections they rely on. Damascus work-broker is not mounted.",
             server_title(runtime)
         )
     }))
@@ -283,7 +285,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "ferricula_recall",
-                "description": "Read-only lexical memory candidate lookup. Returns ids, scores, tags, and refs — not source bodies.",
+                "description": "Read-only hybrid recall. Fuses (RRF) recovered-memory and experience hits (ids, scores, tags, refs) with document sections, which carry verbatim text and a [doc id§index p.page] citation. `hits` alone keeps the legacy recovered-memory list.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -332,9 +334,100 @@ fn tools_list() -> Value {
                     "idempotentHint": false,
                     "openWorldHint": true
                 }
+            },
+            {
+                "name": "ferricula_ingest",
+                "description": "Hand the agent a document to read: inline text/markdown, a URL (web page via grub, or a PDF link), or a base64 PDF. Stored verbatim as addressable sections and remembered as an \"I read X\" experience. Identical re-ingests dedupe. Returns doc_id, title, sections, memory_id.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "text": { "type": "string", "description": "Inline text or markdown" },
+                        "title": { "type": "string", "description": "Optional title for text" },
+                        "url": { "type": "string", "description": "http(s) URL of a web page or PDF" },
+                        "pdf_base64": { "type": "string", "description": "Base64-encoded PDF bytes" },
+                        "name": { "type": "string", "description": "File name for pdf_base64" },
+                        "note": { "type": "string", "description": "Optional: why you are giving the agent this document" }
+                    },
+                    "additionalProperties": false
+                },
+                "annotations": {
+                    "readOnlyHint": false,
+                    "destructiveHint": false,
+                    "idempotentHint": true,
+                    "openWorldHint": true
+                }
+            },
+            {
+                "name": "ferricula_documents",
+                "description": "List documents the agent has read (doc_id, title, origin, pages, sections, ingested_at).",
+                "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+                "annotations": {
+                    "readOnlyHint": true,
+                    "destructiveHint": false,
+                    "idempotentHint": true,
+                    "openWorldHint": false
+                }
+            },
+            {
+                "name": "ferricula_read_section",
+                "description": "Return one document section's exact text with its citation handle [doc id§index p.page].",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "doc_id": { "type": "string" },
+                        "index": { "type": "integer", "minimum": 0 }
+                    },
+                    "required": ["doc_id", "index"],
+                    "additionalProperties": false
+                },
+                "annotations": {
+                    "readOnlyHint": true,
+                    "destructiveHint": false,
+                    "idempotentHint": true,
+                    "openWorldHint": false
+                }
             }
         ]
     })
+}
+
+async fn ferricula_ingest(runtime: &Arc<AgentRuntime>, arguments: &Value) -> Result<Value, Value> {
+    use crate::api::IngestSourceBody;
+    let Some(obj) = arguments.as_object() else {
+        return Ok(tool_text(&json!({"error": "arguments must be an object"}), true));
+    };
+    const KNOWN: [&str; 6] = ["text", "title", "url", "pdf_base64", "name", "note"];
+    if let Some(key) = obj.keys().find(|k| !KNOWN.contains(&k.as_str())) {
+        return Ok(tool_text(&json!({"error": format!("unknown argument: {key}")}), true));
+    }
+    let text_arg = |key: &str| obj.get(key).and_then(Value::as_str).map(str::to_string);
+    let (text, url, pdf) = (text_arg("text"), text_arg("url"), text_arg("pdf_base64"));
+    let body = match (text, url, pdf) {
+        (Some(text), None, None) => IngestSourceBody::Text { title: text_arg("title"), text },
+        (None, Some(url), None) => IngestSourceBody::Url { url },
+        (None, None, Some(base64)) => IngestSourceBody::Pdf {
+            name: text_arg("name").unwrap_or_else(|| "document.pdf".into()),
+            base64,
+        },
+        _ => {
+            return Ok(tool_text(
+                &json!({"error": "provide exactly one of text, url, or pdf_base64"}),
+                true,
+            ));
+        }
+    };
+    let note = text_arg("note");
+    if note.as_ref().is_some_and(|n| n.len() > crate::runtime::MAX_NOTE_BYTES) {
+        return Ok(tool_text(&json!({"error": "note exceeds 2048 bytes"}), true));
+    }
+    let source = match crate::api::decode_source(body, &runtime.config.documents) {
+        Ok(source) => source,
+        Err((_, error)) => return Ok(tool_text(&json!({ "error": error }), true)),
+    };
+    match runtime.ingest(source, note).await {
+        Ok(outcome) => Ok(tool_text(&json!(outcome), false)),
+        Err(error) => Ok(tool_text(&json!({ "error": format!("{error:#}") }), true)),
+    }
 }
 
 async fn tools_call(runtime: &Arc<AgentRuntime>, params: &Value) -> Result<Value, Value> {
@@ -367,11 +460,30 @@ async fn tools_call(runtime: &Arc<AgentRuntime>, params: &Value) -> Result<Value
             }
             let limit = arguments.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
             let limit = limit.clamp(1, MAX_RECALL_LIMIT);
-            let hits = runtime.recall_candidates(query, limit);
-            let payload = json!({ "query": query, "hits": hits });
+            let recall = runtime.hybrid_recall(query, limit);
+            let payload = serde_json::to_value(&recall)
+                .map_err(|err| rpc_error(Value::Null, INTERNAL_ERROR, &err.to_string()))?;
             Ok(tool_text(&payload, false))
         }
         "ferricula_chat" => ferricula_chat(runtime, &arguments).await,
+        "ferricula_ingest" => ferricula_ingest(runtime, &arguments).await,
+        "ferricula_documents" => {
+            let documents = runtime.documents();
+            Ok(tool_text(&json!({ "documents": documents }), false))
+        }
+        "ferricula_read_section" => {
+            let Some(doc_id) = arguments.get("doc_id").and_then(Value::as_str) else {
+                return Ok(tool_text(&json!({ "error": "doc_id is required" }), true));
+            };
+            let Some(index) = arguments.get("index").and_then(Value::as_u64)
+                .and_then(|i| u32::try_from(i).ok()) else {
+                return Ok(tool_text(&json!({ "error": "index must be a non-negative integer" }), true));
+            };
+            match runtime.document_section(doc_id.trim(), index) {
+                Some(section) => Ok(tool_text(&json!(section), false)),
+                None => Ok(tool_text(&json!({ "error": "section not found" }), true)),
+            }
+        }
         "" => Err(rpc_error(
             Value::Null,
             INVALID_PARAMS,
@@ -680,7 +792,10 @@ mod tests {
             .iter()
             .map(|t| t["name"].as_str().unwrap())
             .collect();
-        assert_eq!(names, ["ferricula_status", "ferricula_recall", "ferricula_chat"]);
+        assert_eq!(names, [
+            "ferricula_status", "ferricula_recall", "ferricula_chat",
+            "ferricula_ingest", "ferricula_documents", "ferricula_read_section",
+        ]);
 
         let unknown = post(
             &runtime,
@@ -692,6 +807,51 @@ mod tests {
         assert_eq!(unknown["id"], 3);
         assert_eq!(unknown["error"]["code"], INVALID_PARAMS);
         assert!(unknown["error"]["message"].as_str().unwrap().contains("Unknown tool"));
+    }
+
+    fn tool_payload(response: &Value) -> Value {
+        let text = response["result"]["content"][0]["text"].as_str().unwrap();
+        serde_json::from_str(text).unwrap()
+    }
+
+    #[test]
+    fn ingest_then_recall_returns_verbatim_section_and_read_section_matches() {
+        let runtime = test_runtime();
+        let call = |name: &str, args: Value| {
+            json_body(post(
+                &runtime,
+                None,
+                Some(PROTOCOL_VERSION),
+                &json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
+                        "params":{"name": name, "arguments": args}}).to_string(),
+            ))
+        };
+        let text = "# Paging\nVirtual context management pages memory between tiers.\n\n# Other\nUnrelated gardening notes.\n";
+        let ingested = call("ferricula_ingest", json!({"text": text, "note": "compare with your memory"}));
+        assert_eq!(ingested["result"]["isError"], false, "{ingested}");
+        let outcome = tool_payload(&ingested);
+        let doc_id = outcome["doc_id"].as_str().unwrap().to_string();
+        assert_eq!(outcome["duplicate"], false);
+        assert!(outcome["memory_id"].as_u64().unwrap() >= u64::from(crate::memory::EXPERIENCE_ID_BASE));
+
+        let both = call("ferricula_ingest", json!({"text": "a", "url": "https://x"}));
+        assert_eq!(both["result"]["isError"], true);
+
+        let recall = tool_payload(&call("ferricula_recall", json!({"query": "virtual context paging"})));
+        let section = recall["candidates"].as_array().unwrap().iter()
+            .find(|c| c["kind"] == "document_section").expect("section candidate");
+        let verbatim = section["section"]["text"].as_str().unwrap();
+        assert!(text.contains(verbatim));
+        assert!(verbatim.contains("Virtual context management"));
+        assert!(recall["experience_hits"].as_array().unwrap().iter()
+            .any(|h| h["tags"]["doc_id"] == doc_id.as_str()));
+
+        let listed = tool_payload(&call("ferricula_documents", json!({})));
+        assert_eq!(listed["documents"][0]["doc_id"], doc_id.as_str());
+        let index = section["section"]["index"].clone();
+        let read = tool_payload(&call("ferricula_read_section", json!({"doc_id": doc_id, "index": index})));
+        assert_eq!(read["text"].as_str().unwrap(), verbatim);
+        assert!(read["cite"].as_str().unwrap().starts_with(&format!("[doc {doc_id}§")));
     }
 
     #[test]

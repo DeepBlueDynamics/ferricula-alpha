@@ -90,6 +90,7 @@ fn turn_retains_reported_origin_and_can_be_failed() {
         memory_candidates: serde_json::json!([]),
         episode_candidates: serde_json::json!([]),
         evidence_cards: serde_json::json!([]),
+        document_evidence: serde_json::json!([]),
         error: None,
     };
     t.status = "failed".into();

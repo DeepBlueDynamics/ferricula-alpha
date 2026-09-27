@@ -8,7 +8,7 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use axum::extract::{Path, State};
+use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -27,7 +27,18 @@ type ApiResult<T> = Result<Json<T>, ApiError>;
 const MAX_STATUS_LIST: usize = 64;
 
 pub fn router(runtime: Arc<AgentRuntime>) -> Router {
+    // Routes that can carry a whole document (base64 PDF) get a body limit
+    // sized from [documents] max_bytes; every other route keeps axum's default.
+    let document_body_limit = DefaultBodyLimit::max(runtime.config.documents.body_limit());
+    let documents = Router::new()
+        .route("/documents", get(list_documents).post(ingest_document))
+        .merge(crate::mcp::router())
+        .layer(document_body_limit);
     Router::new()
+        .route("/documents/search", post(search_documents))
+        .route("/documents/{doc_id}", get(get_document))
+        .route("/documents/{doc_id}/sections/{index}", get(get_section))
+        .merge(documents)
         .route("/", get(chat_page))
         .route("/chat", post(chat))
         .route("/chat/{conversation_id}", get(conversation))
@@ -59,8 +70,153 @@ pub fn router(runtime: Arc<AgentRuntime>) -> Router {
         )
         .route("/models/status", get(model_status))
         .route("/wisdom/preview", post(wisdom_preview))
-        .merge(crate::mcp::router())
         .with_state(runtime)
+}
+
+// --- Documents (R1 sense door) ---------------------------------------------
+
+/// `POST /documents` body: a tagged source plus an optional operator note.
+#[derive(Deserialize)]
+pub struct IngestBody {
+    #[serde(flatten)]
+    pub source: IngestSourceBody,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum IngestSourceBody {
+    Text { #[serde(default)] title: Option<String>, text: String },
+    Url { url: String },
+    Pdf { name: String, base64: String },
+}
+
+/// Validate sizes before decoding, then decode into an extraction source.
+/// Shared by the HTTP route and the MCP tool.
+pub fn decode_source(
+    body: IngestSourceBody,
+    config: &crate::config::DocumentsConfig,
+) -> Result<ferricula_ingest::Source, (StatusCode, String)> {
+    use base64::Engine as _;
+    let too_large = |what: &str| (StatusCode::PAYLOAD_TOO_LARGE,
+        format!("{what} exceeds documents.max_bytes ({} bytes)", config.max_bytes));
+    match body {
+        IngestSourceBody::Text { title, text } => {
+            if text.len() > config.max_bytes { return Err(too_large("text")); }
+            if text.trim().is_empty() { return Err((StatusCode::BAD_REQUEST, "text is empty".into())); }
+            if title.as_ref().is_some_and(|t| t.len() > 1024) {
+                return Err((StatusCode::BAD_REQUEST, "title exceeds 1024 bytes".into()));
+            }
+            Ok(ferricula_ingest::Source::Text { title, text })
+        }
+        IngestSourceBody::Url { url } => {
+            if url.len() > 4096 { return Err((StatusCode::BAD_REQUEST, "url exceeds 4096 bytes".into())); }
+            Ok(ferricula_ingest::Source::Url { url: url.trim().to_string() })
+        }
+        IngestSourceBody::Pdf { name, base64 } => {
+            if name.trim().is_empty() || name.len() > 512 {
+                return Err((StatusCode::BAD_REQUEST, "name must be 1 to 512 bytes".into()));
+            }
+            // Checked before decoding so an oversized payload costs no allocation.
+            let compact: String = if base64.bytes().any(|b| b.is_ascii_whitespace()) {
+                base64.chars().filter(|c| !c.is_ascii_whitespace()).collect()
+            } else {
+                base64
+            };
+            if compact.len() > config.max_base64_len() { return Err(too_large("pdf")); }
+            let bytes = base64::engine::general_purpose::STANDARD.decode(compact.as_bytes())
+                .map_err(|e| (StatusCode::BAD_REQUEST, format!("invalid base64: {e}")))?;
+            if bytes.len() > config.max_bytes { return Err(too_large("pdf")); }
+            Ok(ferricula_ingest::Source::Pdf { name, bytes })
+        }
+    }
+}
+
+async fn ingest_document(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    Json(body): Json<IngestBody>,
+) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    if body.note.as_ref().is_some_and(|n| n.len() > crate::runtime::MAX_NOTE_BYTES) {
+        return Err(bad_request(format!("note exceeds {} bytes", crate::runtime::MAX_NOTE_BYTES)));
+    }
+    let source = decode_source(body.source, &runtime.config.documents)
+        .map_err(|(status, error)| (status, Json(json!({ "error": error }))))?;
+    let note = body.note;
+    // Complete the ingest even if the HTTP client disconnects mid-fetch.
+    let outcome = tokio::spawn(async move { runtime.ingest(source, note).await })
+        .await.map_err(internal)?
+        .map_err(|error| (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": format!("{error:#}") }))))?;
+    Ok(Json(serde_json::to_value(outcome).map_err(internal)?))
+}
+
+async fn list_documents(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    Ok(Json(json!({ "documents": runtime.documents() })))
+}
+
+async fn get_document(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    Path(doc_id): Path<String>,
+) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    let Some(record) = runtime.document(&doc_id) else {
+        return Err((StatusCode::NOT_FOUND, Json(json!({ "error": "document not found" }))));
+    };
+    // Section outline only; verbatim text is served per section.
+    let sections: Vec<Value> = record.sections.iter().map(|s| json!({
+        "index": s.index, "heading": s.heading, "page": s.page, "bytes": s.text.len(),
+        "cite": crate::recall::citation(&record.meta.doc_id, s.index, s.page),
+    })).collect();
+    Ok(Json(json!({ "meta": record.meta, "sections": sections })))
+}
+
+async fn get_section(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    Path((doc_id, index)): Path<(String, u32)>,
+) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    let Some(section) = runtime.document_section(&doc_id, index) else {
+        return Err((StatusCode::NOT_FOUND, Json(json!({ "error": "section not found" }))));
+    };
+    Ok(Json(serde_json::to_value(section).map_err(internal)?))
+}
+
+#[derive(Deserialize)]
+struct DocumentSearchRequest {
+    query: String,
+    #[serde(default = "default_search_k")]
+    k: usize,
+    #[serde(default)]
+    doc_id: Option<String>,
+}
+
+fn default_search_k() -> usize {
+    5
+}
+
+async fn search_documents(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    Json(request): Json<DocumentSearchRequest>,
+) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    if request.query.trim().is_empty() {
+        return Err(bad_request("query cannot be empty"));
+    }
+    if request.query.len() > 8192 {
+        return Err(bad_request("query exceeds 8192 bytes"));
+    }
+    let k = request.k.clamp(1, 50);
+    let hits = runtime.search_documents(&request.query, k, request.doc_id.as_deref());
+    Ok(Json(json!({ "query": request.query, "hits": hits })))
 }
 
 async fn episode_commit(
@@ -397,9 +553,14 @@ async fn recall(
     if request.query.trim().is_empty() {
         return Err(bad_request("query cannot be empty"));
     }
-    let limit = request.limit.min(MAX_STATUS_LIST);
-    let hits = runtime.recall_candidates(&request.query, limit);
-    Ok(Json(json!({ "query": request.query, "hits": hits })))
+    if request.query.len() > 8192 {
+        return Err(bad_request("query exceeds 8192 bytes"));
+    }
+    let limit = request.limit.clamp(1, MAX_STATUS_LIST);
+    // `hits` keeps its pre-R1 meaning (recovered-base lexical hits); the
+    // experience, section, and fused lists are additive fields.
+    let recall = runtime.hybrid_recall(&request.query, limit);
+    Ok(Json(serde_json::to_value(recall).map_err(internal)?))
 }
 
 async fn model_status(
@@ -633,6 +794,8 @@ mod tests {
             overlay_events: 0,
             advocate_alignment: Some("aligned".into()),
             advocate_expired: false,
+            documents: 0,
+            experience_records: 0,
         }
     }
 

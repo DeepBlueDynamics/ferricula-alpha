@@ -36,6 +36,10 @@ pub struct RuntimeConfig {
     /// briefing) truncates. Sets `reasoning_tokens` on the built-in
     /// `local_ollama` profile. Leave unset for non-thinking models.
     pub ollama_reasoning_tokens: Option<u32>,
+    /// Real context window of the model behind `local_ollama` (the built-in
+    /// profile assumes a small 8192-token local model). The chat route sizes
+    /// its prompt, including document evidence cards, from this value.
+    pub ollama_context_tokens: Option<u32>,
     pub initial_mode: String,
     /// Generate an ephemeral briefing from scoped raw recovered memories before chat.
     /// Adds a separately budgeted model call; never writes the briefing to memory.
@@ -60,6 +64,9 @@ pub struct RuntimeConfig {
     /// Advocate values-alignment reviews (Phase Three surface). Disabled by
     /// default; requires the overlay as its only write sink.
     pub advocate: AdvocateConfig,
+    /// Document sense door (R1): ingest text/URL/PDF into a verbatim
+    /// document store and a writable experience store under `state_dir`.
+    pub documents: DocumentsConfig,
 }
 
 impl Default for RuntimeConfig {
@@ -75,6 +82,7 @@ impl Default for RuntimeConfig {
             ollama_base_url: None,
             ollama_model: None,
             ollama_reasoning_tokens: None,
+            ollama_context_tokens: None,
             initial_mode: "asleep".into(),
             curator_enabled: false,
             schedule: ScheduleConfig::default(),
@@ -87,6 +95,7 @@ impl Default for RuntimeConfig {
             overlay: OverlaySection::default(),
             emotion: EmotionConfig::default(),
             advocate: AdvocateConfig::default(),
+            documents: DocumentsConfig::default(),
         }
     }
 }
@@ -118,6 +127,7 @@ impl RuntimeConfig {
         }
         if config.ollama_base_url.is_some() || config.ollama_model.is_some()
             || config.ollama_reasoning_tokens.is_some()
+            || config.ollama_context_tokens.is_some()
         {
             let profile = config
                 .models
@@ -127,6 +137,12 @@ impl RuntimeConfig {
                 .context("Ollama overrides require the built-in local_ollama profile")?;
             if let Some(tokens) = config.ollama_reasoning_tokens {
                 profile.reasoning_tokens = tokens;
+            }
+            if let Some(tokens) = config.ollama_context_tokens {
+                if tokens < 2048 {
+                    bail!("ollama_context_tokens must be at least 2048");
+                }
+                profile.context_tokens = tokens;
             }
             if let Some(base_url) = &config.ollama_base_url {
                 profile.base_url = base_url.clone();
@@ -287,7 +303,80 @@ impl RuntimeConfig {
             }
         }
 
+        self.documents
+            .validate()
+            .context("invalid [documents] configuration")?;
+
         Ok(())
+    }
+}
+
+/// Document ingestion (R1 sense door). Stores live under `state_dir`
+/// (`documents/` for verbatim sections, `experience/` for the writable
+/// experience memory); the recovered `memory_dir` is never written.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DocumentsConfig {
+    pub enabled: bool,
+    /// grub crawler base URL used to render web pages to markdown. In a
+    /// container this is usually `http://host.docker.internal:6792`.
+    pub grub_base_url: String,
+    /// Upper bound on a source's bytes (decoded PDF, inline text, or fetch).
+    pub max_bytes: usize,
+    /// Allow `url` sources (network fetch through grub or direct PDF fetch).
+    pub allow_url: bool,
+    /// Network timeout for URL sources.
+    pub timeout_secs: u64,
+}
+
+pub const DEFAULT_DOCUMENT_MAX_BYTES: usize = 32 * 1024 * 1024;
+
+impl Default for DocumentsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            grub_base_url: "http://127.0.0.1:6792".into(),
+            max_bytes: DEFAULT_DOCUMENT_MAX_BYTES,
+            allow_url: true,
+            timeout_secs: 90,
+        }
+    }
+}
+
+impl DocumentsConfig {
+    pub fn validate(&self) -> Result<()> {
+        if !(self.grub_base_url.starts_with("http://") || self.grub_base_url.starts_with("https://")) {
+            bail!("documents.grub_base_url must be an http(s) URL");
+        }
+        if self.grub_base_url.contains('@') {
+            bail!("documents.grub_base_url must not contain inline credentials");
+        }
+        if self.max_bytes == 0 || self.max_bytes > 256 * 1024 * 1024 {
+            bail!("documents.max_bytes must be in 1..=268435456");
+        }
+        if self.timeout_secs == 0 || self.timeout_secs > 600 {
+            bail!("documents.timeout_secs must be in 1..=600");
+        }
+        Ok(())
+    }
+
+    /// Largest base64 payload accepted for `max_bytes` of decoded data.
+    pub fn max_base64_len(&self) -> usize {
+        self.max_bytes.div_ceil(3) * 4
+    }
+
+    /// HTTP body limit for routes that carry a document: base64 inflates
+    /// by 4/3, plus room for JSON framing and the optional note.
+    pub fn body_limit(&self) -> usize {
+        self.max_base64_len() + 64 * 1024
+    }
+
+    pub fn extract_config(&self) -> ferricula_ingest::ExtractConfig {
+        ferricula_ingest::ExtractConfig {
+            grub_base_url: self.grub_base_url.clone(),
+            timeout_secs: self.timeout_secs,
+            max_bytes: self.max_bytes,
+        }
     }
 }
 
@@ -645,6 +734,7 @@ name = "Memory Bench"
         let steve = RuntimeConfig::load(root.join("config/examples/steve/steve.toml")).unwrap();
         let ollama = steve.models.profile("local_ollama").unwrap();
         assert_eq!(ollama.reasoning_tokens, 4096);
+        assert_eq!(ollama.context_tokens, 131_072);
         assert_eq!(steve.expected_agent_id, steve.models.identity.agent_id);
     }
 
@@ -694,6 +784,34 @@ name = "Memory Bench"
         let mut config = RuntimeConfig::default();
         config.overlay.bounds.max_events = 0;
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn documents_section_defaults_and_parses() {
+        let config = RuntimeConfig::default();
+        assert!(config.documents.enabled);
+        assert!(config.documents.allow_url);
+        assert_eq!(config.documents.grub_base_url, "http://127.0.0.1:6792");
+        assert_eq!(config.documents.max_bytes, 32 * 1024 * 1024);
+        assert!(config.documents.body_limit() > config.documents.max_bytes * 4 / 3);
+        let parsed: RuntimeConfig = toml::from_str(
+            r#"
+            [documents]
+            grub_base_url = "http://host.docker.internal:6792"
+            allow_url = false
+            max_bytes = 1024
+        "#,
+        )
+        .unwrap();
+        parsed.validate().unwrap();
+        assert!(!parsed.documents.allow_url);
+        assert_eq!(parsed.documents.max_bytes, 1024);
+        let mut bad = RuntimeConfig::default();
+        bad.documents.grub_base_url = "file:///x".into();
+        assert!(bad.validate().is_err());
+        let mut bad = RuntimeConfig::default();
+        bad.documents.max_bytes = 0;
+        assert!(bad.validate().is_err());
     }
 
     #[test]
