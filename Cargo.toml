@@ -8,6 +8,7 @@ members = [
     "crates/ferricula-episode",
     "crates/ferricula-gates",
     "crates/ferricula-ingest",
+    "crates/ferricula-bench",
     "crates/ferricula-server",
 ]
 
