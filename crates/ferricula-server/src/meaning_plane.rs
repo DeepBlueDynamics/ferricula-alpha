@@ -154,13 +154,26 @@ impl AgentRuntime {
         embedder: &dyn ferricula_semantic::text_embed::TextEmbedder,
         items: &[CatalogItem],
         progress: &mut dyn FnMut(usize),
+        patient: bool,
     ) -> (usize, usize, Option<String>) {
         let batch = self.config.embeddings.batch.max(1);
         let (mut embedded, mut failed, mut error) = (0usize, 0usize, None);
+        let mut consecutive_failures = 0usize;
         for (n, chunk) in items.chunks(batch).enumerate() {
             let texts: Vec<&str> = chunk.iter().map(|i| i.text.as_str()).collect();
-            match embedder.embed(&texts) {
+            // One retry after a pause: a busy or restarting embedder should
+            // not end a long backfill on its first timeout.
+            let result = embedder.embed(&texts).or_else(|first| {
+                if !patient {
+                    return Err(first);
+                }
+                eprintln!("meaning: batch of {} failed ({first:#}); retrying once", texts.len());
+                std::thread::sleep(std::time::Duration::from_secs(5));
+                embedder.embed(&texts)
+            });
+            match result {
                 Ok(vectors) => {
+                    consecutive_failures = 0;
                     let mut index = self.meaning_write();
                     for (item, vector) in chunk.iter().zip(vectors) {
                         match index.insert(item, vector) {
@@ -175,7 +188,12 @@ impl AgentRuntime {
                 Err(e) => {
                     failed += chunk.len();
                     error = Some(format!("{e:#}"));
-                    break;
+                    consecutive_failures += 1;
+                    // Patient (backfill): skip this batch (it stays pending)
+                    // and go on, unless the embedder looks down for good.
+                    if !patient || consecutive_failures >= 3 {
+                        break;
+                    }
                 }
             }
             if (n + 1) % PERSIST_EVERY_BATCHES == 0 {
@@ -227,7 +245,7 @@ impl AgentRuntime {
             let (embedded, failed, error) = self.meaning_embed_items(embedder.as_ref(), &pending, &mut |done| {
                 self.meaning.backfill.lock().expect("backfill status poisoned").embedded = base + done;
                 progress(&self.meaning_read().counts());
-            });
+            }, true);
             total_embedded += embedded;
             total_failed += failed;
             if error.is_some() {
@@ -299,7 +317,7 @@ impl AgentRuntime {
         if pending.is_empty() {
             return;
         }
-        let (_, failed, error) = self.meaning_embed_items(embedder.as_ref(), &pending, &mut |_| {});
+        let (_, failed, error) = self.meaning_embed_items(embedder.as_ref(), &pending, &mut |_| {}, false);
         if failed > 0 {
             eprintln!(
                 "meaning: {failed} new row(s) left pending for backfill: {}",
