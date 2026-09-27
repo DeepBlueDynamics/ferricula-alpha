@@ -17,3 +17,9 @@ uuid = { version = "1", features = ["v4", "serde"] }
 ferricula-core = { path = "../ferricula-core" }
 ferricula-cognition = { path = "../ferricula-cognition" }
 ferricula-episode = { path = "../ferricula-episode" }
+ferricula-ingest = { path = "../ferricula-ingest" }
+base64 = "0.22"
+
+[dev-dependencies]
+tempfile = "3"
+lopdf = "0.34"

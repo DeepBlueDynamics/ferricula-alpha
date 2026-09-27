@@ -23,6 +23,7 @@ pub mod model_transport;
 pub mod nutnews;
 pub mod nutnews_events;
 pub mod persona;
+pub mod recall;
 pub mod runtime;
 pub mod sleep_cycle;
 

@@ -73,3 +73,12 @@ path = "/data/agent-runtime/overlay/overlay.json"
 [models.identity]
 agent_id = "ferricula-stevejobs"
 name = "Steve Jobs"
+
+[documents]
+# Document sense door (R1). Stores live under state_dir (documents/,
+# experience/); memory_dir stays read-only. grub renders web pages to
+# markdown; from inside a container the host is host.docker.internal.
+enabled = true
+grub_base_url = "http://host.docker.internal:6792"
+max_bytes = 33554432
+allow_url = true

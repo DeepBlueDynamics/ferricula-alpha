@@ -204,6 +204,17 @@ enabled = false
 enabled = false
 reviews_per_day = 1
 
+[documents]
+# Document sense door: POST /documents and the ferricula_ingest MCP tool.
+# Verbatim sections go to state_dir/documents, the "I read X" memory to the
+# writable experience store at state_dir/experience; memory_dir is never
+# written. grub (http://host.docker.internal:6792 from a container) renders
+# web pages; PDF URLs are fetched directly.
+enabled = true
+grub_base_url = "http://127.0.0.1:6792"
+max_bytes = 33554432
+allow_url = true
+
 # Model routing defaults are supplied by ModelRoutingConfig when no [models]
 # table is present: mechanical work uses no model; scan/social/deliberation
 # prefer local Ollama (`gemma4:e2b`); Anthropic profiles exist as fallbacks for

@@ -49,6 +49,10 @@ use crate::sleep_cycle::{
 mod chat;
 pub use chat::{ChatRequest, ChatTurn, InputOrigin};
 
+#[path = "documents.rs"]
+mod documents;
+pub use documents::{IngestOutcome, MAX_NOTE_BYTES};
+
 fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -62,6 +66,39 @@ const MAX_FINISHED_TASKS: usize = 200;
 
 /// Bounded holding pen for mention tasks deferred by quiet/lease gates.
 const MAX_DEFERRED_MENTIONS: usize = 32;
+
+/// Refuse a `state_dir` equal to or inside `memory_dir`, lexically and after
+/// resolving symlinks on the nearest existing ancestor. Runs before any
+/// directory is created.
+fn refuse_state_inside_memory(state_dir: &Path, memory_dir: &Path) -> Result<()> {
+    if state_dir.starts_with(memory_dir) {
+        bail!("writable state must be outside recovery memory");
+    }
+    let Ok(memory_real) = fs::canonicalize(memory_dir) else {
+        return Ok(()); // a missing memory_dir fails later with a clear error
+    };
+    let mut existing = state_dir.to_path_buf();
+    let mut rest = Vec::new();
+    while !existing.exists() {
+        let Some(name) = existing.file_name() else { break };
+        rest.push(name.to_os_string());
+        if !existing.pop() {
+            break;
+        }
+    }
+    if existing.as_os_str().is_empty() {
+        existing = PathBuf::from(".");
+    }
+    if let Ok(mut resolved) = fs::canonicalize(&existing) {
+        for name in rest.iter().rev() {
+            resolved.push(name);
+        }
+        if resolved.starts_with(&memory_real) {
+            bail!("writable state must be outside recovery memory");
+        }
+    }
+    Ok(())
+}
 
 /// Resolve overlay document path: configured path, or a state_dir sibling when empty.
 fn resolve_overlay_path(config: &RuntimeConfig) -> PathBuf {
@@ -474,6 +511,10 @@ pub struct RuntimeStatus {
     pub overlay_events: usize,
     pub advocate_alignment: Option<String>,
     pub advocate_expired: bool,
+    /// Documents in the verbatim document store (R1).
+    pub documents: usize,
+    /// Records in the writable experience store (R1).
+    pub experience_records: usize,
 }
 
 pub struct AgentRuntime {
@@ -494,6 +535,7 @@ pub struct AgentRuntime {
     persona: crate::persona::Persona,
     chat: chat::ChatStore,
     episodes: Mutex<ferricula_episode::EpisodeAdapter>,
+    documents: documents::DocumentPlane,
 }
 
 impl AgentRuntime {
@@ -502,6 +544,9 @@ impl AgentRuntime {
         if inspection.agent_id != config.expected_agent_id {
             bail!("mounted memory identity does not match expected_agent_id");
         }
+        // Refuse writable state inside the recovered base BEFORE creating
+        // anything, so a misconfiguration cannot leave a directory behind.
+        refuse_state_inside_memory(&config.state_dir, &config.memory_dir)?;
         fs::create_dir_all(&config.state_dir)?;
         let state_path = config.state_dir.join("runtime-state.json");
         let usage_path = config.state_dir.join("model-usage.json");
@@ -617,8 +662,10 @@ impl AgentRuntime {
         }
         let episodes = ferricula_episode::EpisodeAdapter::open_in_state_dir(&config.state_dir)?;
         let chat = chat::ChatStore::open(&config.state_dir)?;
+        let documents = documents::DocumentPlane::open(&config.state_dir, memory.max_id())?;
         Ok(Arc::new(Self {
             chat,
+            documents,
             episodes: Mutex::new(episodes),
             config,
             inspection,
@@ -750,6 +797,8 @@ impl AgentRuntime {
                 None
             },
             advocate_expired: self.config.advocate.enabled && advocate_expired,
+            documents: self.documents().len(),
+            experience_records: self.experience_len(),
         }
     }
 

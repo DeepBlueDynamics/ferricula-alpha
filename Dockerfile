@@ -23,14 +23,16 @@ RUN apt-get update \
 COPY Cargo.toml Cargo.lock LICENSE.md THIRD_PARTY_NOTICES.md ./
 COPY crates ./crates
 
-# Only the server binary and its dependency subtree (core + cognition) are
-# built. The `ml` ONNX stack in ferricula-semantic is not in this subtree,
+# Only the server binary and its dependency subtree (core, cognition,
+# episode, ingest + search) are built; ingest is pure Rust (pdf-extract,
+# ureq with rustls/webpki roots), so no system TLS or PDF libraries. The `ml` ONNX stack in ferricula-semantic is not in this subtree,
 # so no model downloads and no ort linkage happen here.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/build/target \
     cargo test --locked -p ferricula-core --lib \
     && cargo test --locked -p ferricula-episode \
     && cargo test --locked -p ferricula-cognition --lib \
+    && cargo test --locked -p ferricula-ingest --lib \
     && cargo test --locked -p ferricula-server --lib \
     && cargo build --release --locked -p ferricula-server \
     && cp target/release/ferricula-server /usr/local/bin/ferricula-server
