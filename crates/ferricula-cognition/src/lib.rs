@@ -16,6 +16,7 @@ pub mod outcome;
 pub mod pali;
 pub mod planner;
 pub mod sati;
+pub mod vithi;
 pub mod scope;
 pub mod wisdom;
 
