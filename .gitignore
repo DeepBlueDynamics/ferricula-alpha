@@ -22,3 +22,6 @@ target/
 
 # Research PDFs are not redistributed; see research/REFERENCES.md
 research/**/*.pdf
+
+# Claude Code local state and agent worktrees
+.claude/
