@@ -191,7 +191,7 @@ async fn get_document(
         "index": s.index, "heading": s.heading, "page": s.page, "bytes": s.text.len(),
         "cite": crate::recall::citation(&record.meta.doc_id, s.index, s.page),
     })).collect();
-    Ok(Json(json!({ "meta": record.meta, "sections": sections })))
+    Ok(Json(json!({ "meta": record.meta, "sections": sections, "reading": runtime.document_reading(&doc_id) })))
 }
 
 async fn get_section(

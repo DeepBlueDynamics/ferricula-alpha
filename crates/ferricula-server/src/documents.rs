@@ -145,6 +145,14 @@ impl AgentRuntime {
         store.document(doc_id).cloned()
     }
 
+    /// The "I read X" memory for a document: its id, the ingest note (the
+    /// reason it was kept, when one was given) and when it was read.
+    pub fn document_reading(&self, doc_id: &str) -> Option<Value> {
+        let id = self.documents.experience.reading_for(doc_id)?;
+        let (row, record) = self.documents.experience.rows().into_iter().find(|(r, _)| r.id == id)?;
+        Some(json!({ "memory_id": id, "note": row.tags.get("note"), "read_at": record.created_at }))
+    }
+
     pub fn document_section(&self, doc_id: &str, index: u32) -> Option<SectionEvidence> {
         let store = self.documents.store.lock().expect("document store poisoned");
         let (meta, section) = store.section(doc_id, index)?;
