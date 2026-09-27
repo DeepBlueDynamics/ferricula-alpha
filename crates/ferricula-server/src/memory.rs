@@ -108,6 +108,38 @@ impl MemoryRuntime {
         out
     }
 
+    /// Up to `n` Active recovered memories (lowest ids first) whose text is
+    /// short (< `max_chars` characters), not visibly truncated, and which
+    /// carry a stored vector: `(id, text, vector)`. Used by the embedding
+    /// space probe. Read-only.
+    pub fn probe_samples(&self, max_chars: usize, n: usize) -> Vec<(u32, String, Vec<f32>)> {
+        let engine = self.engine.lock().expect("memory engine poisoned");
+        let mut out: Vec<(u32, String, Vec<f32>)> = engine
+            .engine()
+            .rows_iter()
+            // Non-empty and non-zero: the recovered base holds some all-zero
+            // placeholder vectors (rows written without an embedding).
+            .filter(|row| row.vector.iter().any(|x| *x != 0.0))
+            .filter(|row| {
+                engine
+                    .memory_store()
+                    .get(row.id)
+                    .is_some_and(|r| r.state == LifecycleState::Active)
+            })
+            .filter_map(|row| {
+                // The stored text verbatim: it is what was embedded.
+                let raw = row.tags.get("text")?;
+                let text = raw.trim();
+                let short = !text.is_empty() && raw.chars().count() < max_chars;
+                let truncated = text.ends_with("...") || text.ends_with('\u{2026}');
+                (short && !truncated).then(|| (row.id, raw.clone(), row.vector.clone()))
+            })
+            .collect();
+        out.sort_by_key(|(id, _, _)| *id);
+        out.truncate(n);
+        out
+    }
+
     /// Highest id present in the recovered base (rows or records), if any.
     pub fn max_id(&self) -> Option<u32> {
         let engine = self.engine.lock().expect("memory engine poisoned");
@@ -416,6 +448,45 @@ mod tests {
         assert_eq!(engine.memory_store().len(), 3);
         assert_eq!(engine.memory_store().get(1).unwrap().recall_count, before);
         drop(engine);
+        drop(runtime);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn probe_samples_pick_short_whole_active_texts_with_vectors() {
+        use ferricula_core::memory::MemoryRecord;
+        use ferricula_core::model::Row;
+        let dir = std::env::current_dir().unwrap().join("target")
+            .join(format!("probe-samples-{}", uuid::Uuid::new_v4()));
+        let mut engine = DurableEngine::open(&dir).unwrap();
+        // (The engine enforces one dimension, so empty-vector rows cannot be
+        // built here; probe_samples still filters them defensively.)
+        let long = "long ".repeat(40);
+        let cases: [(u32, &str, bool); 6] = [
+            (1, "a short whole memory", true),
+            (2, "cut off here...", true),          // visibly truncated
+            (4, &long, true),                      // >= 150 chars
+            (5, "released memory", false),         // not Active
+            (6, "another short one ", true),       // kept verbatim
+            (7, "zero placeholder vector", true),  // nothing to compare
+        ];
+        for (id, text, active) in cases {
+            let row = Row {
+                id, refs: None,
+                vector: if id == 7 { vec![0.0, 0.0] } else { vec![0.6, 0.8] },
+                tags: BTreeMap::from([("text".into(), text.to_string())]),
+            };
+            let mut record = MemoryRecord::new(id);
+            if !active { record.forgive(); }
+            engine.remember(row, record).unwrap();
+        }
+        drop(engine);
+        let runtime = MemoryRuntime::open(&dir).unwrap();
+        let picked = runtime.probe_samples(150, 3);
+        assert_eq!(picked.iter().map(|s| s.0).collect::<Vec<_>>(), vec![1, 6]);
+        assert_eq!(picked[1].1, "another short one ");
+        assert_eq!(picked[0].2, vec![0.6, 0.8]);
+        assert_eq!(runtime.probe_samples(150, 1).len(), 1);
         drop(runtime);
         std::fs::remove_dir_all(dir).unwrap();
     }

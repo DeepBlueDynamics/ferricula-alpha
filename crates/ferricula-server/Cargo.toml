@@ -19,6 +19,8 @@ ferricula-cognition = { path = "../ferricula-cognition" }
 ferricula-episode = { path = "../ferricula-episode" }
 ferricula-ingest = { path = "../ferricula-ingest" }
 ferricula-gates = { path = "../ferricula-gates" }
+# Text embeddings over HTTP only; no `ml` (ONNX) in the server image.
+ferricula-semantic = { path = "../ferricula-semantic", default-features = false }
 base64 = "0.22"
 
 [dev-dependencies]

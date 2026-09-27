@@ -58,6 +58,10 @@ pub use documents::{IngestOutcome, MAX_NOTE_BYTES};
 mod life;
 pub use life::LifeUrgeRequest;
 
+#[path = "embeddings.rs"]
+mod embeddings;
+pub use embeddings::{EmbeddingsState, EmbeddingsStatus};
+
 fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -520,6 +524,8 @@ pub struct RuntimeStatus {
     pub documents: usize,
     /// Records in the writable experience store (R1).
     pub experience_records: usize,
+    /// Text embedding backend and its space probe (R2b).
+    pub embeddings: EmbeddingsStatus,
 }
 
 pub struct AgentRuntime {
@@ -542,6 +548,7 @@ pub struct AgentRuntime {
     episodes: Mutex<ferricula_episode::EpisodeAdapter>,
     documents: documents::DocumentPlane,
     life: life::LifePlane,
+    embeddings: embeddings::EmbeddingsPlane,
 }
 
 impl AgentRuntime {
@@ -679,10 +686,12 @@ impl AgentRuntime {
         let chat = chat::ChatStore::open(&config.state_dir)?;
         let documents = documents::DocumentPlane::open(&config.state_dir, memory.ids())?;
         let life = life::LifePlane::open(&config, router.ledger().entries().len())?;
+        let embeddings = embeddings::EmbeddingsPlane::open(&config.embeddings)?;
         Ok(Arc::new(Self {
             chat,
             documents,
             life,
+            embeddings,
             episodes: Mutex::new(episodes),
             config,
             inspection,
@@ -816,6 +825,7 @@ impl AgentRuntime {
             advocate_expired: self.config.advocate.enabled && advocate_expired,
             documents: self.documents().len(),
             experience_records: self.experience_len(),
+            embeddings: self.embeddings_status(),
         }
     }
 

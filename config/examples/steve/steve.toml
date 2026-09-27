@@ -104,3 +104,16 @@ max_pages_per_curiosity = 2
 max_model_calls_per_day = 40
 max_curiosity_per_day = 12
 curiosity_cooldown_min = 20
+
+[embeddings]
+# Meaning (R2b). Steve's recovered memories carry GTR-T5-base 768-d vectors;
+# shivvr (:8085 on the host) serves that exact space. At startup the runtime
+# re-embeds three short memories and requires cosine > 0.999 with the stored
+# vectors (`/status` -> embeddings.state = ok); unreachable -> degraded,
+# different space -> mismatch, and dense features stay off either way.
+backend = "shivvr"
+url = "http://host.docker.internal:8085"
+space = "gtr-t5-base@768"
+batch = 32
+timeout_secs = 30
+probe = true

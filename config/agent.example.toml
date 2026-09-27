@@ -250,6 +250,21 @@ max_pages_per_curiosity = 2
 # Life's own daily model-call cap (the global max_model_usd_per_day applies too).
 max_model_calls_per_day = 40
 
+[embeddings]
+# Text embeddings (R2b). "none" keeps dense features off; "shivvr" calls
+# POST {url}/embed (from a container: http://host.docker.internal:8085).
+# `space` must be the space the mounted memory's vectors were made in; with
+# probe = true the runtime re-embeds up to three short recovered memories at
+# startup (and on POST /embeddings/probe) and requires cosine > 0.999 with
+# their stored vectors. /status -> embeddings shows backend, space, state
+# (disabled | pending | ok | unverified | degraded | mismatch) and cosines.
+backend = "none"
+url = "http://127.0.0.1:8085"
+space = "gtr-t5-base@768"
+batch = 32
+timeout_secs = 30
+probe = true
+
 # Model routing defaults are supplied by ModelRoutingConfig when no [models]
 # table is present: mechanical work uses no model; scan/social/deliberation
 # prefer local Ollama (`gemma4:e2b`); Anthropic profiles exist as fallbacks for

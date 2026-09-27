@@ -69,6 +69,8 @@ pub struct RuntimeConfig {
     pub documents: DocumentsConfig,
     /// Drives (R3): boredom, curiosity, sleep, dreams. Off by default.
     pub life: LifeConfig,
+    /// Text embeddings (R2b): backend, space, startup probe. Off by default.
+    pub embeddings: EmbeddingsConfig,
 }
 
 /// `[life]`: the agent's own life between conversations. Drive knobs are
@@ -188,6 +190,7 @@ impl Default for RuntimeConfig {
             advocate: AdvocateConfig::default(),
             documents: DocumentsConfig::default(),
             life: LifeConfig::default(),
+            embeddings: EmbeddingsConfig::default(),
         }
     }
 }
@@ -399,7 +402,79 @@ impl RuntimeConfig {
             .validate()
             .context("invalid [documents] configuration")?;
         self.life.validate().context("invalid [life] configuration")?;
+        self.embeddings
+            .validate()
+            .context("invalid [embeddings] configuration")?;
 
+        Ok(())
+    }
+}
+
+/// Which text embedding backend the runtime uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EmbeddingBackend {
+    /// shivvr `POST {url}/embed` (GTR-T5 on GPU).
+    Shivvr,
+    /// No embeddings: dense features stay off.
+    None,
+}
+
+impl EmbeddingBackend {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Shivvr => "shivvr",
+            Self::None => "none",
+        }
+    }
+}
+
+/// `[embeddings]` (R2b). The space must be the one the recovered memory was
+/// embedded in; the startup probe checks it by re-embedding a few short
+/// recovered memories and comparing against their stored vectors.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EmbeddingsConfig {
+    pub backend: EmbeddingBackend,
+    /// shivvr base URL (from a container: `http://host.docker.internal:8085`).
+    pub url: String,
+    /// `"<model>@<dim>"`; vectors from different spaces are never compared.
+    pub space: String,
+    /// Texts per HTTP request (1..=256).
+    pub batch: usize,
+    pub timeout_secs: u64,
+    /// Run the space probe at startup (and on `POST /embeddings/probe`).
+    pub probe: bool,
+}
+
+impl Default for EmbeddingsConfig {
+    fn default() -> Self {
+        Self {
+            backend: EmbeddingBackend::None,
+            url: "http://127.0.0.1:8085".into(),
+            space: ferricula_semantic::text_embed::DEFAULT_SPACE.into(),
+            batch: 32,
+            timeout_secs: 30,
+            probe: true,
+        }
+    }
+}
+
+impl EmbeddingsConfig {
+    pub fn validate(&self) -> Result<()> {
+        if !(self.url.starts_with("http://") || self.url.starts_with("https://"))
+            || self.url.contains('@')
+        {
+            bail!("embeddings.url must be an http(s) URL without inline credentials");
+        }
+        ferricula_semantic::text_embed::parse_space(&self.space)
+            .context("embeddings.space")?;
+        if self.batch == 0 || self.batch > ferricula_semantic::text_embed::SHIVVR_MAX_BATCH {
+            bail!("embeddings.batch must be in 1..=256");
+        }
+        if self.timeout_secs == 0 || self.timeout_secs > 600 {
+            bail!("embeddings.timeout_secs must be in 1..=600");
+        }
         Ok(())
     }
 }
@@ -829,6 +904,37 @@ name = "Memory Bench"
         assert_eq!(ollama.reasoning_tokens, 4096);
         assert_eq!(ollama.context_tokens, 131_072);
         assert_eq!(steve.expected_agent_id, steve.models.identity.agent_id);
+        assert_eq!(steve.embeddings.backend, EmbeddingBackend::Shivvr);
+        assert_eq!(steve.embeddings.url, "http://host.docker.internal:8085");
+        let example = RuntimeConfig::load(root.join("config/agent.example.toml")).unwrap();
+        assert_eq!(example.embeddings.backend, EmbeddingBackend::None);
+        assert_eq!(example.embeddings.space, "gtr-t5-base@768");
+    }
+
+    #[test]
+    fn embeddings_section_defaults_and_bounds() {
+        let config: RuntimeConfig = toml::from_str("").unwrap();
+        let e = &config.embeddings;
+        assert_eq!(e.backend, EmbeddingBackend::None);
+        assert_eq!(e.url, "http://127.0.0.1:8085");
+        assert_eq!(e.space, "gtr-t5-base@768");
+        assert_eq!((e.batch, e.timeout_secs, e.probe), (32, 30, true));
+
+        let parsed: RuntimeConfig =
+            toml::from_str("[embeddings]\nbackend = \"shivvr\"\nurl = \"http://x:1\"\n").unwrap();
+        assert_eq!(parsed.embeddings.backend, EmbeddingBackend::Shivvr);
+        assert!(toml::from_str::<RuntimeConfig>("[embeddings]\nbackend = \"onnx\"\n").is_err());
+
+        for bad in [
+            EmbeddingsConfig { url: "ftp://x".into(), ..Default::default() },
+            EmbeddingsConfig { url: "http://u:p@x".into(), ..Default::default() },
+            EmbeddingsConfig { space: "gtr-t5-base".into(), ..Default::default() },
+            EmbeddingsConfig { batch: 0, ..Default::default() },
+            EmbeddingsConfig { batch: 257, ..Default::default() },
+            EmbeddingsConfig { timeout_secs: 0, ..Default::default() },
+        ] {
+            assert!(bad.validate().is_err(), "{bad:?}");
+        }
     }
 
     #[test]

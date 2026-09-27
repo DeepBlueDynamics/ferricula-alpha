@@ -35,6 +35,7 @@ async fn main() -> Result<()> {
             tokio::spawn(runtime.clone().run_worker());
             tokio::spawn(runtime.clone().run_scheduler());
             tokio::spawn(runtime.clone().run_life());
+            tokio::spawn(runtime.clone().run_embeddings_probe());
             let listener = tokio::net::TcpListener::bind(bind)
                 .await
                 .with_context(|| format!("failed to bind {bind}"))?;

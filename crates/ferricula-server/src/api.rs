@@ -69,6 +69,8 @@ pub fn router(runtime: Arc<AgentRuntime>) -> Router {
             post(overlay_approve_blocked),
         )
         .route("/models/status", get(model_status))
+        // R2b: re-run the embedding space probe (operator).
+        .route("/embeddings/probe", post(embeddings_probe))
         // R3 life: drives, journal, dreams; forced urges for testing.
         .route("/life", get(life_status))
         .route("/life/meditate", post(life_meditate))
@@ -625,6 +627,19 @@ fn conflict(error: impl std::fmt::Display) -> ApiError {
     (StatusCode::CONFLICT, Json(json!({ "error": error.to_string() })))
 }
 
+/// `POST /embeddings/probe` — re-embed a few short recovered memories and
+/// compare with their stored vectors; returns the new embeddings status.
+async fn embeddings_probe(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+) -> ApiResult<crate::runtime::EmbeddingsStatus> {
+    require_operator(&runtime, &headers)?;
+    let status = tokio::task::spawn_blocking(move || runtime.probe_embeddings())
+        .await
+        .map_err(internal)?;
+    Ok(Json(status))
+}
+
 async fn model_status(
     State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
@@ -858,6 +873,15 @@ mod tests {
             advocate_expired: false,
             documents: 0,
             experience_records: 0,
+            embeddings: crate::runtime::EmbeddingsStatus {
+                backend: "none".into(),
+                space: "none".into(),
+                state: crate::runtime::EmbeddingsState::Disabled,
+                probe_cosines: Vec::new(),
+                probe_ids: Vec::new(),
+                detail: None,
+                checked_at: None,
+            },
         }
     }
 

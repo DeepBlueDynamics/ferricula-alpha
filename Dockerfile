@@ -27,9 +27,11 @@ COPY crates ./crates
 COPY config ./config
 
 # Only the server binary and its dependency subtree (core, cognition,
-# episode, ingest + search) are built; ingest is pure Rust (pdf-extract,
-# ureq with rustls/webpki roots), so no system TLS or PDF libraries. The `ml` ONNX stack in ferricula-semantic is not in this subtree,
-# so no model downloads and no ort linkage happen here.
+# episode, ingest + search, and ferricula-semantic WITHOUT its `ml` feature)
+# are built; ingest is pure Rust (pdf-extract, ureq with rustls/webpki
+# roots), so no system TLS or PDF libraries. Text embeddings come from shivvr
+# over HTTP; the `ml` ONNX stack in ferricula-semantic is not compiled, so no
+# model downloads and no ort linkage happen here.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/build/target \
     cargo test --locked -p ferricula-core --lib \

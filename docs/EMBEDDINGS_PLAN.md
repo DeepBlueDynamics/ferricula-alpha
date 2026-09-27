@@ -1,6 +1,6 @@
 # Meaning in the loop: embeddings through the gates
 
-_Plan, 2026-09-27. Status: not started. Owner: Ferricula v3 (PLAN_V3 phase R2b)._
+_Plan, 2026-09-27. Status: items 1–3 done (shivvr `/embed` on branch `feat/vision-audio-embed`, `TextEmbedder`/`ShivvrEmbedder`, `[embeddings]` + startup probe); 4+ not started. Owner: Ferricula v3 (PLAN_V3 phase R2b)._
 
 ## Why
 
@@ -12,7 +12,7 @@ The original design (Kord): a vector store whose near neighbors live together in
 
 | Fact | Evidence |
 |---|---|
-| All 3,362 recovered memories carry a 768-d unit vector | probe of a copy of the recovery volume: `dims={768: 3362}` |
+| All 3,362 recovered memories carry a 768-d vector, but **2,805 are all-zero placeholders** (ids 730222..4294945545; none below 100k); only 557 are non-zero. The zero rows need a backfill (embed their text) before dense recall can see them | probe of a copy of the recovery volume: `dims={768: 3362}`; zero-vector count 2026-09-27 (the first R2b startup probe picked one and measured cosine 0.0) |
 | Those vectors are GTR-T5-base, exactly what the running shivvr produces | re-embedding three short memories through shivvr `:8085`: cosine **1.0000** each |
 | The recovered graph has 470 nodes / 588 edges | same probe |
 | shivvr `:8085` serves GTR-T5 (text, 768), SigLIP (image, 768), vec2text inversion, GPU | `GET /health` |
