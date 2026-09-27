@@ -14,3 +14,5 @@ crates/**/target
 !config/agent.isolated.toml
 !config/examples/steve/agent.toml
 !config/examples/steve/steve.toml
+# Dream-image workflow templates compiled into the server (comfy.rs include_str!).
+!config/comfyui/*.api.json

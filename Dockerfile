@@ -34,7 +34,10 @@ COPY config ./config
 # model downloads and no ort linkage happen here.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/build/target \
-    cargo test --locked -p ferricula-core --lib \
+    # COPY keeps source mtimes; bump them so cargo never reuses a cached
+    # crate compiled from older sources in the shared target cache.
+    find crates -name '*.rs' -exec touch {} + \
+    && cargo test --locked -p ferricula-core --lib \
     && cargo test --locked -p ferricula-episode \
     && cargo test --locked -p ferricula-cognition --lib \
     && cargo test --locked -p ferricula-ingest --lib \
