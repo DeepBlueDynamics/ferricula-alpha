@@ -40,6 +40,7 @@ pub fn router(runtime: Arc<AgentRuntime>) -> Router {
         .route("/documents/{doc_id}/sections/{index}", get(get_section))
         .merge(documents)
         .route("/", get(chat_page))
+        .route("/talk", get(|| async { axum::response::Html(include_str!("talk.html")) }))
         .route("/chat", post(chat))
         .route("/chat/{conversation_id}", get(conversation))
         .route("/health", get(health))
