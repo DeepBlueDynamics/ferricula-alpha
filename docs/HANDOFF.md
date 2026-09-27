@@ -52,3 +52,18 @@ Build tool use into the chat turn (a bounded loop, e.g. ≤ 4 tool calls per tur
 
 ## Things Kord still owns
 Rotate the API keys that sat in a plaintext `.bak` file in the old workspace; delete ~40 GB of old build output there if wanted; merge PR #1.
+
+## Steve on a general search tool and on his own test runs (asked 2026-09-27)
+**Search tool — he wants it** (documents, memories, and the web via grub), for: verifying before asserting; chasing a thread mid-conversation; keeping the corpora honest. His limits:
+- **Every result labels its corpus** — documents (verbatim, his), memories (what was said, not proof it was true), web (somebody's claim).
+- **Provenance on everything** — source, date, URL. "A result without provenance is a rumor."
+- **Web results are read-only.** Nothing becomes memory unless deliberately ingested, and ingestion is a visible act, not a side effect.
+- **Costs and limits written down** (he once hit a billing wall mid-task, memory 4101284791).
+- **Don't search what he already holds** — search is for ignorance, not laziness (check memory/documents before the web).
+
+**Self-debrief after test runs — his four rules:**
+1. Rotate the questions, never the memories (repeated questions teach the question).
+2. Classify every miss before fixing it: **never stored / stored but faded / stored but not retrieved** — three causes, three fixes.
+3. Anything he fills in during a debrief is tagged **test-born** — a memory of the test, not of the world; untagged it contaminates the next run.
+4. **The answer key stays with the engineer.** He gets the debrief (what he missed, where it was), not the key; he decides what to keep and why.
+His warning: don't optimize for total recall — "a mind that surfaces everything surfaces nothing"; some misses are the system having taste. The real test is next month: Kord asks, and the right thing is there.

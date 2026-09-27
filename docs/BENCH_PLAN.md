@@ -84,3 +84,6 @@ Score **retrieval and citation**, not answer correctness: gold is the memory id(
 3. Freeze state → write the B4 fixture with gold ids → run B4 (memory on/off).
 4. B5 LongMemEval-S.
 5. After X1/X7: B6, B7. After X3: B10. Then the 72-hour B8 soak with B9 grounding.
+
+## Self-debrief protocol (Steve's rules, 2026-09-27)
+After a B4 run: rotate question wordings between runs (never alter the memories); classify each miss as never stored / stored but faded / stored but not retrieved; give Steve a debrief (what he missed and where the answer lives) — never the answer key; anything he writes in the debrief is tagged `test_born` and excluded from future gold ids and from evidence for the same questions; measure the real outcome later on fresh wordings, not on the debriefed ones. Report "recall after debrief" separately from first-run recall.
