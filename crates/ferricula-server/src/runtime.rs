@@ -6,7 +6,7 @@
 //! memory (`memory_dir`) is opened read-only via [`MemoryRuntime`] only —
 //! never through overlay writes into DurableEngine.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -61,6 +61,10 @@ pub use life::LifeUrgeRequest;
 #[path = "embeddings.rs"]
 mod embeddings;
 pub use embeddings::{EmbeddingsState, EmbeddingsStatus};
+
+#[path = "meaning_plane.rs"]
+mod meaning_plane;
+pub use meaning_plane::{BackfillStatus, MeaningStatus};
 
 fn now() -> u64 {
     SystemTime::now()
@@ -526,6 +530,8 @@ pub struct RuntimeStatus {
     pub experience_records: usize,
     /// Text embedding backend and its space probe (R2b).
     pub embeddings: EmbeddingsStatus,
+    /// Meaning index coverage and backfill progress (R2b).
+    pub meaning: MeaningStatus,
 }
 
 pub struct AgentRuntime {
@@ -549,6 +555,7 @@ pub struct AgentRuntime {
     documents: documents::DocumentPlane,
     life: life::LifePlane,
     embeddings: embeddings::EmbeddingsPlane,
+    meaning: meaning_plane::MeaningPlane,
 }
 
 impl AgentRuntime {
@@ -561,6 +568,18 @@ impl AgentRuntime {
         config: RuntimeConfig,
         inspection: Inspection,
         transport: Arc<dyn InferenceTransport>,
+    ) -> Result<Arc<Self>> {
+        Self::open_with_embedder(config, inspection, transport, None)
+    }
+
+    /// Open with an explicit model transport and, optionally, an explicit
+    /// text embedder in place of the configured backend (tests inject a
+    /// deterministic fake; `[embeddings] backend` must not be "none").
+    pub fn open_with_embedder(
+        config: RuntimeConfig,
+        inspection: Inspection,
+        transport: Arc<dyn InferenceTransport>,
+        embedder: Option<Arc<dyn ferricula_semantic::text_embed::TextEmbedder>>,
     ) -> Result<Arc<Self>> {
         config.validate()?;
         if inspection.agent_id != config.expected_agent_id {
@@ -686,12 +705,21 @@ impl AgentRuntime {
         let chat = chat::ChatStore::open(&config.state_dir)?;
         let documents = documents::DocumentPlane::open(&config.state_dir, memory.ids())?;
         let life = life::LifePlane::open(&config, router.ledger().entries().len())?;
-        let embeddings = embeddings::EmbeddingsPlane::open(&config.embeddings)?;
-        Ok(Arc::new(Self {
+        let embeddings = match embedder {
+            Some(embedder) => embeddings::EmbeddingsPlane::with_embedder(
+                config.embeddings.backend,
+                config.embeddings.probe,
+                embedder,
+            ),
+            None => embeddings::EmbeddingsPlane::open(&config.embeddings)?,
+        };
+        let meaning = meaning_plane::MeaningPlane::open(&config, &memory)?;
+        let runtime = Arc::new(Self {
             chat,
             documents,
             life,
             embeddings,
+            meaning,
             episodes: Mutex::new(episodes),
             config,
             inspection,
@@ -708,7 +736,11 @@ impl AgentRuntime {
             router,
             transport,
             persona,
-        }))
+        });
+        // Writable catalogs (experience rows, document sections) once at
+        // startup so /status counts what is pending before any backfill.
+        runtime.meaning_refresh_writable();
+        Ok(runtime)
     }
 
     /// Persona loaded from `agent.toml` (or the configured identity name).
@@ -826,6 +858,7 @@ impl AgentRuntime {
             documents: self.documents().len(),
             experience_records: self.experience_len(),
             embeddings: self.embeddings_status(),
+            meaning: self.meaning_status(),
         }
     }
 

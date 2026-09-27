@@ -5,6 +5,12 @@
 //! Scores from the three sources live on different scales, so fusion uses
 //! ranks only (RRF, k = 60). Section candidates carry their verbatim text so
 //! every answer can quote the source exactly.
+//!
+//! With a text embedder (R2b) two more ranked lists join the fusion: the
+//! **dense** arm (cosine top-k over recovered memories, experience rows and
+//! document sections in one embedding space) and the **graph** arm (one hop
+//! through the recovered memory graph from the top dense recovered hits,
+//! weighted lower). Every candidate lists the arms that found it.
 
 use std::collections::HashMap;
 
@@ -81,9 +87,40 @@ pub struct RecallCandidate {
     pub memory: Option<MemoryHit>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub section: Option<SectionEvidence>,
+    /// Arms that ranked this candidate: `lexical`, `bm25`, `dense`, `graph`.
+    pub arms: Vec<&'static str>,
+    /// Cosine to the query when the dense arm found it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dense_score: Option<f64>,
 }
 
 impl RecallCandidate {
+    pub fn from_memory(kind: CandidateKind, hit: &MemoryHit, rank: usize) -> Self {
+        Self {
+            kind,
+            score: 0.0,
+            source_rank: rank,
+            source_score: f64::from(hit.score),
+            memory: Some(hit.clone()),
+            section: None,
+            arms: Vec::new(),
+            dense_score: None,
+        }
+    }
+
+    pub fn from_section(section: &SectionEvidence, rank: usize) -> Self {
+        Self {
+            kind: CandidateKind::DocumentSection,
+            score: 0.0,
+            source_rank: rank,
+            source_score: section.score,
+            memory: None,
+            section: Some(section.clone()),
+            arms: Vec::new(),
+            dense_score: None,
+        }
+    }
+
     pub fn key(&self) -> String {
         match (&self.memory, &self.section) {
             (Some(hit), _) => format!("{:?}:{}", self.kind, hit.id),
@@ -103,6 +140,109 @@ pub struct HybridRecall {
     pub section_hits: Vec<SectionEvidence>,
     pub candidates: Vec<RecallCandidate>,
     pub fusion: &'static str,
+    /// Dense and graph arm hits in rank order (empty without an embedder).
+    pub dense_hits: Vec<DenseHitView>,
+    /// 1 - max cosine of the query over recovered + experience memories
+    /// (dreams excluded); None without an embedder.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dense_novelty: Option<f32>,
+}
+
+/// One dense-arm or graph-arm hit.
+#[derive(Debug, Clone, Serialize)]
+pub struct DenseHitView {
+    pub arm: &'static str,
+    pub kind: CandidateKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doc_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index: Option<u32>,
+    pub cosine: f64,
+    /// For graph hits: the dense hit it was reached from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via: Option<u32>,
+}
+
+impl DenseHitView {
+    pub fn of(arm: &'static str, candidate: &RecallCandidate, cosine: f64, via: Option<u32>) -> Self {
+        Self {
+            arm,
+            kind: candidate.kind,
+            id: candidate.memory.as_ref().map(|m| m.id),
+            doc_id: candidate.section.as_ref().map(|s| s.doc_id.clone()),
+            index: candidate.section.as_ref().map(|s| s.index),
+            cosine,
+            via,
+        }
+    }
+}
+
+/// One ranked list for [`fuse_arms`].
+pub struct ArmList {
+    pub arm: &'static str,
+    pub weight: f64,
+    pub items: Vec<RecallCandidate>,
+}
+
+/// Weighted reciprocal-rank fusion over arm lists: an item scores
+/// `sum(weight / (k + rank))` over the lists it appears in. The first
+/// occurrence's payload is kept; `arms` collects every arm that ranked it
+/// and `dense_score` is taken from the dense arm. Ties keep first-seen order.
+pub fn fuse_arms(lists: Vec<ArmList>, limit: usize) -> Vec<RecallCandidate> {
+    let mut order = fuse_arms_all(lists);
+    order.truncate(limit);
+    order
+}
+
+/// [`fuse_arms`] without the cut.
+pub fn fuse_arms_all(lists: Vec<ArmList>) -> Vec<RecallCandidate> {
+    let mut order: Vec<RecallCandidate> = Vec::new();
+    let mut position: HashMap<String, usize> = HashMap::new();
+    for list in lists {
+        for (rank0, item) in list.items.into_iter().enumerate() {
+            let contribution = list.weight / (RRF_K + (rank0 + 1) as f64);
+            let key = item.key();
+            let dense = (list.arm == "dense").then_some(item.source_score);
+            let at = match position.get(&key) {
+                Some(&at) => at,
+                None => {
+                    position.insert(key, order.len());
+                    order.push(RecallCandidate { score: 0.0, arms: Vec::new(), dense_score: None, ..item });
+                    order.len() - 1
+                }
+            };
+            let c = &mut order[at];
+            c.score += contribution;
+            if !c.arms.contains(&list.arm) {
+                c.arms.push(list.arm);
+            }
+            if dense.is_some() && c.dense_score.is_none() {
+                c.dense_score = dense;
+            }
+        }
+    }
+    order.sort_by(|a, b| b.score.total_cmp(&a.score));
+    order
+}
+
+/// Meaning guarantee: the i-th of `keys` (the dense arm's best hits) is
+/// moved up to position `2 * i + 1` if fusion left it lower (or it is
+/// promoted from beyond the cut). Pure RRF lets items that both arms rank
+/// moderately outvote the single best meaning match; this keeps the best
+/// meaning matches in view without dropping the lexical leaders (every
+/// other item keeps its relative order).
+pub fn promote_keys(fused: &mut Vec<RecallCandidate>, keys: &[String]) {
+    for (i, key) in keys.iter().enumerate() {
+        let target = 2 * i + 1;
+        if let Some(at) = fused.iter().position(|c| &c.key() == key) {
+            if at > target {
+                let item = fused.remove(at);
+                fused.insert(target.min(fused.len()), item);
+            }
+        }
+    }
 }
 
 /// Reciprocal-rank fusion over keyed ranked lists. An item appearing in
@@ -128,57 +268,31 @@ pub fn rrf_fuse<T: Clone>(lists: &[Vec<(String, T)>], k: f64) -> Vec<(String, T,
     order
 }
 
-/// Build fused candidates from the three source lists.
+/// Build fused candidates from the three lexical source lists (the
+/// degraded, embedder-free path: exactly the pre-R2b ranking).
 pub fn fuse(
     recovered: &[MemoryHit],
     experience: &[MemoryHit],
     sections: &[SectionEvidence],
     limit: usize,
 ) -> Vec<RecallCandidate> {
-    let memory_list = |kind: CandidateKind, hits: &[MemoryHit]| -> Vec<(String, RecallCandidate)> {
-        hits.iter()
-            .enumerate()
-            .map(|(i, hit)| {
-                let candidate = RecallCandidate {
-                    kind,
-                    score: 0.0,
-                    source_rank: i + 1,
-                    source_score: f64::from(hit.score),
-                    memory: Some(hit.clone()),
-                    section: None,
-                };
-                (candidate.key(), candidate)
-            })
-            .collect()
+    fuse_arms(lexical_lists(recovered, experience, sections), limit)
+}
+
+/// The lexical recovered, lexical experience and BM25 section lists.
+pub fn lexical_lists(recovered: &[MemoryHit], experience: &[MemoryHit], sections: &[SectionEvidence]) -> Vec<ArmList> {
+    let memory_list = |kind: CandidateKind, hits: &[MemoryHit]| -> Vec<RecallCandidate> {
+        hits.iter().enumerate().map(|(i, hit)| RecallCandidate::from_memory(kind, hit, i + 1)).collect()
     };
-    let section_list: Vec<(String, RecallCandidate)> = sections
-        .iter()
-        .enumerate()
-        .map(|(i, section)| {
-            let candidate = RecallCandidate {
-                kind: CandidateKind::DocumentSection,
-                score: 0.0,
-                source_rank: i + 1,
-                source_score: section.score,
-                memory: None,
-                section: Some(section.clone()),
-            };
-            (candidate.key(), candidate)
-        })
-        .collect();
-    let lists = [
-        memory_list(CandidateKind::Memory, recovered),
-        memory_list(CandidateKind::Experience, experience),
-        section_list,
-    ];
-    rrf_fuse(&lists, RRF_K)
-        .into_iter()
-        .take(limit)
-        .map(|(_, mut candidate, score)| {
-            candidate.score = score;
-            candidate
-        })
-        .collect()
+    vec![
+        ArmList { arm: "lexical", weight: 1.0, items: memory_list(CandidateKind::Memory, recovered) },
+        ArmList { arm: "lexical", weight: 1.0, items: memory_list(CandidateKind::Experience, experience) },
+        ArmList {
+            arm: "bm25",
+            weight: 1.0,
+            items: sections.iter().enumerate().map(|(i, s)| RecallCandidate::from_section(s, i + 1)).collect(),
+        },
+    ]
 }
 
 /// Truncate to at most `max` bytes on a char boundary.
@@ -248,6 +362,39 @@ mod tests {
         assert!((fused[0].score - 1.0 / 61.0).abs() < 1e-12);
         assert_eq!(fuse(&recovered, &experience, &sections, 2).len(), 2);
         assert_eq!(citation("d1", 4, None), "[doc d1§4]");
+    }
+
+    #[test]
+    fn dense_and_graph_arms_merge_by_key_and_record_arms() {
+        let recovered = vec![hit(1, 0.9), hit(2, 0.8)];
+        let mut lists = lexical_lists(&recovered, &[], &[section("d1", 0, None)]);
+        // Dense finds memory 7 first (not lexical), then memory 2.
+        let dense: Vec<RecallCandidate> = [(7, 0.83f32), (2, 0.61)].iter().enumerate()
+            .map(|(i, (id, cos))| RecallCandidate::from_memory(CandidateKind::Memory, &hit(*id, *cos), i + 1)).collect();
+        lists.push(ArmList { arm: "dense", weight: 1.0, items: dense });
+        lists.push(ArmList { arm: "graph", weight: 0.5, items: vec![RecallCandidate::from_memory(CandidateKind::Memory, &hit(9, 0.2), 1)] });
+        let fused = fuse_arms(lists, 10);
+        let ids: Vec<Option<u32>> = fused.iter().map(|c| c.memory.as_ref().map(|m| m.id)).collect();
+        // 2 is in lexical (rank 2) and dense (rank 2): 2/62 beats every single rank-1 item.
+        assert_eq!(ids[0], Some(2));
+        assert_eq!(fused[0].arms, ["lexical", "dense"]);
+        assert!((fused[0].dense_score.unwrap() - 0.61).abs() < 1e-6);
+        let seven = fused.iter().find(|c| c.memory.as_ref().is_some_and(|m| m.id == 7)).unwrap();
+        assert_eq!(seven.arms, ["dense"]);
+        let nine = fused.iter().find(|c| c.memory.as_ref().is_some_and(|m| m.id == 9)).unwrap();
+        assert!((nine.score - 0.5 / 61.0).abs() < 1e-12, "graph arm is weighted lower");
+        assert_eq!(fused.last().unwrap().memory.as_ref().unwrap().id, 9);
+        assert_eq!(fuse_arms(Vec::new(), 5).len(), 0);
+    }
+
+    #[test]
+    fn promotion_keeps_the_best_meaning_matches_in_view() {
+        let mk = |id: u32| RecallCandidate::from_memory(CandidateKind::Memory, &hit(id, 0.5), 1);
+        let mut fused: Vec<RecallCandidate> = (1..=8).map(mk).collect();
+        promote_keys(&mut fused, &[mk(7).key(), mk(2).key(), mk(99).key()]);
+        let ids: Vec<u32> = fused.iter().map(|c| c.memory.as_ref().unwrap().id).collect();
+        // 7 moves to slot 1; 2 is already above slot 3; unknown keys are ignored.
+        assert_eq!(ids, [1, 7, 2, 3, 4, 5, 6, 8]);
     }
 
     #[test]

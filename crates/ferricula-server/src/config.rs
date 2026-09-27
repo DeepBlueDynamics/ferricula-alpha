@@ -71,6 +71,11 @@ pub struct RuntimeConfig {
     pub life: LifeConfig,
     /// Text embeddings (R2b): backend, space, startup probe. Off by default.
     pub embeddings: EmbeddingsConfig,
+    /// Waking recall policy (R2b): dense arm sizes and faded memories.
+    pub recall: RecallConfig,
+    /// How the agent names its operator in conversation memories
+    /// ("<operator_name> said: ..."). Persona-neutral default.
+    pub operator_name: String,
 }
 
 /// `[life]`: the agent's own life between conversations. Drive knobs are
@@ -191,6 +196,8 @@ impl Default for RuntimeConfig {
             documents: DocumentsConfig::default(),
             life: LifeConfig::default(),
             embeddings: EmbeddingsConfig::default(),
+            recall: RecallConfig::default(),
+            operator_name: "The operator".into(),
         }
     }
 }
@@ -405,6 +412,10 @@ impl RuntimeConfig {
         self.embeddings
             .validate()
             .context("invalid [embeddings] configuration")?;
+        self.recall.validate().context("invalid [recall] configuration")?;
+        if self.operator_name.trim().is_empty() || self.operator_name.len() > 64 {
+            bail!("operator_name must be 1 to 64 bytes");
+        }
 
         Ok(())
     }
@@ -445,6 +456,10 @@ pub struct EmbeddingsConfig {
     pub timeout_secs: u64,
     /// Run the space probe at startup (and on `POST /embeddings/probe`).
     pub probe: bool,
+    /// After a passing probe, embed every memory, experience row and
+    /// document section that has no vector yet (sidecar under
+    /// `state_dir/meaning/`), in the background.
+    pub backfill: bool,
 }
 
 impl Default for EmbeddingsConfig {
@@ -456,6 +471,7 @@ impl Default for EmbeddingsConfig {
             batch: 32,
             timeout_secs: 30,
             probe: true,
+            backfill: true,
         }
     }
 }
@@ -474,6 +490,62 @@ impl EmbeddingsConfig {
         }
         if self.timeout_secs == 0 || self.timeout_secs > 600 {
             bail!("embeddings.timeout_secs must be in 1..=600");
+        }
+        Ok(())
+    }
+}
+
+/// `[recall]` (R2b): how waking recall (chat, `/memory/recall`, MCP) ranks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RecallConfig {
+    /// Also recall recovered memories whose lifecycle is Forgiven/Archived
+    /// but whose text is still present (v1 decay faded them; v3 treats them
+    /// as released). Off by default: released text never reaches ranking or
+    /// a model. When on, they rank with the lower state weights and carry
+    /// `state` so the model knows they are faded.
+    pub include_faded_recovered: bool,
+    /// Dense (meaning) hits per recall, across all three sets.
+    pub dense_k: usize,
+    /// Top dense recovered hits whose graph neighbors are added (one hop).
+    pub graph_seeds: usize,
+    /// RRF weight of the graph arm (lexical, BM25 and dense weigh 1).
+    pub graph_weight: f64,
+    /// RRF weight of the lexical memory arms (recovered, experience) while
+    /// the dense arm is present. BM25 sections keep weight 1; without an
+    /// embedder every arm weighs 1 (the pre-R2b ranking).
+    pub lexical_weight: f64,
+    /// Meaning guarantee: the best `dense_guarantee` dense hits are lifted
+    /// to fused positions 2, 4, ... when RRF ranked them lower (0 = pure RRF).
+    pub dense_guarantee: usize,
+    /// Write each completed operator chat turn as experience rows
+    /// (`hearing`: what the operator said; `thinking`: what the agent
+    /// said), so later conversations can recall it.
+    pub remember_turns: bool,
+}
+
+impl Default for RecallConfig {
+    fn default() -> Self {
+        Self { include_faded_recovered: false, dense_k: 24, graph_seeds: 3, graph_weight: 0.5, lexical_weight: 0.5, dense_guarantee: 2, remember_turns: true }
+    }
+}
+
+impl RecallConfig {
+    pub fn validate(&self) -> Result<()> {
+        if self.dense_k == 0 || self.dense_k > 200 {
+            bail!("recall.dense_k must be in 1..=200");
+        }
+        if self.graph_seeds > 20 {
+            bail!("recall.graph_seeds must be at most 20");
+        }
+        if self.dense_guarantee > 10 {
+            bail!("recall.dense_guarantee must be at most 10");
+        }
+        if !(0.0..=1.0).contains(&self.lexical_weight) {
+            bail!("recall.lexical_weight must be in 0..=1");
+        }
+        if !(0.0..=1.0).contains(&self.graph_weight) {
+            bail!("recall.graph_weight must be in 0..=1");
         }
         Ok(())
     }

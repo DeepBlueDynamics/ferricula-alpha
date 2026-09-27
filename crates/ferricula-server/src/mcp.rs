@@ -487,7 +487,7 @@ async fn tools_call(runtime: &Arc<AgentRuntime>, params: &Value) -> Result<Value
             }
             let limit = arguments.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
             let limit = limit.clamp(1, MAX_RECALL_LIMIT);
-            let recall = runtime.hybrid_recall(query, limit);
+            let recall = runtime.hybrid_recall_async(query, limit).await;
             let payload = serde_json::to_value(&recall)
                 .map_err(|err| rpc_error(Value::Null, INTERNAL_ERROR, &err.to_string()))?;
             Ok(tool_text(&payload, false))

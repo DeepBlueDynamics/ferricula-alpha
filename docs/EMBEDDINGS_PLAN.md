@@ -1,6 +1,6 @@
 # Meaning in the loop: embeddings through the gates
 
-_Plan, 2026-09-27. Status: items 1–3 done (shivvr `/embed` on branch `feat/vision-audio-embed`, `TextEmbedder`/`ShivvrEmbedder`, `[embeddings]` + startup probe); 4+ not started. Owner: Ferricula v3 (PLAN_V3 phase R2b)._
+_Plan, 2026-09-27. Status: items 1–3 done (shivvr `/embed` on branch `feat/vision-audio-embed`, `TextEmbedder`/`ShivvrEmbedder`, `[embeddings]` + startup probe); 4–5 done and 6 partly done on `v3/r2b-recall` (see **Landed** below). Owner: Ferricula v3 (PLAN_V3 phase R2b)._
 
 ## Why
 
@@ -83,3 +83,16 @@ Over MCP, on Steve's live memory: (a) "what did you think about the designer who
 ## Order
 
 After R3 (drives) merges: 1 → 2 → 3 → 4 → 5 → recall and santīraṇa in 6 → benchmark → the rest of 6. Items 1–3 can start now in parallel since they touch shivvr and `ferricula-semantic`, not the server files R3 is editing.
+
+## Landed (v3/r2b-recall)
+
+- **`MeaningIndex`** (`crates/ferricula-server/src/meaning.rs`): recovered (stored vector when non-zero, else a sidecar vector from the `text` tag, flagged `tag_text_truncated` when v1 cut it at 200 chars), experience rows, document sections; one space. Sidecars `state_dir/meaning/{recovered,experience,sections}.fmv` (magic `FMEANV01`, set, space, dim, entries of key + FNV-1a text hash + source + chars + f32×dim, FNV-1a checksum), written tmp+fsync+rename; a file in another space or with a bad checksum is ignored and re-embedded. Brute-force cosine with evidence (dreams, v1 `[dream image]` rows), lifecycle and roaring-bitmap id filters.
+- **Backfill**: automatic after a passing probe (`[embeddings] backfill = true`), `POST /meaning/backfill`, and offline `ferricula-server embed-backfill --config <file>`; resumable (sidecars persisted every 8 batches). Progress in `/status` → `meaning` and `GET /meaning`. Steve: 2,802 rows in 11.5 s against shivvr on the GPU.
+- **Write time**: new experience rows (reading, curiosity reflections, dreams, chat turns) and document sections are embedded right after they are committed; failures leave them pending for the backfill, never failing the write.
+- **Recall**: hybrid recall adds a **dense** arm (each sentence of the message embedded separately, segment lists fused weighted by segment novelty, top-k over all three sets, dreams excluded) and a **graph** arm (one hop from the top 3 dense recovered hits, weight 0.5), fused with the lexical and BM25 arms by RRF; lexical memory arms weigh `[recall] lexical_weight` (0.5) while dense is present; the best 2 dense hits are kept at fused ranks 2 and 4 (`dense_guarantee`). Candidates list their `arms` and `dense_score`; responses add `dense_hits` and `dense_novelty`. No embedder: exactly the lexical recall.
+- **Faded memories**: 1,925 Archived + 28 Forgiven recovered rows are excluded from ranking by the v3 release policy; `[recall] include_faded_recovered = true` admits them (the Paul/Clara memory 3802021270 is Archived). Operator decision.
+- **Conversation memory**: every completed chat turn becomes a `hearing` row ("<operator_name> said: ...") and a `thinking` row ("I said: ..."), linked by causal `paccaya:anantara` edges within the conversation, recallable from any later conversation.
+- **Santīraṇa**: operator-message novelty = 1 − max cosine (most novel sentence); ingest records `near_duplicate_of` at mean-section cosine ≥ 0.97; curiosity prefers outliers (lowest mean cosine to 5 nearest memories); dream `distant` traces come from the third of candidates farthest from the residue centroid; the dream prompt demands traces-only material and the journal reports `grounding` (share of dream sentences with best trace cosine ≥ 0.35).
+- **Benchmarks**: `ferricula-bench docs` gains `dense`, `hybrid_rrf`, `hybrid` arms; `ferricula-bench recall` runs 30 hand-written meaning-level queries (`research/bench/steve-recall-queries.json`) over a copy of the recovered memory.
+
+Still open from this plan: sati-recall advisory rerank, saññā neighbor tags, outlier `unresolved` tags and hypothesis edges, cosine consolidation clusters, ghost echoes, `/meaning/projection`, a BM25-with-IDF lexical arm for memories (the substring scorer is the weakest arm).

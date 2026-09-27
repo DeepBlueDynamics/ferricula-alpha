@@ -158,7 +158,7 @@ Every route except `GET /` and `GET /health` needs `Authorization: Bearer <opera
 | Ollaya gate backends; calibration harness | ✅ built · ⚠️ not calibrated, advisory only |
 | Drives (boredom → curiosity via the web, sleep pressure → sleep → dream → wake), `[life]`, `/life`, `ferricula_life` | ✅ live-soaked on a recovered memory ([audit/life](audit/life/soak-2026-09-27.md)) · ⏳ 72-hour soak |
 | Non-destructive consolidation (bhāvanā) in the sleep cycle | ◐ runs on a scratch copy; clusters and karmic log persist, nothing written back yet |
-| Dense (embedding) recall through the gates | ☐ planned: [docs/EMBEDDINGS_PLAN.md](docs/EMBEDDINGS_PLAN.md) |
+| Dense (embedding) recall: meaning index, backfill, dense + graph arms in hybrid recall, turns remembered across conversations | ◐ R2b recall landed; sati-recall gate, saññā tags, consolidation clusters still planned: [docs/EMBEDDINGS_PLAN.md](docs/EMBEDDINGS_PLAN.md) |
 | Chinese / Pāli tokenization | ❌ ASCII-folded today |
 | LongMemEval / LoCoMo end-to-end | ⏳ harness skeleton |
 

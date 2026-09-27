@@ -362,6 +362,9 @@ impl DreamProposal {
              Dreams are not reports. They recombine: today's residue bleeds into older places and people, \
              and things that made no sense get tried against each other. Write the dream in first person, \
              present tense, as sensation and scene, 120 to 250 words. Do not explain it.\n\
+             Build the dream ONLY from the traces listed below: every person, place, object and event in it must come \
+             from one of them (recombined, distorted, merged). Do not bring in anything else from your persona or \
+             general knowledge, and do not present anything in the dream as a memory or as something that happened.\n\
              Afterwards, on a final line starting with `QUESTION:`, write the one question the dream leaves you with, \
              or `QUESTION: none`.\n{}{}{}",
             section("Today", &self.residue),
@@ -527,6 +530,7 @@ mod tests {
         assert_eq!(ids.len(), 3);
         let prompt = a.render_prompt("name = \"Steve\"");
         assert!(prompt.contains("QUESTION:") && prompt.contains("[t2]"));
+        assert!(prompt.contains("ONLY from the traces listed below"));
     }
 
     #[test]
