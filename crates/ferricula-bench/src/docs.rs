@@ -263,7 +263,7 @@ pub fn run(ctx: &RunContext, args: &DocsArgs) -> Result<()> {
         ctx.seed, args.drop_frac));
     r.push_str("## Misses (first 12)\n\n");
     for e in &examples {
-        r.push_str(&format!("- [{}] rank {:?}, top1 {}: \"{}\"\n", e["kind"].as_str().unwrap_or(""), e["rank"],
+        r.push_str(&format!("- [{}] rank {}, top1 {}: \"{}\"\n", e["kind"].as_str().unwrap_or(""), e["rank"],
             e["top1"].as_str().unwrap_or("none"), e["query"].as_str().unwrap_or("").replace('|', "\\|")));
     }
     r.push_str("\n## Caveats\n\n- Queries are drawn from the corpus itself, so verbatim recall measures lexical addressability of stored text, not question answering.\n\
