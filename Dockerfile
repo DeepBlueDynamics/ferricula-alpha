@@ -22,6 +22,9 @@ RUN apt-get update \
 # the build context.
 COPY Cargo.toml Cargo.lock LICENSE.md THIRD_PARTY_NOTICES.md ./
 COPY crates ./crates
+# Example configs are test fixtures for the builder stage only; they never
+# reach the runtime image.
+COPY config ./config
 
 # Only the server binary and its dependency subtree (core, cognition,
 # episode, ingest + search) are built; ingest is pure Rust (pdf-extract,
