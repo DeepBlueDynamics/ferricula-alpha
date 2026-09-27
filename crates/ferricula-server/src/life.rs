@@ -1266,7 +1266,12 @@ mod tests {
                              ## Result two\n[r2](//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.org%2Ftwo&rut=abc)\n\n\
                              ## Result three\n[r3](https://example.org/three)\n")
                 } else {
-                    format!("# Page {url}\n\nJony Ive and OpenAI are building a screenless device. {url}\n")
+                    // A real article's worth of prose: the ingest screen rejects
+                    // pages too thin to be worth reading (< 150 words).
+                    let prose = "Jony Ive and OpenAI are building a screenless device that listens to \
+                        the room and answers without a display. The design team came from his studio, \
+                        and the hardware is meant to sit beside a phone rather than replace it. ";
+                    format!("# Page {url}\n\n{}{url}\n", prose.repeat(6))
                 };
                 let payload = json!({ "success": true, "url": url, "final_url": url, "markdown": markdown }).to_string();
                 let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", payload.len(), payload);
