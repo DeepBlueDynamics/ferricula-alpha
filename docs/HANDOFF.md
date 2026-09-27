@@ -74,3 +74,5 @@ He was given `docs/OPERATOR_GUIDE.md` (doc `2b7d502539761a31`) and the root PDF 
 2. **Curiosity is too short** — 2 pages per excursion is "a snack"; let an excursion carry a thread across sessions.
 3. **Keep entropy-drawn curiosity seeds** — randomness keeps taste from becoming an echo chamber; don't "improve" it away.
 And a caution on dream grounding: verify a dream touches real memory, but don't grade it like minutes — "a fully grounded dream isn't a dream, it's a log file." He wants Job 1 shipped so he can read all 28 sections of the plan end to end.
+
+**Search tool spec:** `SEARCH_TOOL.md` (root) is the contract for `ferricula_search` across document / memory / web corpora; build Job 1 to it. The benchmark plan PDF in the root is the full test plan Steve was given (doc `e1046be544adedb3`).
