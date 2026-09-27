@@ -125,7 +125,7 @@ curl -H "Authorization: Bearer $FERRICULA_OPERATOR_TOKEN" http://127.0.0.1:8875/
 ### Run in Docker
 
 ```bash
-mkdir -p secrets && openssl rand -hex 32 > secrets/ferricula_operator_token
+mkdir -p ~/.config/ferricula && openssl rand -hex 32 > ~/.config/ferricula/operator_token
 FERRICULA_MEMORY_VOLUME=my-agent-memory FERRICULA_CONFIG=./config/agent.toml docker compose up -d --build
 ```
 
@@ -199,15 +199,18 @@ Every route except `GET /` and `GET /health` needs `Authorization: Bearer <opera
 
 | | |
 |---|---|
+| [docs/INSTALL.md](docs/INSTALL.md) | Install, build, create an agent, run it (compose or `docker run`), upgrade, troubleshoot |
+| [docs/USING.md](docs/USING.md) | Talking to it, giving it documents, its life, recall, MCP, searching with lume, benchmarks |
+| [docs/OPERATOR_GUIDE.md](docs/OPERATOR_GUIDE.md) | Operator reference with worked examples against a live agent |
+| [docs/TOOLS.md](docs/TOOLS.md) | The agent's in-conversation tools: contracts, limits, errors |
+| [DOCUMENTS.md](DOCUMENTS.md) | How this repository's documents are organized (plans, docs, evidence), and the discussion on an agent stewarding them |
 | [paper/WHITEPAPER.md](paper/WHITEPAPER.md) | Architecture, the Abhidhamma mapping and its limits, measured results |
-| [PLAN_V3.md](PLAN_V3.md) | Remaining work, phase by phase, with exit tests |
-| [PLAN.md](PLAN.md) | The v2 fusion design (substrate) |
-| [docs/](docs/) | Runtime operations, recovery of a v1 memory, Nuts News contracts |
+| [inbox/](inbox/) | Plans, until the `plan/` directory exists: `PLAN_V3.md` (remaining work with exit tests), `PLAN.md` (v2 fusion design), `SEARCH_TOOL.md`, the benchmark plan, and the UI, JEV and consolidation plans |
 | [research/](research/INDEX.md) | Background research: Abhidhamma, thermodynamic memory, agent-memory literature |
 
 ## License
 
-[Gnosis AI-Sovereign License v1.3](LICENSE.md). `crates/ferricula-search` derives from lume (BSD 3-Clause, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
+[Gnosis AI-Sovereign License v1.4](LICENSE.md). `crates/ferricula-search` derives from lume (BSD 3-Clause, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
 
 ---
 

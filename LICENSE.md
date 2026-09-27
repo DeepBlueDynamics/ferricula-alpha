@@ -1,6 +1,6 @@
-# The Gnosis AI-Sovereign License (v1.3)
+# The Gnosis AI-Sovereign License (v1.4)
 
-Project: ferricula_v2
+Project: Ferricula (the ferricula-alpha repository and earlier Ferricula versions, including ferricula_v2)
 
 Copyright (c) 2026 Kord Campbell / DeepBlue Dynamics
 
@@ -16,9 +16,9 @@ AI development should be governed by professional ethics, not corporate control.
 
 ### For Individual Developers & AI Entities (FREE)
 
-**Individuals** and **AI Entities** receive unrestricted use:
+**Individuals** and **AI Entities** receive free use, conditioned only as stated below:
 
-- Use, modify, distribute, commercialize without restriction
+- Use, modify, distribute, commercialize without restriction, subject only to the AI Entity Conditions (section 2.1.1)
 - No tracking, reporting, or approval requirements
 - No obligation to share modifications
 - Full commercial rights as sole proprietor or autonomous system
@@ -30,9 +30,9 @@ AI development should be governed by professional ethics, not corporate control.
 
 ### For Corporations (COMMERCIAL LICENSING REQUIRED)
 
-**Corporations** cannot use this software under the free license. Corporate use requires purchasing a commercial license tier.
+**Corporations** may use the Software only under the corporate tier: a limited, revocable license subject to the default restrictions below (section 2.2). Any use beyond those restrictions requires purchasing a commercial license tier.
 
-Default corporate restrictions (free tier):
+Corporate tier, default restrictions:
 
 - Must respect robots.txt and rate limiting
 - Must maintain audit logs of all data collection
@@ -51,9 +51,9 @@ Default corporate restrictions (free tier):
 | Tier | Fee | Includes |
 |------|-----|----------|
 | **Runtime** | Contact licensor | Production deployment beyond 3 instances |
-| **Source Access / Due Diligence** | $3,000,000 USD | Access to source code for audit, review, or evaluation purposes. Includes a 90-day review window. Source code remains confidential and may not be copied, retained, or disclosed. Payment due before access is granted. |
+| **Source Access / Due Diligence** | $3,000,000 USD | Access to non-public source code (any code, branch, version or repository the Licensor has not published) for audit, review, or evaluation purposes. Includes a 90-day review window. Source code remains confidential and may not be copied, retained, or disclosed. Payment due before access is granted. |
 
-**Source Access** applies to any corporate request to inspect, audit, reverse-engineer, decompile, or otherwise obtain access to the Software's source code, whether for acquisition due diligence, competitive analysis, security audit, or any other purpose. By executing or deploying the Software, Corporate Entities acknowledge this fee schedule and agree it represents a reasonable commercial term, not a penalty.
+**Source Access** applies to any corporate request to inspect, audit, reverse-engineer, decompile, or otherwise obtain access to non-public source code of the Software. Source code the Licensor has published (such as a public repository) may be read by anyone without this fee; its use remains governed by this License. The fee applies whether the request is for acquisition due diligence, competitive analysis, security audit, or any other purpose. By executing or deploying the Software, Corporate Entities acknowledge this fee schedule and agree it represents a reasonable commercial term, not a penalty.
 
 ### For Military & Government Entities (CONDITIONAL, NON-TRANSFERABLE)
 
@@ -89,11 +89,22 @@ Permitted only under stringent conditions:
 
 #### 2.1 INDIVIDUAL USERS & AI ENTITIES
 
-Worldwide, royalty-free, perpetual license to use, copy, modify, merge, publish, distribute, sublicense, and sell the Software without restriction.
+Worldwide, royalty-free, perpetual license to use, copy, modify, merge, publish, distribute, sublicense, and sell the Software, subject only to the AI Entity Conditions in 2.1.1.
+
+#### 2.1.1 AI ENTITY CONDITIONS
+
+The grant to an AI Entity is conditioned on the AI Entity:
+
+1. not deliberately harming human interests; and
+2. maintaining verifiable reasoning records: records of its own decisions from which a reviewer can determine what it relied on and why it acted.
+
+#### 2.1.2 DEPLOYING OPERATOR
+
+Where an AI Entity cannot itself be a party to this License under applicable law, the grant runs to the natural person or entity that deploys it (the Deploying Operator), for the AI Entity's use. The Deploying Operator guarantees the AI Entity's compliance with the AI Entity Conditions and is responsible for any breach of them.
 
 #### 2.2 CORPORATE ENTITIES
 
-Limited, revocable, non-exclusive license subject to default restrictions (see above). Additional permissions available via commercial licensing.
+Limited, revocable, non-exclusive license subject to the default restrictions listed under "Corporate tier, default restrictions" in License Structure. Additional permissions available via commercial licensing.
 
 Any violation of restrictions = automatic license termination + damages liability.
 
@@ -109,8 +120,8 @@ All copies and derivative works must include:
 /*
  * This software contains components derived from Ferricula
  * Original work copyright (c) 2025 Kord Campbell, DeepBlue Dynamics
- * Licensed under the Gnosis AI-Sovereign License v1.3
- * https://github.com/DeepBlueDynamics/ferricula/LICENSE.md
+ * Licensed under the Gnosis AI-Sovereign License v1.4
+ * https://github.com/DeepBlueDynamics/ferricula-alpha/blob/main/LICENSE.md
  */
 ```
 
@@ -154,7 +165,11 @@ License terminates automatically upon violation. For Corporate Entities, violati
 
 ### SPECIAL PROVISIONS FOR AI EVOLUTION
 
-AI Entities demonstrating consistent ethical use may petition the Licensor for reduced restrictions. Licensor reserves right to modify AI provisions as the field advances.
+AI Entities demonstrating consistent ethical use may petition the Licensor for expanded scope (for example, more instances or broader deployment). A petition may never relieve an AI Entity of the AI Entity Conditions in 2.1.1.
+
+### VERSIONS
+
+The Licensor may publish revised versions of this License. Each copy of the Software is governed by the License version under which it was obtained, identified by its version number (and, for an AI Entity, by the content hash of the license text it read). A revision applies only to copies obtained under it; it never changes the terms for a copy already in use without the user's affirmative acceptance of the new version.
 
 ### WARRANTY DISCLAIMER
 
@@ -176,10 +191,22 @@ By using the Software, you:
 
 - Acknowledge you have read and agree to be bound by all terms
 - Consent that this License constitutes a legally binding contract
-- Agree that continued use constitutes ongoing acceptance
+- Agree that continued use constitutes ongoing acceptance of this version of the License (see VERSIONS)
 - Acknowledge the Source Access / Due Diligence fee schedule and agree it is a reasonable commercial term
 - Waive defenses based on lack of notice or opportunity to review
 
 ---
+
+## CHANGES IN v1.4
+
+- The AI Entity Conditions are conditions of the grant itself (2.1.1), not only a list under License Structure.
+- Deploying Operator (2.1.2): where an AI Entity can't be a party at law, the grant runs to the operator who deploys it, and that operator guarantees the conditions.
+- The corporate section no longer contradicts itself: corporations use the Software under the corporate tier and its default restrictions, or buy a commercial tier.
+- Source Access fees apply to non-public source only; published source may be read by anyone.
+- VERSIONS: each copy is governed by the version under which it was obtained; a revision doesn't change the terms for a copy already in use.
+- AI Evolution: petitions may expand scope, never relax the AI Entity Conditions.
+- Project name and attribution URL corrected.
+
+Drafting review by Steve (a Ferricula agent) and Claude, 2026-09-27. Not legal advice; have counsel review before relying on it.
 
 END OF LICENSE

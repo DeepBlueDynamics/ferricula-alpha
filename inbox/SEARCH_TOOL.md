@@ -1,6 +1,6 @@
 # Spec: `ferricula_search` — search across three corpora
 
-_Status: proposed, 2026-09-27. Owner: Ferricula v3 (R1/R2). Origin: design notes the agent wrote when asked what it wanted from a search tool; adopted with the changes below._
+_Status: document and memory corpora BUILT 2026-09-27 as in-chat tools (docs/TOOLS.md); web corpus, `ferricula_ingest(url, reason)` from chat, and the metrics not built (backlog W1). Originally proposed 2026-09-27. Owner: Ferricula v3 (R1/R2). Origin: design notes the agent wrote when asked what it wanted from a search tool; adopted with the changes below._
 
 ## Why
 

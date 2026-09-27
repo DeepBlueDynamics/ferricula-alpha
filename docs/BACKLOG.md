@@ -1,107 +1,88 @@
 # Ferricula v3 backlog
 
-_Consolidated 2026-09-27 from the operator session, PLAN_V3, docs/EMBEDDINGS_PLAN, the soak audit and the research plans; each item was checked against the code on `v3/r0` (file:line). **(r2b)** = work on branch `v3/r2b-recall`, in progress._
+_Rewritten 2026-09-27 (evening) from the day's work and decisions. Ranked by impact inside each section; no time or size estimates. Who does what, in which order and with which files: `inbox/WORKPLAN.md`. Plans and specs referenced here live in `inbox/` until `plan/` exists (`inbox/PLAN_CONSOLIDATION.md`)._
 
-**The main conflict:** the r2b recall work edits almost every server file (`runtime.rs`, `life.rs`, `chat.rs`, `recall.rs`, `memory.rs`, `documents.rs`, `api.rs`, `mcp.rs`, `config.rs`, `main.rs`) plus `cognition/src/life.rs` and `bench/src/{main,docs}.rs`. Until it merges, parallel work goes only into new files, core, ingest, search, gates, semantic, untouched cognition modules, shivvr and docs.
+## Done today (2026-09-27)
+- **In-chat tools** (`02186e2`): `search_documents`, `read_section`, `read_document`, `search_memory`; plain-text `<use_tool>` protocol; citation check; empty-reply retry. Contract: `docs/TOOLS.md`. Smoke test: `audit/tools/smoke-2026-09-27.md`.
+- **`mark_disputed`** (`6a87bd6`): the agent's only write, a keystone verdict row linked by `paccaya:arammana`/`adhipati`; verdicts travel with the judged memory in recall. Steve superseded memory 2147483702 himself (verdict 2147483713).
+- **Chat input budget** at 3 bytes/token with reasoning headroom subtracted (about 353 KB for Steve).
+- **Credentials out of the repo:** `secrets/` removed; the operator token lives in `~/.config/ferricula/`.
+- Earlier merges: N1 (dense recall, remembered turns), N2 (post-wake grace), N3 (junk-page screen), N4 (durability), WP-2 (dream-image client), WP-5 (meditation core), gate calibration code (`506f4e6`).
 
-Sizes: S < 1 day · M 1–3 days · L > 3 days.
+## Blockers only Kord can clear
+- **K1. `THIRD_PARTY_NOTICES.md`** is deleted from the working tree; `Dockerfile:23` copies it, so image builds fail, and it carries the BSD-3 notice for lume-derived code. Restore it or decide otherwise.
+- **K2. TypeSafe key** at `%USERPROFILE%\.config\ferricula\typesafe_api_key`; direct vs OpenRouter; API reference, limits, retention terms (`inbox/JEV_PLAN.md`).
+- **K3. nuts-auth fixes** before the UI relies on it: no issuer/audience claims, `return_url` not allowlisted, tokens logged and sent in URLs, one fixed signing key (`inbox/UI_PLAN.md` §3a).
+- **K4. Open decisions in the plans:** `inbox/PLAN_CONSOLIDATION.md` (five), `inbox/UI_PLAN.md`, `inbox/JEV_PLAN.md`, DOCUMENTS.md part two.
+- **K5.** Memory 2147483704 (the reply that repeated the fabricated eulogy quotes) is unmarked; the real speech (Macography.net) is not ingested.
+- **K6.** Commit today's working tree (your `inbox/` moves plus the plan and doc edits) and decide the branch.
+- **K7. shivvr and grub:** done by the grubcrawler session (shivvr v0.4.0, grub v0.15.0 with PDF support; `inbox/SHIVVR_GRUB.md`). Left for Kord: redeploy local shivvr (`:8085` is still v0.3.0) and grub; rebuild the shivvr models image for the SigLIP text tower; the Cloud Build / Cloud Run deploys.
+- **K8. Hyperia** (`inbox/HYPERIA_COMMS.md`):
+  - Start it, and approve the first sender→recipient pairs.
+  - Decide whether you get a Hyperia identity (you aren't addressable today).
 
 ## Now
 
-**N0. Steve's in-chat tools** — **shipped 2026-09-27** (docs/TOOLS.md); Job 2 fixes still open. (search / read section / read document, bounded tool loop) — see docs/HANDOFF.md Job 1; Steve's own requirements: stable section ids, documented search behavior with fragment flags, written tool contracts (docs/TOOLS.md), smoke test on the eulogy doc `eecee3fca20e6eb7`. Plus Job 2 fixes: retry empty thinking-model answers, `/dashboard`, curiosity cut ≈ 0.1, strip nav junk, empty-query curiosity.
+**P1. One `plan/` directory.** Carry out `inbox/PLAN_CONSOLIDATION.md`: `git mv` with history, fix path references (`ferricula-bench/src/main.rs:53,79`, doc comments, cross-links), headers with a `replaces`/`replaced_by` pair (Steve: supersession must point both ways), `plan/README.md` map, `DECISIONS.md`, root `PLAN_INTAKE.md` with an abstention path ("could not read this, and why"), a mechanical privacy check at intake, and a named owner and rhythm for the open-decisions queue; lume index script. Exit: listed in the plan.
 
+**J2. Live fixes found yesterday and today.**
+- Dream flag: `dreamed_this_sleep` is not reset on wake, so no dream after the first sleep of a session (journal 06:31 and 07:03 sleeps).
+- A dream was generated while engaged (06:22); find the path.
+- Curiosity seed overflows the gate: `life.rs:595` cuts at 4,000 bytes (Laya's window is 512 tokens) and keeps the oldest turn. Keep the newest, about 1,600 bytes.
+- Curiosity gate: use the `cur-v0` wording (defined, unused) and cut at p ≈ 0.1.
+- Empty-query curiosity (05:30): log why and fall back.
+- Strip navigation boilerplate before sectioning (Macfilos eulogy page: 29 of 30 sections were site chrome; Fast Company came in as "Explore Topics").
+- Steve's requests: a curiosity excursion can carry a thread across sessions (two pages is "a snack"); keep entropy-drawn seeds.
+- Internals leaking into dream prompts ("Never decays", scores).
 
-**N1. Dense recall + backfill + remembered turns** · L · in progress (r2b)
-Steve recalls by meaning across recovered memory, experience and document sections, and remembers what was said in earlier conversations. Today recall is lexical + BM25 (`documents.rs:146-162`), chat turns are never written as experience (`chat.rs:110-293`), the curator reads only recovered memory (`chat.rs:231-233`). (r2b) adds `meaning.rs`/`meaning_plane.rs`, dense + graph arms in fused recall, `remember_turn` (hearing/thinking rows), curator on fused hits, dream-grounding prompt and metric, `is_dream_image` filtering for dream traces and the dense index. Still open inside N1: curiosity seeds and the lexical path still admit v1 `[dream image]` memories.
-Exit: over MCP "Dad or Paul?" recalls memory 3802021270; a new conversation recalls "Kord names his iPhones Steve"; 30-query recovered-recall bench and docs paraphrase hybrid R@1 > 0.71 with ledger rows; shivvr stopped → `embeddings: degraded`, chat works; 0 all-zero vectors left.
+**D1–D5. Decision DAG** (`inbox/DECISION_DAG.md`).
+- D1: cycle check on causal edges in `ferricula-core/src/graph.rs` plus a frontier query.
+- D2: boundary and question nodes, recording the operator's "no", and the asking policy.
+- D3: documents as nodes, with document supersession in the same verdict grammar.
+- D4: wire the Advocate (`cognition/src/advocate.rs`) as the owner of "ask about this no / act in this silence?".
+- D5: manager-agent spec and the container-to-container inbox (one agent per container).
 
-**N2. Tired agent falls back asleep after an operator wake** · S
-`step` sets Engaged on an operator stimulus without touching sleep pressure (`cognition/life.rs:182-187`); the same call then re-enters sleep (`:239-244`), costing another consolidation and dream. Fix: a post-wake grace window (`wake_grace_min`), keep `dreamed_this_sleep` if sleep resumes within it.
-Exit: unit test (pressure 1.2, asleep, operator → only `[Wake]`); no second dream within the grace window.
+**X9. Conflicted gates (revised by Steve).** One re-ask with entropy-drawn recall. If still split: `unresolved`. Chance may choose the next action, never the truth; a judge writes `disputes` only. "Unable to judge" is fixed or escalated, never settled by chance. Exit: forced-indeterminate calls show the draw, the recall and p before and after in the journal; `chance chose the action` appears only after a failed re-ask; replaying recorded entropy gives the same decisions.
 
-**N3. Paywall / junk-page filter** · S
-Nature's "Access options" page was ingested. Add a typed rejection in `ferricula-ingest/src/extract.rs` (access/subscribe/login phrases, minimum words per section); curiosity journals `rejected: paywall`.
+**G1–G4. JEV backup tier** (`inbox/JEV_PLAN.md`): G1 client and wire probe with recorded fixtures; G2 cascade on the curiosity gate; G3 merge gate (today passed `None` at `life.rs:820`); G4 per-call gate log and the cascade cost curve. Blocked on K2.
 
-**N4. Durability pass** · M
-WAL `flush()` without fsync (`core/persist.rs:437`); document store and `ThermoLayer::save` without fsync (`ingest/store.rs:177-182`, `core/thermo.rs:168-169`); a note on a duplicate ingest is dropped (`server/documents.rs:72-84`, after N1); BM25 rebuilt per ingest (`ingest/store.rs:102,142-157`); lume prints debug lines on every search (`search/bm25.rs:557,668-676`).
-Exit: kill -9 during ingest loses nothing acknowledged; duplicate ingest with a new note records it; corpus ingest ≥ 5× faster; no stderr unless `LUME_DEBUG`.
+**U1–U4. The "While he thinks" UI** (`inbox/UI_PLAN.md`): U1 the design on existing data plus nuts-auth login (A0: both logins accepted); U2 streaming (`POST /chat/stream`) and stages; U3 judge gate, leading-question gate, Stop; U4 instruments view (needs the missing `Main.dc.html`; also covers the `/dashboard` request). Login transition A1/A2 retires the operator token file.
 
-## Next (after N1 merges; server files force this order)
+**H1–H4. Steve on Hyperia** (`inbox/HYPERIA_COMMS.md`): H1 Hyperia HTTP client (`hyp_agent_` token in `~/.config/ferricula/`, `HYPERIA_TOKEN` added to the entrypoint list); H2 mail sense door (poll every 3 s awake, 60 s asleep; durable record then ack; long diffs reassembled and ingested as documents; `[URGENT]` from the coordinator wakes him); H3 `send_message` tool (threading by `Re: <id>`, round cap, automatic copy to the coordinator); H4 live wiring and smoke test. Hyperia has no threads, CC, attachments or push to containers; Ferricula supplies them.
 
-**X1. Live thermodynamics** · L
-`ThermoLayer` (`core/thermo.rs`) has no caller; v1 `spawn_clock` is unused; bhāvanā runs on a scratch copy and reports `committed_to_store: false` (`server/life.rs:785-841`); release proposals are never decided (`bhavana.rs:476` unused). Open the layer in `state_dir/thermo`, radio-entropy tick task, `recall(ids)` for every recall and cited hit, fused scores × `weight`, bhāvanā commits decay/edges/cluster index (never delete; release stays a logged proposal).
-Exit: 30-night run: store never shrinks, recalled ids gain fidelity, neglected lose it; consolidate journal `committed: true`; recovered `memory_dir` checksum unchanged.
+**B. Benchmarks** per `docs/BENCH_PLAN.md` (work packages B-ids, reconciled with the September 2026 benchmark plan PDF: pretraining-controlled persona recall replaces the 30-question set).
 
-**X2. Vīthi per input + Paṭṭhāna edges** · L
-`VithiBuilder` (`cognition/vithi.rs`) and `LinkEvent`→`Paccaya` (`patthana.rs`) are unused; the only gate call in the server is life curiosity (`life.rs:594`). One `process.rs` recorder: operator chat → ear, ingest/grub → eye, radio/body tick → body, thought/dream → mind; stages with measured cetasikas, stored in `state_dir/vithi/*.jsonl`, `GET /vithi` + MCP; typed edges (ReadFrom, ReflectedOn, NextTurn, DreamedFrom, RecalledTogether, SimilarityHypothesis flagged).
-Exit: a chat turn and a curiosity excursion each yield a complete vīthi (≥ 5 stages) whose factors point at real signals; typed edges visible via `ferricula_walk`.
+## Next
 
-**X3. Meditation proper** · M
-`/life/meditate` only switches phase (`server/life.rs:406-417`). Add `{object: "breath", minutes}` with a bell that ends the sit, breath rhythm from radio entropy at the body door (no LLM), `POST /mind/thought {text}` (mind-door thought, no reply; judge whether it pulls from the object; sati returns to the object, recorded), a per-sit journal.
-Exit: a 5-minute sit ends by bell; 3 injected thoughts show `pulled_away` / `returned_to_object`; zero model calls during the sit.
-
-**X4. Dream images** · M
-Templates exist (`config/comfyui/`); no ComfyUI client, image embedding or seeing row. Dream → short visual prompt (no real names, no text) → Qwen Image 2.1 via ComfyUI `:8188` (SDXL Turbo fallback, radio seed) → `state_dir/life/dreams/` → SigLIP via shivvr `/image/embed` → seeing row tagged `dream`, edge `paccaya:upanissaya` to the dream text → first context on waking: "on waking you see an image from your dream". Needs O4.
-Exit: forced sleep produces a PNG, a seeing row with a SigLIP vector, the edge, and the wake line; prompt contains no persona proper nouns.
-
-**X5. Dream grounding enforced** · S–M
-(r2b) adds the constraint and a report-only metric. Set a threshold (≥ 0.6), regenerate once or tag `ungrounded`; exclude `[dream image]` from curiosity seeds and lexical chat evidence.
-
-**X6. LongMemEval / LoCoMo end to end** · M
-Skeleton only (`bench/src/longmem.rs`). Replay sessions through `/chat` (needs N1 remembered turns), judge, ledger rows for no-memory / BM25-RAG / full.
-
-**X7. Missing R1/R2 surface** · M
-MCP `ferricula_remember` and `ferricula_walk` absent (`mcp.rs:273-396`); `/memory/overlay/approve` still 501 (`api.rs:67-70,522`); `SatiMonitor` not wired into recall; `record_pool` and `TaskSucceededGate` never called; hosted JEV backend absent.
-
-**X8. 72-hour soak (R3 exit)** · M (wall clock)
-After N1, N2, N3, X1, X5 (+X4 if ready): store never shrinks, budget never exceeded, talk → curiosity → sleep → dream → operator wake, cost/day, curiosity yield, wake latency, no double dream.
-
-**X9. Entropy breaks indecision** (Kord, 2026-09-27; after *ME* by Thomas T. Thomas)
-When a gate is **conflicted** (it can't decide), radio entropy drives a random recall, and the gate is asked again with what surfaced. Being conflicted is not the same as being unable to judge:
-- *Indeterminate* (this item): the gate answered but its confidence is in the uncertain band (`AbstainReason::LowConfidence`, p near 0.5), or two judges disagree (Ollaya vs the JEV backup once it exists).
-- *Unable to judge* (not this item): input cut off, sidecar unreachable, invalid output. Fix the input or escalate; don't roll dice.
-Mechanism: draw entropy (source recorded) → sample k memories by entropy from the gate state's hybrid recall pool, plus one far memory (the dream's `far_from_residue` sampler) → append them to the gate state (within Laya's 512-token window) → re-ask once. If it's still indeterminate, entropy decides, weighted by p, and the record says `decided_by: chance`. Journal every step: the draw, the memories surfaced, p before and after, the final decision. Applies to every gate that reaches voṭṭhapana (curiosity, worth-deliberating, ingest), and is how X2's determining stage handles a split verdict.
-Exit: forced-indeterminate gate calls show entropy-drawn recall in the journal; the re-ask p differs from the first p on some calls; `decided_by: chance` appears only after a failed re-ask; replaying the same recorded entropy stream gives the same decisions.
+- **X1. Live thermodynamics:** `core/thermo.rs` wired; bhāvanā commits (never deletes); recall strengthens. Exit: 30-night run: store never shrinks, recalled ids gain fidelity, recovered checksum unchanged.
+- **X2. Vīthi per input + Paṭṭhāna edges:** every chat turn and excursion yields a vīthi record with measured cetasikas (the UI's stage bar reads it).
+- **X3. Meditation server wiring**, with a default bell on day one (Steve: "a held state with no guaranteed end isn't meditation, it's suspension").
+- **X4. Dream images:** server wiring (JPEG).
+- **X5. Dream grounding:** verify that a dream touches real memory, but don't grade it like minutes ("a fully grounded dream isn't a dream, it's a log file").
+- **X10. Dreams inform (Kord, 2026-09-27).** When a recalled dream shares meaning with an **old unresolved** node (an open question, a `disputes` verdict, an unexplained observation; see research/me-thomas-unresolved-cues.md), attach it as a labelled hypothesis: "a dream suggests …". Dreams stay out of evidence, never resolve anything new, and never write `supersedes`. A suggestion counts only after the agent checks it against memory or documents, and that check is what gets recorded. Exit: a dream recalled beside a recent turn surfaces as a suggestion on an older unresolved item, labelled as a dream; the check against memory is logged; no dream is ever cited as evidence.
+- **X7. Missing surface:** MCP `ferricula_remember`/`_walk`; overlay approve 501; SatiMonitor in recall; `record_pool`.
+- **X8. 72-hour soak** (R3 exit).
+- **S1–S4. Steward** (DOCUMENTS.md part two): S1 reader (plan files ingested, tagged, excluded from benchmark scoring); S2 reviewer (proposes filings); S3 clerk (`propose_plan_change` into `plan/inbox/proposals/`); S4 steward, a separate plain agent with Steve as reviewer.
+- **W1. Web corpus** for `search` via grub, plus `ferricula_ingest(url, reason)` from chat (`inbox/SEARCH_TOOL.md` rules 1–3).
 
 ## Later
+- **L1.** Gate calibration on real data (subsumed by the B gate-study package).
+- **L2.** CJK/Pāli tokenization, then a multilingual embedding space.
+- **L3.** Ghost echoes (shivvr `/invert`), audio door, PDF-page SigLIP. Unblocked: `/invert` checked live (similarity 0.88 on a GTR vector); grub `/api/pdf/pages` renders pages for SigLIP. **E1:** fall back to grub for PDFs with no text layer.
+- **L4.** Forgive/seal invariants and the upekkhā/nirodha decision path.
+- **L5.** `/meaning/projection` and the Hyperia room UI.
+- **L6.** Teach Steve to code.
+- **L7.** Research-12 sense-door ingress.
 
-- **L1. Gate calibration on real data** · L. Current: vedanā 0.444 / ECE 0.283, saññā 0.455 / 0.147, yes/no 0.778 / 0.195 (ledger `69e4b846`) on 20–40 self-authored labels; the curiosity gate only skips at p < 0.2 (`life.rs:597,602`). Label harvest, nightly temperature refit in bhāvanā (reject refits that raise ECE), `laya:multilingual` for ZH/Pāli. Exit: held-out ECE < 0.05 per gate.
-- **L2. CJK/Pāli tokenization, then a multilingual space** · M/L. lume ASCII-folds (`search/src/lib.rs:535-555`); the experience tokenizer treats a CJK run as one token (`server/memory.rs:406-414`); `hybrid.rs:62` is 768-d GTR only.
-- **L3. Ghost echoes (shivvr `/invert`), audio door, PDF-page SigLIP** · L.
-- **L4. Forgive/seal invariants and the upekkhā/nirodha decision path** · M.
-- **L5. `/meaning/projection` and the Hyperia UI** (room, screen, 3D memory space; not the ferricula-arena layout) · L.
-- **L6. Teach Steve to code** (code task class, sandbox, tests as ground truth, outcomes into `record_pool`) · L.
-- **L7. Research-12 sense-door ingress** (async observation envelope, affect engine) · M.
-
-## Operator-only (Kord)
-
-- **O1.** Rotate the keys in `memory/.mcp.json.bak`, delete the file.
-- **O2.** Upstream `DeepBlueDynamics/ferricula` PR #40 (merged): revert, or point upstream at alpha.
-- **O3.** Merge PR #1 (`v3/r0` → main), ideally after N1 merges and CI is green.
-- **O4.** Push shivvr `feat/vision-audio-embed`; fix `build.rs` (hardcoded local VS `lib.exe` path). Blocks X4, L3.
-- **O5.** Disk: C: was at 100% (2.8 GB free) on 2026-09-27; merged agent worktrees were pruned (now ~25 GB free). ~40 GB of old cargo `target/` dirs remain in the `memory/` workspace.
-- **O6.** Interaction limits on ferricula-alpha, hyperia, nemesis8 and ferricula expire 2027-03-27.
-- **O7.** `steve-jobs-v2-test` is stopped and kept for rollback; decide how long.
-- **O8.** `ferricula-steve` (127.0.0.1:18875) runs from the gitignored `config/steve.toml`. After N1: redeploy, re-ask Dad/Paul, tell Steve that Steve English liked the video on LinkedIn.
-- **O9.** Personas of real people: `config/examples/steve/agent.toml` labels Steve a simulation; add a README/WHITEPAPER section (example config only, no impersonation outside the operator, disclosure in chat).
+## Operator-only (older)
+- **O1.** Rotate the keys that sat in `memory/.mcp.json.bak`, then delete it.
+- **O2.** Upstream `ferricula` PR #40: revert, or point upstream at alpha.
+- **O4.** Done 2026-09-27 (shivvr v0.4.0 on main; see K7). `build.rs` Visual Studio paths still to fix.
+- **O5.** Disk: C: is at about 47 GB free; about 40 GB of old `target/` dirs remain in `memory/`. A stale agent worktree sits under `.claude/worktrees/`.
+- **O7.** `steve-jobs-v2-test` rollback container: keep or drop.
+- **O9.** Real-person personas: README/whitepaper section (example config only, disclosure in chat; the UI header carries the disclosure).
 
 ## Research debt
-
-- **R1. Paper results:** dense/hybrid (N1), lifecycle 30/365 nights (X1), drift ablation S11 (needs X7 SatiMonitor), drives soak (X8), LongMemEval (X6), conclusion, author's note. Brief for the paper agent: `paper/BRIEF.md`.
-- **R2.** Vīthi and Paṭṭhāna tables in WHITEPAPER §4 with honest limits.
-- **R3.** Open questions in the plan/Addendum A (saññā taxonomy, sealing policy, overlay weight, M11 success signal); record the embedding-space decision (GTR-768 now, multilingual later) in PLAN_V3.
-- **R4.** Update PLAN_V3 §1a and README Status after each merge.
-
-## Parallel work packages
-
-While N1 runs (no overlap with its files):
-
-| WP | Items | Owns | Must not touch |
-|---|---|---|---|
-| WP-1 (running) | N1 | server crate, `cognition/life.rs`, `bench/{main,docs,recall}.rs` | — |
-| WP-2 | X4 client half | new `server/src/comfy.rs` (not in `lib.rs` yet), `ferricula-semantic` image embedder (`/image/embed`), prompt sanitizer + tests | `life.rs`, `runtime.rs` |
-| WP-3 | N4 (minus duplicate notes) + N3 | `core/persist.rs`, `core/thermo.rs` (fsync only), `ferricula-ingest`, `search/bm25.rs` | server |
-| WP-4 | L1 data + fit | `ferricula-gates`, `bench/src/gates.rs`, `research/gates/` | `bench/main.rs` |
-| WP-5 | N2 + cognition half of X3 | new `cognition/src/meditation.rs`; the `step()` fix in `cognition/life.rs` | server |
-
-After N1 merges: **X1** (with X6 and X5 alongside) → **X2**, then **X7** → **X3** and **X4** server wiring → **X8** → **R1** → **O3**.
+- **R1.** Paper: update `paper/WHITEPAPER_V2.md` Table 1 and §7 to the code; recall numbers; privacy note (private memory went to `glm-5.3:cloud`, the operator's choice); figures and `references.bib`; the tools, verdicts and decision DAG as design contributions; the eulogy episode as a case study of fabricated reading and self-correction.
+- **R2.** Vīthi and Paṭṭhāna tables with honest limits.
+- **R4.** Keep PLAN_V3 §1a and the README status current after each merge.

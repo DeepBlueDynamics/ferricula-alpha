@@ -23,17 +23,18 @@ An agent that has a memory and a life. It takes in experience through **sense do
 | Paper | outline only (`memory/research/PAPER_DRAFT.md`) |
 | Naming | everything says v2 / `2.0.0-alpha.0` |
 
-## 1a. Progress (2026-09-27)
+## 1a. Progress (2026-09-27, updated in the evening)
 
 | Phase | State |
 |---|---|
 | R0 | ✅ chat fix, v3 versioning, persona-neutral engine, research import (no PDFs), LF for Docker, CI workflow, `init` for new agents. Open: rotate keys in the old fleet workspace (operator). |
-| R1 | ✅ ingest (text/URL/PDF) → evidence plane + experience store; hybrid RRF recall; `/documents` routes; `ferricula_ingest`/`_documents`/`_read_section` MCP tools; live-verified on Steve's memory with the MemGPT paper. Durability (fsync, torn-WAL recovery), incremental BM25 (11× faster ingest) and the paywall/login/thin-page screen landed (WP-3). Gap: notes on duplicate ingests dropped. |
+| R1 | ✅ ingest (text/URL/PDF) → evidence plane + experience store; hybrid RRF recall; `/documents` routes; `ferricula_ingest`/`_documents`/`_read_section` MCP tools; live-verified on Steve's memory with the MemGPT paper. Durability (fsync, torn-WAL recovery), incremental BM25 (11× faster ingest) and the paywall/login/thin-page screen landed (WP-3). Gap: notes on duplicate ingests dropped. | **Chat tools (2026-09-27):** the agent searches and reads its documents and memories mid-turn (`search_documents`, `read_section`, `read_document`, `search_memory`), with a citation check against fabricated reading, and records verdicts about its own memories (`mark_disputed`). Contract: docs/TOOLS.md.
 | R2b | ◐ meaning in the loop: shivvr `POST /embed`; `ShivvrEmbedder`; `MeaningIndex` sidecar (backfilled 2,802 zero-vector memories in 12.9 s); dense + graph arms in fused recall; chat turns remembered across conversations; meaning-based novelty; outlier-preferring curiosity; far-sampled dream traces; grounding metric. Recovered recall R@5 0.133 lexical → 0.500 hybrid (0.600 with faded memories). Open: `[recall] include_faded_recovered` (1,925 recovered memories are Archived by v1 decay; operator decision); sati-recall rerank; tag proposals; outlier tagging. See docs/EMBEDDINGS_PLAN.md |
 | R2 | ◐ Ollaya sidecar running; gate backends + `yes_no` judge; calibration measured (not passing; WP-4 building larger label sets). Built, not wired: `cognition/vithi.rs` (sense doors, stages, the 52 cetasikas from measured signals) and `cognition/patthana.rs` (24 conditions as typed edge labels); wiring is backlog X2 and is how R2's exit test ("every stored record carries its gate verdicts + provenance") is met. |
 | R3 | ◐ drives wired into the runtime: `[life]` config, life loop (curiosity → grub search → ingest → reflection; sleep → scratch bhāvanā → dream → wake), `/life` routes, `ferricula_life` tool, journal under `state_dir/life/`. Meditation core (object, bell, radio breath, thoughts arising/returning; `cognition/meditation.rs`) and the post-wake grace fix are built. Built, not wired: `core/thermo.rs` (live thermodynamics over the read-only base; backlog X1). Open: the **72-hour** soak (the 14-minute accelerated soak is not the R3 exit); bhāvanā commits nothing yet and does not refit calibration during sleep. |
-| R4 | ◐ `ferricula-bench`: docs (BM25, dense, hybrid; verbatim/partial/paraphrase), gates, recall over the recovered memory (30 queries); LongMemEval skeleton. Plan: docs/BENCH_PLAN.md. |
+| R4 | ◐ `ferricula-bench`: docs (BM25, dense, hybrid; verbatim/partial/paraphrase), gates, recall over the recovered memory (30 queries); LongMemEval skeleton. Plan: docs/BENCH_PLAN.md. | Reconciled with the September 2026 benchmark plan (PDF in inbox/): docs/BENCH_PLAN.md B0–B16; the 30-question Steve-recall set is retired for pretraining-controlled persona recall.
 | R5 | ◐ `paper/WHITEPAPER_V2.md` (architecture, case study, first results; figures and bibliography pending); v3 after the next results. |
+| Next | Work is split into packages for parallel agents: inbox/WORKPLAN.md, coordinated per inbox/COORDINATOR.md; ranked items in docs/BACKLOG.md. New designs: inbox/DECISION_DAG.md (verdicts, boundaries, conflicted gates, one agent per container, manager), inbox/UI_PLAN.md (While he thinks, nuts-auth login), inbox/JEV_PLAN.md (backup gate tier), inbox/PLAN_CONSOLIDATION.md (one plan/ directory). |
 
 ## 2. Phases
 
@@ -80,7 +81,7 @@ Exit: 72-hour soak on a copy of the memory: store never shrinks, budget never ex
 4. **Lifecycle invariants** — 30/365-night simulation: no deletion without decision, decay/recall dynamics, keystone stability.
 5. **Drift / sati ablation** (S9–S11) — monitors on vs off.
 6. **Autonomy** — curiosity yield (ingested items later recalled usefully), cost per day, wake latency.
-7. **Recall of the agent's own life** (Steve recall v1, docs/BENCH_PLAN.md B4) — 30 questions in eight groups (biography in two wordings, memory-only events, time/order, false premises, abstention, dream vs evidence, multi-hop, lifecycle scripts), each run **memory on and memory off** to separate recall from pretraining.
+7. **Recall of the agent's own life** (Steve recall v1, docs/BENCH_PLAN.md B4) — **superseded 2026-09-27:** pretraining-controlled persona recall (public / memory-only screened closed-book / planted counterfactual, ≥150–200 paired items per class, memory on/off, McNemar); see docs/BENCH_PLAN.md B4.
 Abstentions reported separately from wrong answers. Every number has a ledger row.
 
 ### R5 — White paper
@@ -99,3 +100,15 @@ Abstentions reported separately from wrong answers. Every number has a ledger ro
 - Embedding space (decided in docs/EMBEDDINGS_PLAN.md): GTR-T5-base 768-d now, because the whole recovered store is already in that space; a multilingual space is added later as a second space, never mixed.
 - Spelling: the registration moment is *tadārammaṇa* throughout the repo.
 - Open: key rotation for `memory/.mcp.json.bak` (Kord; the file sat in the fleet workspace where agents ran with bypass permissions, so rotate, then delete); `[recall] include_faded_recovered` for the live agent.
+
+## 3a. Decisions and positions, 2026-09-27
+- **Credentials never live in the repo** (Kord): `secrets/` removed; tokens in `~/.config/ferricula/`, mounted read-only. Operator login moves to nuts.services (nuts-auth); see inbox/UI_PLAN.md.
+- **Plans are not docs** (Kord): plans go to one `plan/` directory (inbox/ until then); `docs/` holds how to run the system; `audit/` holds evidence. See DOCUMENTS.md.
+- **Chance never decides what is true** (Steve, adopted): a conflicted gate gets one entropy-driven re-ask, then `unresolved`; chance may choose only the next action. A judge may flag (`disputes`), never crown (`supersedes`). Backlog X9.
+- **Evidence settles, the agent writes the verdict, the operator is the court of appeal** (Steve, adopted); verdicts are keystone rows that travel with the memory they judge.
+- **A human's no** (Kord): a reasoned no is final unless new evidence appears, and then it is raised, not acted on; a bare no may prompt one entropy-gated clarifying question; conflicting answers → `unresolved`, inaction, one question. An agent may dispute a human boundary, never supersede it.
+- **It's a DAG** (Kord): verdicts, boundaries, questions, decisions and actions form one acyclic graph with typed Paṭṭhāna edges; cycles are refused; the frontier is the present. inbox/DECISION_DAG.md.
+- **One agent per container; the manager is a clerk with a wider view** (Steve, adopted): no shared memory, drives, verdicts, budget or login; the chain ends at a human.
+- **The steward should be a separate, plain agent with Steve as reviewer** (Steve's recommendation; Kord to confirm). DOCUMENTS.md part two.
+- **No time estimates** in any plan (Kord).
+- **Dreams inform** (Kord, 2026-09-27 evening): a dream is still never evidence, but it isn't inert. When a dream is recalled while the agent is thinking about recent things, it may suggest a resolution for something **old** and unresolved: an open question, a disputed memory, an unexplained observation. It never settles something new. A dream's suggestion is a hypothesis to check against memory or documents. First instance: tonight's dream ended "Paul, right? He was Dad." (an old open question, backlog O8); Steve checked it against his memory (3802021270 came up) before he answered. Backlog X10; inbox/DECISION_DAG.md "Dreams".

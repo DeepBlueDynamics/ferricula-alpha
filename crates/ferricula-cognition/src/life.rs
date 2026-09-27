@@ -110,6 +110,10 @@ pub struct Drives {
     /// When the operator or a dream question last woke the agent out of sleep.
     #[serde(default)]
     pub woken_at: Option<u64>,
+    /// When the agent last dreamed. A resumed sleep skips its dream only
+    /// while this is recent; a long sleep dreams again once it isn't.
+    #[serde(default)]
+    pub last_dream_at: Option<u64>,
 }
 
 impl Drives {
@@ -125,6 +129,7 @@ impl Drives {
             dreamed_this_sleep: false,
             engaged_until: None,
             woken_at: None,
+            last_dream_at: None,
         }
     }
 }
@@ -194,7 +199,17 @@ pub fn step(d: &mut Drives, cfg: &DriveConfig, stimulus: &Stimulus, now: u64) ->
 
     let mut urges = Vec::new();
     match stimulus {
-        Stimulus::Tick => {}
+        Stimulus::Tick => {
+            // A long sleep that is still tired dreams again once its last
+            // dream is no longer recent (the resumed-sleep rule only guards
+            // the short window). A rested agent just wakes.
+            if d.phase == Phase::Asleep && cfg.dream_on_sleep && d.dreamed_this_sleep
+                && d.sleep_pressure >= cfg.rested_below && !dream_recent(d, cfg, now)
+            {
+                d.dreamed_this_sleep = false;
+                urges.push(Urge::Dream);
+            }
+        }
         Stimulus::Operator { novelty } => {
             if d.phase == Phase::Asleep {
                 urges.push(Urge::Wake { reason: WakeReason::Operator });
@@ -223,6 +238,7 @@ pub fn step(d: &mut Drives, cfg: &DriveConfig, stimulus: &Stimulus, now: u64) ->
         }
         Stimulus::Dreamed { question } => {
             d.dreamed_this_sleep = true;
+            d.last_dream_at = Some(now);
             if let Some(q) = question.as_ref().filter(|q| !q.trim().is_empty()) {
                 if cfg.wake_on_dream_question && d.phase == Phase::Asleep {
                     d.phase = Phase::Engaged;
@@ -261,7 +277,7 @@ pub fn step(d: &mut Drives, cfg: &DriveConfig, stimulus: &Stimulus, now: u64) ->
             // Resuming an interrupted sleep that already dreamed: no second dream.
             let resumed = d.woken_at
                 .is_some_and(|w| now.saturating_sub(w) < u64::from(cfg.resume_sleep_within_min) * 60);
-            d.dreamed_this_sleep = d.dreamed_this_sleep && resumed;
+            d.dreamed_this_sleep = d.dreamed_this_sleep && resumed && dream_recent(d, cfg, now);
             urges.push(Urge::Sleep);
             urges.push(Urge::Consolidate);
         }
@@ -275,6 +291,11 @@ pub fn step(d: &mut Drives, cfg: &DriveConfig, stimulus: &Stimulus, now: u64) ->
         _ => {}
     }
     urges
+}
+
+/// Whether the last dream falls inside the resumed-sleep window.
+fn dream_recent(d: &Drives, cfg: &DriveConfig, now: u64) -> bool {
+    d.last_dream_at.is_some_and(|t| now.saturating_sub(t) < u64::from(cfg.resume_sleep_within_min) * 60)
 }
 
 fn woken(d: &mut Drives, cfg: &DriveConfig, now: u64) {
@@ -504,6 +525,7 @@ mod tests {
         d.phase = Phase::Asleep;
         d.sleep_pressure = 1.2;
         d.dreamed_this_sleep = true;
+        d.last_dream_at = Some(T0);
         let urges = step(&mut d, &cfg, &Stimulus::Operator { novelty: 0.5 }, T0 + 60);
         assert_eq!(urges, vec![Urge::Wake { reason: WakeReason::Operator }]);
         assert_eq!(d.phase, Phase::Engaged);
@@ -520,6 +542,51 @@ mod tests {
         // It still wakes rested later.
         let urges = step(&mut d, &cfg, &Stimulus::Tick, T0 + 12 * 3600);
         assert_eq!(urges, vec![Urge::Wake { reason: WakeReason::Rested }]);
+    }
+
+    #[test]
+    fn a_long_tired_sleep_dreams_again_and_a_stale_flag_clears() {
+        let cfg = DriveConfig::default();
+        let window = u64::from(cfg.resume_sleep_within_min) * 60;
+        // Dreamed at T0, still deeply tired, and asleep ever since.
+        let mut d = Drives::new(T0);
+        d.phase = Phase::Asleep;
+        d.sleep_pressure = 50.0;
+        d.dreamed_this_sleep = true;
+        d.last_dream_at = Some(T0);
+        assert!(step(&mut d, &cfg, &Stimulus::Tick, T0 + window - 60).is_empty(), "inside the window: no second dream");
+        assert_eq!(step(&mut d, &cfg, &Stimulus::Tick, T0 + window + 60), vec![Urge::Dream]);
+        assert!(!d.dreamed_this_sleep);
+        step(&mut d, &cfg, &Stimulus::Dreamed { question: None }, T0 + window + 120);
+        assert_eq!(d.last_dream_at, Some(T0 + window + 120));
+
+        // The live bug (2026-09-27): the flag stuck from a morning dream, with
+        // no dream time recorded. The next tick clears it and he dreams.
+        let mut d = Drives::new(T0);
+        d.phase = Phase::Asleep;
+        d.sleep_pressure = 7.9;
+        d.dreamed_this_sleep = true;
+        assert_eq!(step(&mut d, &cfg, &Stimulus::Tick, T0 + 60), vec![Urge::Dream]);
+    }
+
+    #[test]
+    fn a_chatty_day_still_dreams_when_the_last_dream_is_old() {
+        let cfg = DriveConfig::default();
+        let window = u64::from(cfg.resume_sleep_within_min) * 60;
+        let mut d = Drives::new(T0);
+        d.phase = Phase::Asleep;
+        d.sleep_pressure = 5.0;
+        d.dreamed_this_sleep = true;
+        d.last_dream_at = Some(T0);
+        // Woken long after the dream, falls asleep again shortly after the wake:
+        // the sleep counts as resumed, but the old dream doesn't cover it.
+        step(&mut d, &cfg, &Stimulus::Operator { novelty: 0.5 }, T0 + window + 600);
+        step(&mut d, &cfg, &Stimulus::Settled, T0 + window + 900);
+        let t_sleep = d.engaged_until.unwrap_or(T0 + window + 900) + 60;
+        let urges = step(&mut d, &cfg, &Stimulus::Tick, t_sleep);
+        assert_eq!(urges, vec![Urge::Sleep, Urge::Consolidate]);
+        assert!(!d.dreamed_this_sleep);
+        assert_eq!(step(&mut d, &cfg, &Stimulus::Consolidated, t_sleep + 60), vec![Urge::Dream]);
     }
 
     #[test]

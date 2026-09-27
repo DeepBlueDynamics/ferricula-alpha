@@ -50,9 +50,9 @@ cd ferricula-alpha   # repository root
 #    copy it and change the compose bind mount to config/steve.toml.
 
 # 2. Operator token as a Docker secret file (never commit; keep out of git)
-mkdir -p secrets
-openssl rand -hex 32 > secrets/ferricula_operator_token
-chmod 600 secrets/ferricula_operator_token
+mkdir -p ~/.config/ferricula
+openssl rand -hex 32 > ~/.config/ferricula/operator_token
+chmod 600 ~/.config/ferricula/operator_token
 
 # 3. Verify the recovery volume exists (compose treats it as external)
 docker volume inspect steve-jobs-data-recovery-20260713 >/dev/null
@@ -64,12 +64,12 @@ docker compose up -d
 docker compose ps        # wait for "healthy"
 ```
 
-`secrets/` and `config/steve.toml` are gitignored.
+The operator token lives outside the repo (`~/.config/ferricula/`, or `$FERRICULA_SECRETS_DIR`); `config/steve.toml` is gitignored.
 
 To talk to the API as the operator:
 
 ```bash
-TOKEN=$(cat secrets/ferricula_operator_token)
+TOKEN=$(cat ~/.config/ferricula/operator_token)
 curl -s http://127.0.0.1:8875/health                                   # no auth
 curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8875/status
 ```
@@ -171,7 +171,7 @@ There is not yet time-of-day anchoring (for example, "wake around 09:00").
   refuses `require_operator_auth = false` whenever the bind address is
   non-loopback — which it always is inside the container. Auth cannot be
   accidentally disabled in this deployment.
-- The token value lives only in `secrets/ferricula_operator_token` on the
+- The token value lives only in `~/.config/ferricula/operator_token` on the
   host and `/run/secrets/ferricula_operator_token` in the container. The
   entrypoint shim resolves `FERRICULA_OPERATOR_TOKEN_FILE` into the
   process environment; the value appears in no image layer, compose file,
@@ -216,7 +216,7 @@ Docker secrets through the entrypoint shim (`*_FILE` pattern):
 
 | Variable | Secret file | Used for |
 |---|---|---|
-| `FERRICULA_OPERATOR_TOKEN` | `secrets/ferricula_operator_token` | Operator API auth (required) |
+| `FERRICULA_OPERATOR_TOKEN` | `~/.config/ferricula/operator_token` | Operator API auth (required) |
 | `NUTNEWS_STEVE_TOKEN` | `secrets/nutnews_steve_token` | Nuts News **writes** only (optional) |
 | `ANTHROPIC_API_KEY` | `secrets/anthropic_api_key` | Built-in Haiku/Sonnet routes when enabled |
 | `OPENAI_API_KEY` | `secrets/openai_api_key` | Optional OpenAI-compatible profile |
@@ -334,7 +334,7 @@ document in the same change.
 ## 13. Acceptance checks
 
 Run after every deploy or upgrade. All commands from the repo root on the
-Docker host; `TOKEN=$(cat secrets/ferricula_operator_token)`,
+Docker host; `TOKEN=$(cat ~/.config/ferricula/operator_token)`,
 `AUTH="Authorization: Bearer $TOKEN"`.
 
 1. **Compose syntax** — `docker compose config -q` exits 0.

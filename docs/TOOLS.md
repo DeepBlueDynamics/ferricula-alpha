@@ -115,3 +115,29 @@ Errors come back as a tool result `{"error": "..."}` and count toward the 4 call
 ## Smoke test
 
 Doc `eecee3fca20e6eb7` (Jony Ive's eulogy, 30 sections) read through `search_documents`, `read_section` and `read_document`, then the operator asks: "Read Jony's speech end to end. What did he say?" Results: `audit/tools/smoke-2026-09-27.md`.
+
+## `speak_summary(text)` — spoken aloud through Hyperia (2026-09-27)
+
+Available only when `[hyperia] enabled` is set and the agent's `HYPERIA_TOKEN` is present (a `hyp_agent_` token from `~/.config/ferricula/hyperia_token`, mounted read-only). The summary plays on the operator's desktop speakers (`POST /api/tts` on the Hyperia sidecar), in the agent's configured voice (`[hyperia] voice`; Steve: `am_michael:0.8,af_bella:0.15,af_alloy:0.05`). Playback can't be interrupted and ignores do-not-disturb.
+
+| Argument | Type | Limits |
+|---|---|---|
+| `text` | string | at most `speak_max_chars` (300) characters; one to three sentences, with no greeting or sign-off (Hyperia frames it as a radio call) |
+
+**Limits**, counted from the agent's own `spoken` experience rows, so they survive restarts:
+- at most one per `speak_min_interval_secs` (300);
+- at most `speak_max_per_day` (20) in any 24 hours.
+
+**Modality gate** (`[hyperia] speak_gate`, on by default). Before anything is spoken, an Ollaya choice question ("How should this message reach the operator?") returns probabilities for `write`, `speak` and `both`:
+- If P(speak) + P(both) ≥ `speak_gate_threshold` (0.5), the higher of speak and both wins.
+- Otherwise, or if the gate abstains or the sidecar is unreachable, the result is **write**: nothing is spoken and nothing is recorded, and the tool tells the model to put it in writing. Speaking interrupts and can't be taken back; writing is the reversible option (inbox/DECISION_DAG.md).
+- `speak`: the text is said aloud; the model keeps its written reply to what it said.
+- `both`: the text is said aloud, and the model also gives its full written reply.
+
+**Records:** each spoken summary becomes an experience row ("I said aloud: …", channel `spoken`, tags `mode` and `via: hyperia`). The tool result carries the gate's probabilities. Hyperia keeps no transcript itself.
+
+Returns:
+- spoken: `{ok: true, queued, mode, gate, memory_id, note}`;
+- declined by the gate: `{ok: false, mode: "write", gate, note}`.
+
+Errors: not available (Hyperia not configured); text over the limit; interval or daily limit reached.

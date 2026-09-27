@@ -73,6 +73,8 @@ pub struct RuntimeConfig {
     pub embeddings: EmbeddingsConfig,
     /// Waking recall policy (R2b): dense arm sizes and faded memories.
     pub recall: RecallConfig,
+    /// Hyperia (messaging and spoken summaries on the operator's desktop). Off by default.
+    pub hyperia: HyperiaConfig,
     /// How the agent names its operator in conversation memories
     /// ("<operator_name> said: ..."). Persona-neutral default.
     pub operator_name: String,
@@ -197,6 +199,7 @@ impl Default for RuntimeConfig {
             life: LifeConfig::default(),
             embeddings: EmbeddingsConfig::default(),
             recall: RecallConfig::default(),
+            hyperia: HyperiaConfig::default(),
             operator_name: "The operator".into(),
         }
     }
@@ -492,6 +495,52 @@ impl EmbeddingsConfig {
             bail!("embeddings.timeout_secs must be in 1..=600");
         }
         Ok(())
+    }
+}
+
+/// `[hyperia]`: the agent on Hyperia (inbox/HYPERIA_COMMS.md). The agent's
+/// `hyp_agent_` token comes from `HYPERIA_TOKEN` (delivered as
+/// `HYPERIA_TOKEN_FILE` by the entrypoint), never from this file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HyperiaConfig {
+    pub enabled: bool,
+    /// Hyperia sidecar base URL (from a container: host.docker.internal).
+    pub url: String,
+    /// Spoken summaries (`POST /api/tts`) play aloud on the operator's
+    /// desktop, can't be interrupted and ignore do-not-disturb, so they
+    /// are capped hard.
+    pub speak_enabled: bool,
+    pub speak_max_chars: usize,
+    /// Minimum seconds between two spoken summaries.
+    pub speak_min_interval_secs: u64,
+    /// Spoken summaries per rolling 24 hours.
+    pub speak_max_per_day: usize,
+    /// Kokoro/ElevenLabs voice (e.g. "am_adam"); none = Hyperia's stable
+    /// per-caller voice.
+    pub voice: Option<String>,
+    pub speed: Option<f32>,
+    /// Modality gate (Ollaya, `[life] ollaya_url`): decides write / speak /
+    /// both before anything is said aloud. Speaks only when P(speak) +
+    /// P(both) >= `speak_gate_threshold`; unsure or unreachable means write.
+    pub speak_gate: bool,
+    pub speak_gate_threshold: f32,
+}
+
+impl Default for HyperiaConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            url: "http://host.docker.internal:9800".into(),
+            speak_enabled: true,
+            speak_max_chars: 300,
+            speak_min_interval_secs: 300,
+            speak_max_per_day: 20,
+            voice: None,
+            speed: None,
+            speak_gate: true,
+            speak_gate_threshold: 0.5,
+        }
     }
 }
 

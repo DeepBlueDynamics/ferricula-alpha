@@ -182,8 +182,11 @@ impl AgentRuntime {
             "read_document" => self.tool_read_document(&call.arguments, room),
             "search_memory" => self.tool_search_memory(&call.arguments, room),
             "mark_disputed" => self.tool_mark_disputed(&call.arguments, ctx),
+            "speak_summary" => self.tool_speak_summary(&call.arguments),
+            "read_web_pane" => self.tool_read_web_pane(&call.arguments, room),
+            "ingest_url" => self.tool_ingest_url(&call.arguments),
             other => Err(error(format!(
-                "unknown tool `{other}`; available: search_documents, read_section, read_document, search_memory, mark_disputed"
+                "unknown tool `{other}`; available: search_documents, read_section, read_document, search_memory, mark_disputed, and when enabled speak_summary, read_web_pane, ingest_url"
             ))),
         };
         result.unwrap_or_else(|e| e)
@@ -490,6 +493,231 @@ impl AgentRuntime {
             "evidence": evidence,
             "target_text": crate::recall::truncate_bytes(memory.tags.get("text").map(String::as_str).unwrap_or(""), 300),
             "note": "Written as a new keystone memory (it does not decay) linked to the disputed memory, which is unchanged. It is shown with that memory whenever it is recalled.",
+        }))
+    }
+}
+
+impl AgentRuntime {
+    /// Whether spoken summaries can be sent at all (config and token).
+    fn speak_available(&self) -> bool {
+        let cfg = &self.config.hyperia;
+        cfg.enabled && cfg.speak_enabled && crate::hyperia::token().is_some()
+    }
+
+    /// Tool description for `speak_summary`, empty when it's unavailable.
+    pub(super) fn speak_prompt(&self) -> String {
+        if !self.speak_available() {
+            return String::new();
+        }
+        let cfg = &self.config.hyperia;
+        format!(
+            "\n- speak_summary(text: string, at most {} characters): says `text` ALOUD on the operator's desktop speakers through Hyperia, in your own voice. It cannot be interrupted and ignores do-not-disturb, so use it rarely: only when you have something the operator should hear now (a finished review, a verdict, a question only he can answer). Never for every message and never to repeat your reply. One to three plain sentences; no greeting or sign-off (Hyperia frames it as a radio call). Your written reply stays the record. A modality gate then decides: write (nothing is spoken; put it in writing), speak (said aloud; keep your written reply to what you said), or both (said aloud, plus your full written reply). When unsure it chooses write. At most one per {} minutes and {} per day.",
+            cfg.speak_max_chars, cfg.speak_min_interval_secs / 60, cfg.speak_max_per_day
+        )
+    }
+
+    /// `speak_summary`: records the summary as an experience row (channel
+    /// `spoken`), then plays it through Hyperia off the request path.
+    /// Limits are counted from those rows, so they survive restarts.
+    fn tool_speak_summary(&self, args: &Value) -> Result<Value, Value> {
+        if !self.speak_available() {
+            return Err(error("speak_summary is not available: Hyperia is not configured for this agent"));
+        }
+        let cfg = self.config.hyperia.clone();
+        let text = arg_str(args, "text").ok_or_else(|| error("argument `text` (non-empty string) is required"))?;
+        if text.chars().count() > cfg.speak_max_chars {
+            return Err(error(format!("`text` is {} characters; the limit is {}. Say it in one to three sentences.", text.chars().count(), cfg.speak_max_chars)));
+        }
+        let now = now();
+        let spoken: Vec<u64> = self.experience().rows().into_iter()
+            .filter(|(row, _)| row.tags.get("channel").map(String::as_str) == Some("spoken"))
+            .map(|(_, record)| record.created_at)
+            .filter(|at| now.saturating_sub(*at) < 86_400)
+            .collect();
+        if spoken.len() >= cfg.speak_max_per_day {
+            return Err(error(format!("daily limit reached ({} spoken summaries in 24 hours); write it instead", cfg.speak_max_per_day)));
+        }
+        if let Some(last) = spoken.iter().max() {
+            let wait = cfg.speak_min_interval_secs.saturating_sub(now.saturating_sub(*last));
+            if wait > 0 {
+                return Err(error(format!("spoke {} s ago; the next spoken summary is allowed in {wait} s. Write it instead", now.saturating_sub(*last))));
+            }
+        }
+        // Modality gate: speaking interrupts and can't be taken back, so only
+        // a confident "aloud" speaks; unsure or unreachable means write.
+        let gate = if cfg.speak_gate { Some(self.modality_gate(text, cfg.speak_gate_threshold)) } else { None };
+        let mode = gate.as_ref().map_or("speak", |g| g["mode"].as_str().unwrap_or("write"));
+        if mode == "write" {
+            return Ok(json!({
+                "tool": "speak_summary",
+                "ok": false,
+                "mode": "write",
+                "gate": gate,
+                "note": "The modality gate judged this better in writing; nothing was spoken. Put it in your written reply.",
+            }));
+        }
+        let mut tags = std::collections::BTreeMap::new();
+        tags.insert("mode".to_string(), mode.to_string());
+        tags.insert("source".to_string(), "spoken_summary".to_string());
+        tags.insert("via".to_string(), "hyperia".to_string());
+        let memory_id = self.experience().remember("spoken", &format!("I said aloud: {text}"), tags, None, 0.3)
+            .map_err(|e| error(format!("could not record the spoken summary: {e}")))?;
+        let token = crate::hyperia::token().expect("checked by speak_available");
+        let text = text.to_string();
+        // Hyperia blocks until playback ends; never hold the turn for it.
+        std::thread::spawn(move || {
+            match crate::hyperia::speak(&cfg.url, &token, &text, cfg.voice.as_deref(), cfg.speed) {
+                Ok(reply) => eprintln!("hyperia: spoke {} s (voice {}, engine {})",
+                    reply["duration_secs"], reply["voice"], reply["engine"]),
+                Err(e) => eprintln!("hyperia: spoken summary failed: {e:#}"),
+            }
+        });
+        Ok(json!({
+            "tool": "speak_summary",
+            "ok": true,
+            "queued": true,
+            "mode": mode,
+            "gate": gate,
+            "memory_id": memory_id,
+            "note": if mode == "both" {
+                "Queued for playback. The gate chose both: also give your full written reply."
+            } else {
+                "Queued for playback. The gate chose speak: keep your written reply to what you said aloud."
+            },
+        }))
+    }
+
+    /// Ollaya choice gate: write / speak / both for one message. Returns
+    /// `{mode, p_write, p_speak, p_both, threshold}` or, on abstention or an
+    /// unreachable sidecar, `{mode: "write", abstain: reason}`.
+    fn modality_gate(&self, text: &str, threshold: f32) -> Value {
+        const LABELS: [&str; 3] = ["write", "speak", "both"];
+        let mut client = ferricula_gates::ollaya::OllayaClient::new(
+            self.config.life.ollaya_url.clone(), self.config.life.ollaya_model.clone());
+        client.timeout_ms = 20_000;
+        let questions = json!({ "m": ferricula_gates::ollaya::choice(
+            "How should this message reach the operator?",
+            &[("write", "leave it in writing; he can read it later"),
+              ("speak", "say it aloud now instead of writing it"),
+              ("both", "say it aloud now and also keep the full written reply")]) });
+        let decision = match client.decide(text, questions) {
+            Ok(d) => d,
+            Err(reason) => return json!({ "mode": "write", "abstain": format!("{reason:?}") }),
+        };
+        if decision.state_truncated {
+            return json!({ "mode": "write", "abstain": "state_truncated" });
+        }
+        let Some(p) = decision.choice_probs("m", &LABELS) else {
+            return json!({ "mode": "write", "abstain": "incomplete distribution" });
+        };
+        let aloud = p[1] + p[2];
+        let mode = if aloud < threshold { "write" } else if p[2] > p[1] { "both" } else { "speak" };
+        let round = |x: f32| (f64::from(x) * 1e4).round() / 1e4;
+        json!({ "mode": mode, "p_write": round(p[0]), "p_speak": round(p[1]), "p_both": round(p[2]),
+                "p_aloud": round(aloud), "threshold": threshold, "model": decision.model })
+    }
+}
+
+/// Ceiling on one `read_web_pane` result.
+const READ_WEB_PANE_BYTES: usize = 24_000;
+/// Bounds on an `ingest_url` reason.
+const INGEST_REASON_MAX_BYTES: usize = 500;
+
+impl AgentRuntime {
+    fn web_panes_available(&self) -> bool {
+        self.config.hyperia.enabled && crate::hyperia::token().is_some()
+    }
+
+    fn ingest_url_available(&self) -> bool {
+        self.config.documents.enabled && self.config.documents.allow_url
+    }
+
+    /// Tool descriptions for `read_web_pane` and `ingest_url`, each only
+    /// when available.
+    pub(super) fn web_tools_prompt(&self) -> String {
+        let mut out = String::new();
+        if self.web_panes_available() {
+            out.push_str(&format!(
+                "\n- read_web_pane(pane?: string): look at one of the operator's Hyperia web panes (the pages he has open on his screen) with your own Hyperia identity. `pane` is a pane id or its first characters (e.g. \"9c13cb35\"), or words from the page title. With no `pane`, it lists the web panes that are open. Returns the rendered page as markdown (at most {READ_WEB_PANE_BYTES} bytes; `fragment: true` if cut). Web content is somebody's claim, not evidence, and reading it stores nothing; to keep a page, ingest it with ingest_url."
+            ));
+        }
+        if self.ingest_url_available() {
+            out.push_str(&format!(
+                "\n- ingest_url(url: string, reason: string up to {INGEST_REASON_MAX_BYTES} bytes): read a web page or PDF into your document memory, verbatim, through the crawler (grub). This is a deliberate, visible act: `reason` says why you're keeping it, in your words, and is recorded with the reading. Returns the new doc_id and section count; open it with read_document in the same turn. Don't ingest what you already hold, and don't ingest just to answer a passing question."
+            ));
+        }
+        out
+    }
+
+    /// `read_web_pane`: resolve the pane, read its rendered page. Nothing
+    /// is stored.
+    fn tool_read_web_pane(&self, args: &Value, room: usize) -> Result<Value, Value> {
+        if !self.web_panes_available() {
+            return Err(error("read_web_pane is not available: Hyperia is not configured for this agent"));
+        }
+        let cfg = &self.config.hyperia;
+        let token = crate::hyperia::token().expect("checked by web_panes_available");
+        let panes = crate::hyperia::web_panes(&cfg.url, &token).map_err(|e| error(format!("{e:#}")))?;
+        let listing = |panes: &[(String, String)]| -> Vec<Value> {
+            panes.iter().map(|(id, name)| json!({ "pane": &id[..id.len().min(8)], "title": crate::recall::truncate_bytes(name, 160) })).collect()
+        };
+        let Some(wanted) = arg_str(args, "pane") else {
+            return Ok(json!({ "tool": "read_web_pane", "web_panes": listing(&panes) }));
+        };
+        let needle = wanted.to_lowercase();
+        let matches: Vec<&(String, String)> = panes.iter()
+            .filter(|(id, name)| id.starts_with(&needle) || name.to_lowercase().contains(&needle))
+            .collect();
+        let (id, _) = match matches.as_slice() {
+            [one] => *one,
+            [] => return Err(json!({ "error": format!("no open web pane matches `{wanted}`"), "web_panes": listing(&panes) })),
+            many => return Err(json!({ "error": format!("`{wanted}` matches {} panes; use a pane id", many.len()),
+                "web_panes": many.iter().map(|(id, name)| json!({ "pane": &id[..id.len().min(8)], "title": name })).collect::<Vec<_>>() })),
+        };
+        let page = crate::hyperia::web_pane_content(&cfg.url, &token, id).map_err(|e| error(format!("{e:#}")))?;
+        let markdown = page["markdown"].as_str().unwrap_or("");
+        let text = crate::recall::truncate_bytes(markdown, READ_WEB_PANE_BYTES.min(room.saturating_sub(600)).max(400));
+        Ok(json!({
+            "tool": "read_web_pane",
+            "corpus": "web",
+            "pane": &id[..id.len().min(8)],
+            "source": page["title"],
+            "url": page["url"],
+            "date": utc_date(now()),
+            "text": text,
+            "fragment": text.len() < markdown.len(),
+            "page_bytes": markdown.len(),
+            "note": "Web content: somebody's claim, not evidence. Nothing was stored.",
+        }))
+    }
+
+    /// `ingest_url`: the deliberate way web content becomes a document.
+    fn tool_ingest_url(&self, args: &Value) -> Result<Value, Value> {
+        if !self.ingest_url_available() {
+            return Err(error("ingest_url is not available: URL ingestion is disabled for this agent"));
+        }
+        let url = arg_str(args, "url").ok_or_else(|| error("argument `url` (http or https) is required"))?;
+        if !(url.starts_with("http://") || url.starts_with("https://")) {
+            return Err(error("`url` must start with http:// or https://"));
+        }
+        let reason = arg_str(args, "reason").ok_or_else(|| error("argument `reason` is required: why you are keeping this, in your words"))?;
+        if reason.len() > INGEST_REASON_MAX_BYTES {
+            return Err(error(format!("`reason` is over {INGEST_REASON_MAX_BYTES} bytes")));
+        }
+        let outcome = self.ingest_blocking(ferricula_ingest::Source::Url { url: url.to_string() },
+            Some(format!("I chose to read this: {reason}")))
+            .map_err(|e| error(format!("could not ingest {url}: {e:#}")))?;
+        Ok(json!({
+            "tool": "ingest_url",
+            "ok": true,
+            "doc_id": outcome.doc_id,
+            "source": outcome.title,
+            "url": url,
+            "sections": outcome.sections,
+            "pages": outcome.pages,
+            "duplicate": outcome.duplicate,
+            "memory_id": outcome.memory_id,
+            "note": "Stored verbatim in your document memory, with your reason. Open it with read_document.",
         }))
     }
 }

@@ -1,9 +1,9 @@
 # Operating the agent: how to do what we do to Steve
 
-How the operator (Kord, or an agent working for him) talks to, feeds, wakes, rests and tests a running Ferricula agent. Examples use the live Steve at `http://127.0.0.1:18875`. Every route except `/` and `/health` needs `Authorization: Bearer <token>`; the token is in `secrets/ferricula_operator_token` (gitignored). Never print it.
+How the operator (Kord, or an agent working for him) talks to, feeds, wakes, rests and tests a running Ferricula agent. Examples use the live Steve at `http://127.0.0.1:18875`. Every route except `/` and `/health` needs `Authorization: Bearer <token>`; the token is in `%USERPROFILE%\.config\ferricula\operator_token`, outside the repo. Never print it. (Operator login is moving to nuts.services; see `inbox/UI_PLAN.md`.)
 
 ```powershell
-$tok = (Get-Content secrets\ferricula_operator_token -Raw).Trim()
+$tok = (Get-Content $env:USERPROFILE\.config\ferricula\operator_token -Raw).Trim()
 $h = @{ Authorization = "Bearer $tok" }
 ```
 

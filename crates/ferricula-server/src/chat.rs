@@ -234,7 +234,7 @@ impl AgentRuntime {
             A candidate whose `state` is forgiven or archived is a faded memory: still yours, held less firmly. A candidate with `verdicts` is one you have judged before (disputed, or superseded by evidence): when you use it, say so and give the verdict its weight. \
             Candidates with source `conversation` are what your operator told you (channel hearing) or what you answered (channel thinking) in earlier conversations; you may rely on them as what was said, not as proof it is true. \
             For episode reports, cite [episode event_id] and distinguish the attributed report from its current interpretation. Conversation history records what was said, not proof that it is true.\nRecovered metadata: {}\nEpisode candidates (whole records, omitted_count disclosed): {}\nBefore answering, check these evidence rules: an unresolved report with no supported interpretation establishes NO cause and excludes NO candidate cause. An object not named in that report is not thereby ruled out. A not_seen_in_scope result says only that the target was not seen in the named scope at that time; it cannot establish that the target was absent elsewhere, or that it did not cause an earlier event. If a later missing-object goal could fit an unexplained earlier event, offer that connection explicitly as a possibility to investigate. Do not assert the connection is true or false without evidence. State the retained observation, a possible connection, what remains unknown, and a next check outside any already inspected scope. Do not repeat an unsupported exclusion from earlier assistant messages.",
-            format!("{}{}", truncate(&self.persona.raw, 1000), chat_tools::tools_prompt(chat_tools::MAX_TOOL_CALLS)), metadata, episode_context
+            format!("{}{}", truncate(&self.persona.raw, 1000), chat_tools::tools_prompt(chat_tools::MAX_TOOL_CALLS) + &self.speak_prompt() + &self.web_tools_prompt()), metadata, episode_context
         );
         let base_system = if dreams.is_empty() {
             base_system
@@ -773,6 +773,157 @@ mod tests {
         assert!(rounds[2].contains(&format!("[doc {doc_id}§0]")));
         assert!(rounds[2].contains("\"corpus\":\"document\""));
         drop(rounds);
+        drop(runtime);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// Tiny HTTP stub: answers every request with `reply` (JSON) and sends
+    /// each raw request (head + body) down the channel.
+    fn stub_server(reply: String) -> (String, std::sync::mpsc::Receiver<String>) {
+        use std::io::{BufRead, BufReader, Read, Write as _};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let (mut head, mut length) = (String::new(), 0usize);
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 { break; }
+                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        length = v.trim().parse().unwrap_or(0);
+                    }
+                    head.push_str(&line);
+                    if line == "\r\n" { break; }
+                }
+                let mut body = vec![0; length];
+                let _ = reader.read_exact(&mut body);
+                let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}", reply.len());
+                let _ = tx.send(format!("{head}{}", String::from_utf8_lossy(&body)));
+            }
+        });
+        (url, rx)
+    }
+
+    fn speak_runtime(hyperia_url: &str, ollaya_url: &str) -> (Arc<AgentRuntime>, PathBuf) {
+        // SAFETY: tests in this crate never read HYPERIA_TOKEN concurrently.
+        unsafe { std::env::set_var(crate::hyperia::TOKEN_ENV, "hyp_agent_test") };
+        let root = std::env::temp_dir().join(format!("ferricula-speak-{}", Uuid::new_v4()));
+        let memory = root.join("memory");
+        fs::create_dir_all(&memory).unwrap();
+        fs::write(memory.join("identity.json"), r#"{"agent_id":"ferricula-agent","name":"T"}"#).unwrap();
+        let mut config = crate::config::RuntimeConfig::default();
+        config.memory_dir = memory.clone();
+        config.state_dir = root.join("state");
+        config.overlay.path = config.state_dir.join("overlay.json");
+        config.schedule.enabled = false;
+        config.hyperia.enabled = true;
+        config.hyperia.url = hyperia_url.into();
+        config.hyperia.voice = Some("am_adam".into());
+        config.life.ollaya_url = ollaya_url.into();
+        (AgentRuntime::open(config, crate::inspect_data_dir(&memory).unwrap()).unwrap(), root)
+    }
+
+    fn speak(runtime: &AgentRuntime, text: &str) -> Value {
+        runtime.run_chat_tool(
+            &chat_tools::ToolCall { name: "speak_summary".into(), arguments: json!({ "text": text }), parse_error: None },
+            100_000, &chat_tools::ToolContext { seen_docs: &Default::default(), conversation_id: Uuid::new_v4(), request_id: Uuid::new_v4() })
+    }
+
+    fn ollaya_reply(write: f32, speak: f32, both: f32) -> String {
+        json!({ "model": "laya", "answers": { "m": { "type": "choice", "choice": "write",
+            "probabilities": { "write": write, "speak": speak, "both": both } } } }).to_string()
+    }
+
+    #[test]
+    fn speak_summary_passes_the_gate_posts_to_hyperia_and_is_rate_limited() {
+        let (hyperia, heard) = stub_server(r#"{"ok":true,"duration_secs":2.1,"spoken":"x","voice":"am_adam","engine":"kokoro"}"#.into());
+        // P(aloud) = 0.33 + 0.22 = 0.55 >= 0.5, speak > both: "speak".
+        let (ollaya, judged) = stub_server(ollaya_reply(0.45, 0.33, 0.22));
+        let (runtime, root) = speak_runtime(&hyperia, &ollaya);
+        assert!(runtime.speak_prompt().contains("modality gate"));
+
+        assert!(speak(&runtime, &"x".repeat(301))["error"].as_str().unwrap().contains("limit is 300"));
+        let ok = speak(&runtime, "The review of WP-D is done: ship it.");
+        assert_eq!(ok["ok"], true, "{ok}");
+        assert_eq!(ok["mode"], "speak");
+        assert!(judged.recv_timeout(std::time::Duration::from_secs(10)).unwrap().contains("/api/decide"));
+        let request = heard.recv_timeout(std::time::Duration::from_secs(10)).expect("Hyperia called");
+        assert!(request.starts_with("POST /api/tts"));
+        assert!(request.to_ascii_lowercase().contains("authorization: bearer hyp_agent_test"));
+        assert!(request.contains(r#""text":"The review of WP-D is done: ship it.""#) && request.contains(r#""voice":"am_adam""#));
+        assert!(runtime.experience().rows().iter().any(|(r, _)|
+            r.tags.get("channel").map(String::as_str) == Some("spoken") && r.tags.get("mode").map(String::as_str) == Some("speak")));
+        assert!(speak(&runtime, "Again.")["error"].as_str().unwrap().contains("next spoken summary is allowed"));
+        drop(runtime);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn speak_gate_writes_when_unsure_or_unreachable() {
+        let (hyperia, heard) = stub_server(r#"{"ok":true}"#.into());
+        // P(aloud) = 0.47 < 0.5: write, nothing spoken, nothing recorded.
+        let (ollaya, _judged) = stub_server(ollaya_reply(0.53, 0.32, 0.15));
+        let (runtime, root) = speak_runtime(&hyperia, &ollaya);
+        let out = speak(&runtime, "Thirty items with notes on each.");
+        assert_eq!(out["ok"], false);
+        assert_eq!(out["mode"], "write");
+        assert_eq!(out["gate"]["p_aloud"], 0.47);
+        assert!(heard.recv_timeout(std::time::Duration::from_millis(500)).is_err(), "nothing spoken");
+        assert!(!runtime.experience().rows().iter().any(|(r, _)| r.tags.get("channel").map(String::as_str) == Some("spoken")));
+        drop(runtime);
+        let _ = fs::remove_dir_all(&root);
+
+        // Sidecar down: abstain, write.
+        let (runtime, root) = speak_runtime(&hyperia, "http://127.0.0.1:9");
+        let out = speak(&runtime, "Anything.");
+        assert_eq!(out["mode"], "write");
+        assert!(out["gate"]["abstain"].is_string());
+        drop(runtime);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn read_web_pane_lists_resolves_and_reads_without_storing() {
+        // One stub answers both /api/status and /api/web-pane/content.
+        let reply = json!({
+            "windows": [{ "tabs": [{ "panes": [
+                { "kind": "web", "paneId": "9c13cb35-8de0-45ef-a19b-d66dc04b969d", "title": "SNL Weekend Update | Hacker News" },
+                { "kind": "terminal", "paneId": "aaaa0000-0000-0000-0000-000000000000", "title": "shell" }] }] }],
+            "success": true, "url": "https://news.ycombinator.com/item?id=1", "title": "SNL Weekend Update | Hacker News",
+            "markdown": "# SNL Weekend Update\nComments here." }).to_string();
+        let (hyperia, requests) = stub_server(reply);
+        let (runtime, root) = speak_runtime(&hyperia, "http://127.0.0.1:9");
+        let call = |args: Value| runtime.run_chat_tool(
+            &chat_tools::ToolCall { name: "read_web_pane".into(), arguments: args, parse_error: None },
+            100_000, &chat_tools::ToolContext { seen_docs: &Default::default(), conversation_id: Uuid::new_v4(), request_id: Uuid::new_v4() });
+        let listed = call(json!({}));
+        assert_eq!(listed["web_panes"].as_array().unwrap().len(), 1, "{listed}");
+        assert_eq!(listed["web_panes"][0]["pane"], "9c13cb35");
+        let rows_before = runtime.experience().len();
+        let page = call(json!({ "pane": "snl weekend" }));
+        assert_eq!(page["corpus"], "web", "{page}");
+        assert!(page["text"].as_str().unwrap().contains("Comments here."));
+        assert_eq!(page["fragment"], false);
+        assert_eq!(runtime.experience().len(), rows_before, "reading a pane stores nothing");
+        assert!(call(json!({ "pane": "nothing-like-this" }))["error"].as_str().unwrap().contains("no open web pane"));
+        let seen: Vec<String> = requests.try_iter().collect();
+        assert!(seen.iter().any(|r| r.starts_with("POST /api/web-pane/content?pane=9c13cb35-8de0")));
+        assert!(seen.iter().all(|r| r.to_ascii_lowercase().contains("authorization: bearer hyp_agent_test")));
+        drop(runtime);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn speak_gate_both_when_both_outweighs_speak() {
+        let (hyperia, _heard) = stub_server(r#"{"ok":true,"duration_secs":1.0}"#.into());
+        let (ollaya, _judged) = stub_server(ollaya_reply(0.2, 0.3, 0.5));
+        let (runtime, root) = speak_runtime(&hyperia, &ollaya);
+        let out = speak(&runtime, "Verdict written; details below.");
+        assert_eq!(out["mode"], "both", "{out}");
+        assert!(out["note"].as_str().unwrap().contains("full written reply"));
         drop(runtime);
         let _ = fs::remove_dir_all(root);
     }
