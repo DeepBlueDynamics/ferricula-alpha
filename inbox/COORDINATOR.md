@@ -85,7 +85,7 @@ Open questions: <numbered; each says what the agent assumed meanwhile>
 | WP-P plan directory | ready (after K1, K6) | — | — | — |
 | WP-J live fixes | ready | — | — | — |
 | WP-D decision DAG | ready | — | — | — |
-| WP-U1 UI phase 1 | login lane ACCEPTED at 1061003 (Steve: ship it); page lane in progress; assigned 2026-09-27 via Hyperia (lead Smooth Vicuna; login Binding Panda; page Cheerful Bison; check Local Mite) | v3/wp-u1-<lane> from 7708a1d | nemesis8 fleet | — |
+| WP-U1 UI phase 1 | MERGED into v3/r0 at 5640c93 (login 1061003 + page 1635eff; Steve: ship it on both); live at /talk | v3/wp-u1-<lane> from 7708a1d | nemesis8 fleet | — |
 | WP-B benchmarks | ready (per B-id) | — | — | — |
 | WP-R paper | ready (after WP-P, or in `paper/` now) | — | — | — |
 | WP-G JEV and X9 | blocked on K2 and WP-J | — | — | — |
