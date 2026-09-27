@@ -105,13 +105,18 @@ Protocol and harness: `crates/ferricula-bench`, ledger `audit/bench/ledger.jsonl
 
 | Suite | Metric | Result | Ledger row |
 |---|---|---|---|
-| Gate calibration (Ollaya `laya`) | ECE, accuracy on answered, abstain rate, p50 latency | | |
-| Document memory, verbatim queries | recall@1 / @5, MRR, exact-quote check | | |
-| Document memory, partial queries | recall@1 / @5, MRR | | |
+| Gate calibration, vedanā (Ollaya `laya`, EN/ZH/Pāli pooled, held-out n=73) | acc on answered · abstain · ECE | 0.444 · 13.7% · 0.283 (**fails** 0.05 target) | `69e4b846` |
+| Gate calibration, saññā 6-way (held-out n=56) | acc on answered · abstain · ECE | 0.455 · 21.4% · 0.147 (**fails**) | `69e4b846` |
+| Judge yes/no, sycophancy framing (held-out n=36) | acc · ECE | 0.778 · 0.195 (**fails**) | `69e4b846` |
+| Judge latency (RTX 3060, warm) | per decision | ≈10–18 ms | `69e4b846` |
+| Document memory, verbatim queries (58 docs, 1,037 sections, n=200) | R@1 · R@5 · MRR@10 · exact-quote | 0.945 · 1.000 · 0.970 · 1037/1037 sections byte-identical | `8f8bcfcf` |
+| Document memory, partial queries (40% words dropped, n=200) | R@1 · R@5 · MRR@10 | 0.850 · 0.945 · 0.892 | `8f8bcfcf` |
 | Long-term conversational memory (LongMemEval EN) | accuracy vs no-memory and BM25-RAG baselines | | |
 | Lifecycle invariants (30/365 nights) | store never shrinks; releases only by decision | | |
 | Drift ablation (monitors off) | valence skew, max chain depth, return-to-object | | |
 | Drives soak (72 h) | curiosity yield, cost/day, wake latency | | |
+
+**Reading the first numbers.** The evidence plane does what it claims: stored text is byte-identical to its source and findable from a sentence or a damaged sentence in under a millisecond. These are findability numbers, not question answering; paraphrase and LongMemEval arms are pending. The judges are *not* calibrated out of the box: an off-the-shelf decision model scores well below the 0.05 ECE bar on these gates, and Pāli is near chance. That is exactly why the lifecycle rule exists: until a gate is calibrated on its own labels, its probabilities are advisory and cannot merge, release or pool anything. The gate label sets are small (20–40 rows per dataset), self-authored, and the ZH/Pāli sets are translations of the English ones; they are a smoke test for the harness, not a benchmark of Ollaya.
 
 ## 6. Limitations
 
