@@ -376,14 +376,14 @@ pub fn run(ctx: &RunContext, args: &DocsArgs) -> Result<()> {
 
 /// Embed every section through shivvr into a sections-only meaning index.
 fn build_dense(url: &str, sections: &[(String, u32, String)]) -> Result<(ShivvrEmbedder, MeaningIndex, f64)> {
-    let embedder = ShivvrEmbedder::new(url, "gtr-t5-base@768", Duration::from_secs(120), 32)?;
+    let embedder = ShivvrEmbedder::new(url, "gtr-t5-base@768", Duration::from_secs(300), 8)?;
     let mut index = MeaningIndex::new(embedder.space(), embedder.dim(), None);
     index.set_catalog(MeaningSet::Section, sections.iter()
         .filter(|(_, _, t)| !t.trim().is_empty())
         .map(|(d, i, t)| CatalogItem::section(d, *i, t)).collect());
     let pending = index.pending(&[MeaningSet::Section]);
     let t0 = Instant::now();
-    for chunk in pending.chunks(32) {
+    for chunk in pending.chunks(8) {
         let texts: Vec<&str> = chunk.iter().map(|i| i.text.as_str()).collect();
         for (item, v) in chunk.iter().zip(embedder.embed(&texts)?) {
             index.insert(item, v)?;
