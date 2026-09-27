@@ -31,7 +31,7 @@ An agent that has a memory and a life. It takes in experience through **sense do
 | R1 | ✅ ingest (text/URL/PDF) → evidence plane + experience store; hybrid RRF recall; `/documents` routes; `ferricula_ingest`/`_documents`/`_read_section` MCP tools; live-verified on Steve's memory with the MemGPT paper. Gaps: no dense arm, no fsync, notes on duplicate ingests dropped. |
 | R2b | ☐ meaning in the loop: embeddings through the gates, recall, drives and dreams — see docs/EMBEDDINGS_PLAN.md |
 | R2 | ◐ Ollaya sidecar running; gate backends + `yes_no` judge; calibration measured (not passing). Vīthi pipeline not yet wired per input. |
-| R3 | ◐ drives core (`life.rs`) + entropy source done; runtime wiring in progress. |
+| R3 | ◐ drives wired into the runtime: `[life]` config, life loop (curiosity → grub search → ingest → reflection; sleep → scratch bhāvanā → dream → wake), `/life` routes, `ferricula_life` tool, journal under `state_dir/life/`. Open: 72-hour soak; bhāvanā commits nothing to the store yet (scratch copy). |
 | R4 | ◐ `ferricula-bench`: docs (verbatim/partial/paraphrase) and gates suites run; LongMemEval skeleton. |
 | R5 | ◐ `paper/WHITEPAPER.md` with first results. |
 

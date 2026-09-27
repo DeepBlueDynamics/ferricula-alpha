@@ -18,6 +18,7 @@ ferricula-core = { path = "../ferricula-core" }
 ferricula-cognition = { path = "../ferricula-cognition" }
 ferricula-episode = { path = "../ferricula-episode" }
 ferricula-ingest = { path = "../ferricula-ingest" }
+ferricula-gates = { path = "../ferricula-gates" }
 base64 = "0.22"
 
 [dev-dependencies]

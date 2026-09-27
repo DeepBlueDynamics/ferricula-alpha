@@ -227,7 +227,11 @@ pub fn step(d: &mut Drives, cfg: &DriveConfig, stimulus: &Stimulus, now: u64) ->
     }
 
     match d.phase {
-        Phase::Asleep if d.sleep_pressure < cfg.rested_below && d.dreamed_this_sleep => {
+        // Without dreaming configured, rest alone ends sleep.
+        Phase::Asleep
+            if d.sleep_pressure < cfg.rested_below
+                && (d.dreamed_this_sleep || !cfg.dream_on_sleep) =>
+        {
             d.phase = Phase::Resting;
             d.boredom = 0.0;
             urges.push(Urge::Wake { reason: WakeReason::Rested });
@@ -460,6 +464,17 @@ mod tests {
         let urges = step(&mut d, &cfg, &Stimulus::Operator { novelty: 0.5 }, T0 + 1);
         assert_eq!(urges, vec![Urge::Wake { reason: WakeReason::Operator }]);
         assert_eq!(d.phase, Phase::Engaged);
+    }
+
+    #[test]
+    fn without_dreams_rest_alone_wakes() {
+        let cfg = DriveConfig { dream_on_sleep: false, ..DriveConfig::default() };
+        let mut d = Drives::new(T0);
+        d.phase = Phase::Asleep;
+        d.sleep_pressure = 0.5;
+        assert!(step(&mut d, &cfg, &Stimulus::Consolidated, T0).is_empty());
+        let urges = step(&mut d, &cfg, &Stimulus::Tick, T0 + 8 * 3600);
+        assert_eq!(urges, vec![Urge::Wake { reason: WakeReason::Rested }]);
     }
 
     #[test]

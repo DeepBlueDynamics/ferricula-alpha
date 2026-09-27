@@ -34,6 +34,7 @@ async fn main() -> Result<()> {
             let runtime = ferricula_server::runtime::AgentRuntime::open(config, inspection)?;
             tokio::spawn(runtime.clone().run_worker());
             tokio::spawn(runtime.clone().run_scheduler());
+            tokio::spawn(runtime.clone().run_life());
             let listener = tokio::net::TcpListener::bind(bind)
                 .await
                 .with_context(|| format!("failed to bind {bind}"))?;

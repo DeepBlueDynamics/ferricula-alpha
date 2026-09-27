@@ -69,6 +69,11 @@ pub fn router(runtime: Arc<AgentRuntime>) -> Router {
             post(overlay_approve_blocked),
         )
         .route("/models/status", get(model_status))
+        // R3 life: drives, journal, dreams; forced urges for testing.
+        .route("/life", get(life_status))
+        .route("/life/meditate", post(life_meditate))
+        .route("/life/end-meditation", post(life_end_meditation))
+        .route("/life/urge", post(life_urge))
         .route("/wisdom/preview", post(wisdom_preview))
         .with_state(runtime)
 }
@@ -146,9 +151,11 @@ async fn ingest_document(
         .map_err(|(status, error)| (status, Json(json!({ "error": error }))))?;
     let note = body.note;
     // Complete the ingest even if the HTTP client disconnects mid-fetch.
-    let outcome = tokio::spawn(async move { runtime.ingest(source, note).await })
+    let worker = runtime.clone();
+    let outcome = tokio::spawn(async move { worker.ingest(source, note).await })
         .await.map_err(internal)?
         .map_err(|error| (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": format!("{error:#}") }))))?;
+    runtime.life_sensed_document(outcome.duplicate);
     Ok(Json(serde_json::to_value(outcome).map_err(internal)?))
 }
 
@@ -561,6 +568,61 @@ async fn recall(
     // experience, section, and fused lists are additive fields.
     let recall = runtime.hybrid_recall(&request.query, limit);
     Ok(Json(serde_json::to_value(recall).map_err(internal)?))
+}
+
+// --- Life (R3) ---------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct LifeQuery {
+    #[serde(default = "default_life_journal")]
+    journal: usize,
+}
+
+fn default_life_journal() -> usize {
+    20
+}
+
+async fn life_status(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    axum::extract::Query(query): axum::extract::Query<LifeQuery>,
+) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    Ok(Json(runtime.life_status(query.journal.min(200))))
+}
+
+async fn life_meditate(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    let entry = runtime.life_meditate(true).map_err(conflict)?;
+    Ok(Json(entry))
+}
+
+async fn life_end_meditation(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    let entry = runtime.life_meditate(false).map_err(conflict)?;
+    Ok(Json(entry))
+}
+
+#[derive(Deserialize)]
+struct UrgeRequest {
+    urge: crate::runtime::LifeUrgeRequest,
+}
+
+async fn life_urge(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    Json(request): Json<UrgeRequest>,
+) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    // Runs to completion even if the HTTP client disconnects.
+    let urge = request.urge;
+    let entries = tokio::spawn(async move { runtime.life_force(urge).await })
+        .await.map_err(internal)?.map_err(conflict)?;
+    Ok(Json(json!({ "urge": urge, "journal": entries })))
+}
+
+fn conflict(error: impl std::fmt::Display) -> ApiError {
+    (StatusCode::CONFLICT, Json(json!({ "error": error.to_string() })))
 }
 
 async fn model_status(

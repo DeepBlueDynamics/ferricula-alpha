@@ -88,3 +88,19 @@ enabled = true
 grub_base_url = "http://host.docker.internal:6792"
 max_bytes = 33554432
 allow_url = true
+
+[life]
+# Steve has a life between conversations (R3): he gets bored, follows his
+# curiosity to the web (through grub), reads, reflects, sleeps, dreams, and
+# wakes when rested or when the operator speaks. Paused mode stops it all.
+enabled = true
+tick_secs = 60
+# Physical entropy from the SDR radio; the OS RNG when it is unreachable.
+radio_url = "https://sdrrand.nuts.services"
+ollaya_url = "http://host.docker.internal:11435"
+ollaya_model = "laya"
+search_url_template = "https://html.duckduckgo.com/html/?q={q}"
+max_pages_per_curiosity = 2
+max_model_calls_per_day = 40
+max_curiosity_per_day = 12
+curiosity_cooldown_min = 20

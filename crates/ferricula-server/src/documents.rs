@@ -134,6 +134,10 @@ impl AgentRuntime {
         self.documents.experience.recall_candidates(query, limit)
     }
 
+    pub(super) fn experience(&self) -> &ExperienceStore {
+        &self.documents.experience
+    }
+
     pub fn experience_len(&self) -> usize {
         self.documents.experience.len()
     }

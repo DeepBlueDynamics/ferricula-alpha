@@ -215,6 +215,41 @@ grub_base_url = "http://127.0.0.1:6792"
 max_bytes = 33554432
 allow_url = true
 
+[life]
+# Drives (R3): when nobody is talking, boredom rises and the agent follows
+# its curiosity (open threads from recent conversation first, then a memory
+# drawn by entropy): it searches through grub, reads (ingests) a few pages
+# and writes a short reflection. Work and waking time build sleep pressure;
+# sleep runs non-destructive consolidation and a dream (stored on the
+# `dream` channel, never used as evidence). The operator always wakes it.
+# Paused mode stops all of it. Journal and drives: state_dir/life/.
+enabled = false
+tick_secs = 60
+# Drive knobs (flattened; defaults shown).
+boredom_per_min = 0.0333
+boredom_threshold = 1.0
+novelty_relief = 0.8
+sleep_per_awake_min = 0.00104
+sleep_per_1k_tokens = 0.01
+sleep_threshold = 1.0
+sleep_recovery_per_min = 0.00278
+rested_below = 0.1
+max_curiosity_per_day = 12
+curiosity_cooldown_min = 20
+dream_on_sleep = true
+wake_on_dream_question = false
+# Entropy for curiosity and dreams: the SDR radio when reachable, OS RNG
+# otherwise; the source is recorded on every draw.
+# radio_url = "https://sdrrand.nuts.services"
+# Ollaya decision sidecar: advisory "worth researching?" gate.
+ollaya_url = "http://host.docker.internal:11435"
+ollaya_model = "laya"
+# Search page rendered through grub ([documents] grub_base_url).
+search_url_template = "https://html.duckduckgo.com/html/?q={q}"
+max_pages_per_curiosity = 2
+# Life's own daily model-call cap (the global max_model_usd_per_day applies too).
+max_model_calls_per_day = 40
+
 # Model routing defaults are supplied by ModelRoutingConfig when no [models]
 # table is present: mechanical work uses no model; scan/social/deliberation
 # prefer local Ollama (`gemma4:e2b`); Anthropic profiles exist as fallbacks for

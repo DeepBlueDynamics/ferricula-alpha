@@ -7,7 +7,8 @@
 //! Tools: `ferricula_status`, `ferricula_recall` (read-only hybrid recall
 //! with verbatim document sections), `ferricula_chat` (operator chat),
 //! `ferricula_ingest` (hand the agent a document), `ferricula_documents`
-//! (list read documents), `ferricula_read_section` (one verbatim section). The v2 names `steve_status`/`steve_recall`/`steve_chat`
+//! (list read documents), `ferricula_read_section` (one verbatim section),
+//! `ferricula_life` (drives, life journal, last dream; read-only). The v2 names `steve_status`/`steve_recall`/`steve_chat`
 //! are still accepted by `tools/call` as deprecated aliases for one release,
 //! but are not advertised in `tools/list`.
 //! Operator bearer auth required on `POST /mcp`. Damascus is not a launch blocker.
@@ -242,7 +243,7 @@ fn initialize_result(runtime: &AgentRuntime, _params: &Value) -> Result<Value, V
             "agent_id": runtime.inspection.agent_id
         },
         "instructions": format!(
-            "Ferricula MCP for {}. All tools require operator auth. ferricula_ingest hands the agent a document (text, url, or base64 PDF) to read; it is stored verbatim and the agent remembers reading it. ferricula_documents lists what it has read; ferricula_read_section returns one section's exact text. ferricula_recall is read-only hybrid recall: recovered memory and experience metadata plus verbatim document sections, fused by rank, each section with a [doc id§index p.page] citation. ferricula_chat sends one operator message through POST /chat and returns reply plus conversation_id; replies cite document sections they rely on. Damascus work-broker is not mounted.",
+            "Ferricula MCP for {}. All tools require operator auth. ferricula_ingest hands the agent a document (text, url, or base64 PDF) to read; it is stored verbatim and the agent remembers reading it. ferricula_documents lists what it has read; ferricula_read_section returns one section's exact text. ferricula_life shows the agent's life between conversations (drives, curiosity excursions, sleep, dreams). ferricula_recall is read-only hybrid recall: recovered memory and experience metadata plus verbatim document sections, fused by rank, each section with a [doc id§index p.page] citation. ferricula_chat sends one operator message through POST /chat and returns reply plus conversation_id; replies cite document sections they rely on. Damascus work-broker is not mounted.",
             server_title(runtime)
         )
     }))
@@ -369,6 +370,29 @@ fn tools_list() -> Value {
                 }
             },
             {
+                "name": "ferricula_life",
+                "description": "Read-only status of the agent's life between conversations: phase (resting/engaged/asleep/meditating), boredom, sleep_pressure, curiosity_today, life model calls today, the last journal entries (curiosity excursions with query, pages read and reflection; sleep; consolidation; dreams; wakes) and the last dream with its question. Dreams are labeled as dreams, never evidence.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "journal": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 200,
+                            "default": 20,
+                            "description": "Number of most recent journal entries to include"
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "annotations": {
+                    "readOnlyHint": true,
+                    "destructiveHint": false,
+                    "idempotentHint": true,
+                    "openWorldHint": false
+                }
+            },
+            {
                 "name": "ferricula_read_section",
                 "description": "Return one document section's exact text with its citation handle [doc id§index p.page].",
                 "inputSchema": {
@@ -425,7 +449,10 @@ async fn ferricula_ingest(runtime: &Arc<AgentRuntime>, arguments: &Value) -> Res
         Err((_, error)) => return Ok(tool_text(&json!({ "error": error }), true)),
     };
     match runtime.ingest(source, note).await {
-        Ok(outcome) => Ok(tool_text(&json!(outcome), false)),
+        Ok(outcome) => {
+            runtime.life_sensed_document(outcome.duplicate);
+            Ok(tool_text(&json!(outcome), false))
+        }
         Err(error) => Ok(tool_text(&json!({ "error": format!("{error:#}") }), true)),
     }
 }
@@ -470,6 +497,10 @@ async fn tools_call(runtime: &Arc<AgentRuntime>, params: &Value) -> Result<Value
         "ferricula_documents" => {
             let documents = runtime.documents();
             Ok(tool_text(&json!({ "documents": documents }), false))
+        }
+        "ferricula_life" => {
+            let journal = arguments.get("journal").and_then(Value::as_u64).unwrap_or(20).min(200) as usize;
+            Ok(tool_text(&runtime.life_status(journal), false))
         }
         "ferricula_read_section" => {
             let Some(doc_id) = arguments.get("doc_id").and_then(Value::as_str) else {
@@ -794,7 +825,7 @@ mod tests {
             .collect();
         assert_eq!(names, [
             "ferricula_status", "ferricula_recall", "ferricula_chat",
-            "ferricula_ingest", "ferricula_documents", "ferricula_read_section",
+            "ferricula_ingest", "ferricula_documents", "ferricula_life", "ferricula_read_section",
         ]);
 
         let unknown = post(

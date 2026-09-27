@@ -67,6 +67,97 @@ pub struct RuntimeConfig {
     /// Document sense door (R1): ingest text/URL/PDF into a verbatim
     /// document store and a writable experience store under `state_dir`.
     pub documents: DocumentsConfig,
+    /// Drives (R3): boredom, curiosity, sleep, dreams. Off by default.
+    pub life: LifeConfig,
+}
+
+/// `[life]`: the agent's own life between conversations. Drive knobs are
+/// flattened into the table (`boredom_per_min = 0.5`, ...). Paused mode
+/// overrides everything; every model call goes through the router with the
+/// global daily USD cap plus this section's own daily call cap.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LifeConfig {
+    pub enabled: bool,
+    /// Seconds between drive ticks.
+    pub tick_secs: u64,
+    #[serde(flatten)]
+    pub drives: ferricula_cognition::life::DriveConfig,
+    /// gnosis-radio / sdr-rand base URL for entropy; OS RNG when unset or down.
+    pub radio_url: Option<String>,
+    /// Ollaya decision sidecar (advisory "worth researching?" gate).
+    pub ollaya_url: String,
+    pub ollaya_model: String,
+    /// Search page fetched through grub `/api/markdown`; `{q}` is replaced
+    /// by the url-encoded query.
+    pub search_url_template: String,
+    /// Result pages read (ingested) per curiosity excursion.
+    pub max_pages_per_curiosity: usize,
+    /// Model calls life may make per UTC day (curiosity, reflection, dream).
+    pub max_model_calls_per_day: u32,
+}
+
+impl Default for LifeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            tick_secs: 60,
+            drives: ferricula_cognition::life::DriveConfig::default(),
+            radio_url: None,
+            ollaya_url: "http://127.0.0.1:11435".into(),
+            ollaya_model: "laya".into(),
+            search_url_template: "https://html.duckduckgo.com/html/?q={q}".into(),
+            max_pages_per_curiosity: 2,
+            max_model_calls_per_day: 40,
+        }
+    }
+}
+
+impl LifeConfig {
+    pub fn validate(&self) -> Result<()> {
+        if self.tick_secs == 0 || self.tick_secs > 3600 {
+            bail!("life.tick_secs must be in 1..=3600");
+        }
+        for (name, url) in [("life.ollaya_url", &self.ollaya_url), ("life.search_url_template", &self.search_url_template)] {
+            if !(url.starts_with("http://") || url.starts_with("https://")) || url.contains('@') {
+                bail!("{name} must be an http(s) URL without inline credentials");
+            }
+        }
+        if let Some(url) = &self.radio_url
+            && !url.trim().is_empty()
+            && !(url.starts_with("http://") || url.starts_with("https://"))
+        {
+            bail!("life.radio_url must be an http(s) URL");
+        }
+        if !self.search_url_template.contains("{q}") {
+            bail!("life.search_url_template must contain {{q}}");
+        }
+        if self.max_pages_per_curiosity > 10 {
+            bail!("life.max_pages_per_curiosity must be at most 10");
+        }
+        let d = &self.drives;
+        for (name, v) in [
+            ("boredom_per_min", d.boredom_per_min),
+            ("boredom_threshold", d.boredom_threshold),
+            ("novelty_relief", d.novelty_relief),
+            ("sleep_per_awake_min", d.sleep_per_awake_min),
+            ("sleep_per_1k_tokens", d.sleep_per_1k_tokens),
+            ("sleep_threshold", d.sleep_threshold),
+            ("sleep_recovery_per_min", d.sleep_recovery_per_min),
+            ("rested_below", d.rested_below),
+        ] {
+            if !v.is_finite() || v < 0.0 {
+                bail!("life.{name} must be a finite non-negative number");
+            }
+        }
+        if d.novelty_relief > 1.0 {
+            bail!("life.novelty_relief must be at most 1");
+        }
+        if d.rested_below >= d.sleep_threshold {
+            bail!("life.rested_below must be below life.sleep_threshold");
+        }
+        Ok(())
+    }
 }
 
 impl Default for RuntimeConfig {
@@ -96,6 +187,7 @@ impl Default for RuntimeConfig {
             emotion: EmotionConfig::default(),
             advocate: AdvocateConfig::default(),
             documents: DocumentsConfig::default(),
+            life: LifeConfig::default(),
         }
     }
 }
@@ -306,6 +398,7 @@ impl RuntimeConfig {
         self.documents
             .validate()
             .context("invalid [documents] configuration")?;
+        self.life.validate().context("invalid [life] configuration")?;
 
         Ok(())
     }
@@ -812,6 +905,47 @@ name = "Memory Bench"
         let mut bad = RuntimeConfig::default();
         bad.documents.max_bytes = 0;
         assert!(bad.validate().is_err());
+    }
+
+    #[test]
+    fn life_section_defaults_off_and_parses_flattened_drives() {
+        let config = RuntimeConfig::default();
+        assert!(!config.life.enabled);
+        assert_eq!(config.life.tick_secs, 60);
+        assert_eq!(config.life.max_pages_per_curiosity, 2);
+        assert_eq!(config.life.ollaya_model, "laya");
+        let parsed: RuntimeConfig = toml::from_str(
+            r#"
+            [life]
+            enabled = true
+            tick_secs = 15
+            boredom_per_min = 0.5
+            curiosity_cooldown_min = 1
+            sleep_per_1k_tokens = 0.2
+            sleep_recovery_per_min = 0.5
+            radio_url = "https://sdrrand.nuts.services"
+            max_model_calls_per_day = 12
+        "#,
+        )
+        .unwrap();
+        parsed.validate().unwrap();
+        assert!(parsed.life.enabled);
+        assert_eq!(parsed.life.tick_secs, 15);
+        assert_eq!(parsed.life.drives.boredom_per_min, 0.5);
+        assert_eq!(parsed.life.drives.curiosity_cooldown_min, 1);
+        assert_eq!(parsed.life.drives.boredom_threshold, 1.0);
+        assert_eq!(parsed.life.max_model_calls_per_day, 12);
+        let mut bad = RuntimeConfig::default();
+        bad.life.search_url_template = "https://x/?q=".into();
+        assert!(bad.validate().is_err());
+        let mut bad = RuntimeConfig::default();
+        bad.life.drives.rested_below = 2.0;
+        assert!(bad.validate().is_err());
+        let steve = RuntimeConfig::load(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/examples/steve/steve.toml"),
+        )
+        .unwrap();
+        assert!(steve.life.enabled);
     }
 
     #[test]
