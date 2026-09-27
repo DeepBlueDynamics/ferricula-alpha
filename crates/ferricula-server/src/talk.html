@@ -387,7 +387,7 @@ function renderInstruments() {
     if(call.arguments?.query)record.append(node('p',call.arguments.query));
     if(call.source)record.append(node('p',call.source));
     if(call.name==='read_web_pane')record.append(node('p',webStatus(turn,call,array(turn.tool_calls).indexOf(call)),'fine'));
-    else if(call.name==='ingest_url')record.append(node('p',call.error?'Nothing saved by this failed call':call.ok===true?'Kept as a document':'Retention not recorded','fine'));
+    else if(call.name==='ingest_url')record.append(node('p',call.error?'Keeping failed · check the recorded error':call.ok===true?'Kept as a document':'Retention not recorded','fine'));
     else if(['read_document','read_section','search_memory','search_documents'].includes(call.name))record.append(node('p','Read-only · nothing saved by this call','fine'));
     if(call.error)record.append(node('p',call.error,'error'));
     for(const cite of array(call.cites))record.append(node('p',cite,'mono'));
@@ -515,7 +515,7 @@ el('day-toggle').onclick = () => { renderDay(); el('day-dialog').showModal(); };
 el('close-day').onclick = () => el('day-dialog').close();
 el('settings-toggle').onclick = () => { el('settings').open = true; el('connection-dialog').showModal(); };
 el('close-settings').onclick = () => el('connection-dialog').close();
-el('instruments-toggle').onclick = () => setInstruments(el('instruments').hidden);
+el('instruments-toggle').onclick = () => { const open=el('instruments').hidden; setInstruments(open,open&&matchMedia('(max-width:760px)').matches); };
 setInstruments(matchMedia('(min-width:761px)').matches);
 el('date-line').textContent = new Date().toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'});
 for (const stage of ['contact','feeling-tone','recognition','investigate','judge','speech','registered']) {
