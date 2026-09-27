@@ -105,6 +105,7 @@ pub fn run(ctx: &RunContext, args: &GatesArgs) -> Result<()> {
         args.url, args.model));
     report.push_str("| dataset | gate | split | n | answered | abstain | acc (answered) | wrong | ECE | Brier (top) | Brier | lat mean / p50 / p95 ms |\n|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|\n");
     let mut notes = Vec::new();
+    let mut pooled: Vec<(&str, &str, String, Value, Vec<Item>)> = Vec::new();
 
     for path in &files {
         let name = path.file_stem().unwrap().to_string_lossy().to_string();
@@ -169,7 +170,50 @@ pub fn run(ctx: &RunContext, args: &GatesArgs) -> Result<()> {
                 "metrics": s,
             }))?;
         }
+        let lang = name.split('_').nth(1).unwrap_or("").split('.').next().unwrap_or("").to_string();
+        pooled.push((kind, gate, lang, json!({"path": display_path(path), "sha256": sha256_file(path)?, "rows": rows.len()}), items));
     }
+
+    // Pooled rows: per gate, and per gate x language. Individual sets are
+    // 20-40 rows; pooling is the only way to get n >= 100 for ECE.
+    report.push_str("\n## Pooled\n\n| gate | lang | split | datasets | n | answered | abstain | acc (answered) | wrong | ECE | Brier (top) | Brier |\n\
+        |---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n");
+    let mut groups: BTreeMap<(&str, String), Vec<usize>> = BTreeMap::new();
+    for (i, (kind, _, lang, _, _)) in pooled.iter().enumerate() {
+        groups.entry((*kind, "all".into())).or_default().push(i);
+        groups.entry((*kind, lang.clone())).or_default().push(i);
+    }
+    for ((kind, lang), idx) in &groups {
+        let gate = pooled[idx[0]].1;
+        let datasets: Vec<Value> = idx.iter().map(|&i| pooled[i].3.clone()).collect();
+        let all: Vec<&Item> = idx.iter().flat_map(|&i| pooled[i].4.iter()).collect();
+        for (split, subset) in [("all", all.clone()), ("held_out", all.iter().copied().filter(|i| i.held_out).collect::<Vec<_>>())] {
+            if subset.is_empty() {
+                continue;
+            }
+            let s = summarize(&subset, kind);
+            report.push_str(&format!(
+                "| {gate} | {lang} | {split} | {} | {} | {} | {} ({:.1}%) | {} | {} | {} | {} | {} |\n",
+                idx.len(), s["n"], s["answered"], s["abstained"], fmt_pct(&s["abstain_rate"]), fmt(&s["accuracy_answered"]), s["wrong"],
+                fmt(&s["ece"]), fmt(&s["brier_top"]), fmt(&s["brier"])));
+            ctx.append(json!({
+                "status": "ok",
+                "pooled": true,
+                "dataset": datasets,
+                "lang": lang,
+                "split": split,
+                "gate": gate,
+                "backend": { "kind": "ollaya", "url": args.url, "model_requested": args.model },
+                "ece_bins": ECE_BINS,
+                "ece_target": ECE_TARGET,
+                "calibration_authorized": false,
+                "n": s["n"].clone(),
+                "metrics": s,
+            }))?;
+        }
+    }
+    report.push_str("\nPer-dataset held-out splits are small (see n); the lane requires held-out n >= 20 before a held-out ECE counts, so per-dataset held-out ECE is shown for completeness only. \
+        With 15 bins, ECE on n < 100 is dominated by sampling noise.\n");
     report.push_str("\nAccuracy and ECE are on answered items only; abstentions are counted separately and never scored as wrong. \
         `Brier (top)` is (p_pred - correct)^2 and is available for every gate; `Brier` is the proper score where the full distribution is exposed \
         (multiclass for saññā, binary p(yes) for sycophancy; the vedanā gate exposes only the winning p).\n");
