@@ -662,7 +662,7 @@ impl AgentRuntime {
         }
         let episodes = ferricula_episode::EpisodeAdapter::open_in_state_dir(&config.state_dir)?;
         let chat = chat::ChatStore::open(&config.state_dir)?;
-        let documents = documents::DocumentPlane::open(&config.state_dir, memory.max_id())?;
+        let documents = documents::DocumentPlane::open(&config.state_dir, memory.ids())?;
         Ok(Arc::new(Self {
             chat,
             documents,

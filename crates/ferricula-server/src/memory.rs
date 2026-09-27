@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -56,6 +56,17 @@ impl MemoryRuntime {
     pub fn recall_candidates(&self, query: &str, limit: usize) -> Vec<MemoryHit> {
         let engine = self.engine.lock().expect("memory engine poisoned");
         lexical_hits(&engine, query, limit)
+    }
+
+    /// Every id present in the recovered base (rows or records).
+    pub fn ids(&self) -> HashSet<u32> {
+        let engine = self.engine.lock().expect("memory engine poisoned");
+        engine
+            .engine()
+            .rows_iter()
+            .map(|row| row.id)
+            .chain(engine.memory_store().all_records().iter().map(|r| r.id))
+            .collect()
     }
 
     /// Highest id present in the recovered base (rows or records), if any.
@@ -126,28 +137,30 @@ pub fn lexical_hits(engine: &DurableEngine, query: &str, limit: usize) -> Vec<Me
     hits
 }
 
-/// Experience ids live in the upper half of the u32 space. Recovered v1/v2
-/// memories were allocated from small sequential ids, so the two namespaces
-/// are disjoint by construction and an id alone says which plane it came
-/// from. If a recovered base ever reaches this range, allocation continues
-/// above its maximum instead (see [`allocate_experience_id`]).
+/// Experience ids are allocated upward from here. Recovered bases mix small
+/// sequential ids with hash-derived ids spread over the whole u32 range (the
+/// Steve recovery has ids from 501 to 4_292_676_937), so neither a reserved
+/// namespace nor "recovered max + 1" is safe. Allocation instead starts at
+/// this base and skips every id the (immutable) recovered base uses.
 pub const EXPERIENCE_ID_BASE: u32 = 0x8000_0000;
 
-/// Next experience id: at or above the namespace base, above every recovered
-/// id, above every id already in the experience store, and above the
-/// persisted high-water mark (so an id is never reused, even if its row were
-/// later removed).
+/// Next experience id: the smallest id that is >= EXPERIENCE_ID_BASE, above
+/// every id already in the experience store and the persisted high-water
+/// mark (ids are monotonic and never reused, even if a row were removed),
+/// and not used by the recovered base. The recovered base is read-only, so
+/// its id set is fixed for the life of the process and cannot collide later.
 pub fn allocate_experience_id(
-    recovered_max: Option<u32>,
+    recovered: &HashSet<u32>,
     experience_max: Option<u32>,
     high_water: Option<u32>,
 ) -> Result<u32> {
+    let exhausted = || anyhow::anyhow!("experience id space exhausted");
     let mut next = EXPERIENCE_ID_BASE;
-    for used in [recovered_max, experience_max, high_water].into_iter().flatten() {
-        let after = used
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("experience id space exhausted"))?;
-        next = next.max(after);
+    for used in [experience_max, high_water].into_iter().flatten() {
+        next = next.max(used.checked_add(1).ok_or_else(exhausted)?);
+    }
+    while recovered.contains(&next) {
+        next = next.checked_add(1).ok_or_else(exhausted)?;
     }
     Ok(next)
 }
@@ -162,7 +175,7 @@ pub struct ExperienceStore {
 struct ExperienceInner {
     engine: DurableEngine,
     high_water_path: PathBuf,
-    recovered_max: Option<u32>,
+    recovered_ids: HashSet<u32>,
     high_water: Option<u32>,
 }
 
@@ -180,7 +193,7 @@ pub struct ReadingEvent {
 }
 
 impl ExperienceStore {
-    pub fn open(dir: impl AsRef<Path>, recovered_max: Option<u32>) -> Result<Self> {
+    pub fn open(dir: impl AsRef<Path>, recovered_ids: HashSet<u32>) -> Result<Self> {
         let dir = dir.as_ref();
         let engine = DurableEngine::open(dir)?;
         let high_water_path = dir.join("id-high-water.json");
@@ -193,7 +206,7 @@ impl ExperienceStore {
             Err(error) => return Err(error.into()),
         };
         Ok(Self {
-            inner: Mutex::new(ExperienceInner { engine, high_water_path, recovered_max, high_water }),
+            inner: Mutex::new(ExperienceInner { engine, high_water_path, recovered_ids, high_water }),
         })
     }
 
@@ -229,7 +242,7 @@ impl ExperienceStore {
     /// The WAL entry is appended and the store checkpointed before return.
     pub fn remember_reading(&self, event: &ReadingEvent) -> Result<u32> {
         let mut inner = self.inner.lock().expect("experience store poisoned");
-        let id = allocate_experience_id(inner.recovered_max, max_id(&inner.engine), inner.high_water)?;
+        let id = allocate_experience_id(&inner.recovered_ids, max_id(&inner.engine), inner.high_water)?;
         // Reserve the id durably first: a crash after this point leaks an id
         // but can never hand the same id to two memories.
         let tmp = inner.high_water_path.with_extension("json.tmp");
@@ -319,24 +332,34 @@ mod tests {
 
     #[test]
     fn experience_ids_never_collide_with_recovered_or_prior_ids() {
-        assert_eq!(allocate_experience_id(None, None, None).unwrap(), EXPERIENCE_ID_BASE);
-        assert_eq!(allocate_experience_id(Some(41_000), None, None).unwrap(), EXPERIENCE_ID_BASE);
+        let none = HashSet::new();
+        assert_eq!(allocate_experience_id(&none, None, None).unwrap(), EXPERIENCE_ID_BASE);
+        // Small sequential recovered ids do not matter.
+        let small: HashSet<u32> = (1..=41_000).collect();
+        assert_eq!(allocate_experience_id(&small, None, None).unwrap(), EXPERIENCE_ID_BASE);
         assert_eq!(
-            allocate_experience_id(Some(3), Some(EXPERIENCE_ID_BASE + 4), None).unwrap(),
+            allocate_experience_id(&small, Some(EXPERIENCE_ID_BASE + 4), None).unwrap(),
             EXPERIENCE_ID_BASE + 5
         );
         // The high-water mark wins even if the highest row is gone.
         assert_eq!(
-            allocate_experience_id(None, Some(EXPERIENCE_ID_BASE), Some(EXPERIENCE_ID_BASE + 9))
+            allocate_experience_id(&none, Some(EXPERIENCE_ID_BASE), Some(EXPERIENCE_ID_BASE + 9))
                 .unwrap(),
             EXPERIENCE_ID_BASE + 10
         );
-        // A recovered base that reached the namespace pushes allocation above it.
+        // Hash-derived recovered ids scattered through the range are skipped,
+        // and a huge recovered id does not push allocation to the top.
+        let scattered: HashSet<u32> =
+            [EXPERIENCE_ID_BASE, EXPERIENCE_ID_BASE + 1, EXPERIENCE_ID_BASE + 3, 4_292_676_937]
+                .into_iter().collect();
+        assert_eq!(allocate_experience_id(&scattered, None, None).unwrap(), EXPERIENCE_ID_BASE + 2);
         assert_eq!(
-            allocate_experience_id(Some(EXPERIENCE_ID_BASE + 100), None, None).unwrap(),
-            EXPERIENCE_ID_BASE + 101
+            allocate_experience_id(&scattered, None, Some(EXPERIENCE_ID_BASE + 2)).unwrap(),
+            EXPERIENCE_ID_BASE + 4
         );
-        assert!(allocate_experience_id(Some(u32::MAX), None, None).is_err());
+        assert!(allocate_experience_id(&none, None, Some(u32::MAX)).is_err());
+        let top: HashSet<u32> = [u32::MAX].into_iter().collect();
+        assert!(allocate_experience_id(&top, None, Some(u32::MAX - 1)).is_err());
     }
 
     #[test]
@@ -349,13 +372,13 @@ mod tests {
             note: Some("for the memory discussion".into()),
         };
         let first = {
-            let store = ExperienceStore::open(&dir, Some(77)).unwrap();
+            let store = ExperienceStore::open(&dir, HashSet::from([77, EXPERIENCE_ID_BASE + 1])).unwrap();
             let id = store.remember_reading(&event).unwrap();
             assert_eq!(id, EXPERIENCE_ID_BASE);
             assert_eq!(store.reading_for("abc"), Some(id));
             id
         };
-        let store = ExperienceStore::open(&dir, Some(77)).unwrap();
+        let store = ExperienceStore::open(&dir, HashSet::from([77, EXPERIENCE_ID_BASE + 1])).unwrap();
         assert_eq!(store.len(), 1);
         let hits = store.recall_candidates("paper world", 5);
         assert_eq!(hits[0].id, first);
@@ -365,7 +388,8 @@ mod tests {
         let second = store
             .remember_reading(&ReadingEvent { doc_id: "def".into(), ..event })
             .unwrap();
-        assert_eq!(second, first + 1);
+        // BASE + 1 belongs to the recovered base, so it is skipped.
+        assert_eq!(second, first + 2);
         drop(store);
         std::fs::remove_dir_all(dir).unwrap();
     }

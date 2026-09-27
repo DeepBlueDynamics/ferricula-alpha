@@ -44,7 +44,13 @@ fn fixture() -> (tempfile::TempDir, RuntimeConfig) {
     {
         // A recovered base with real memories, including one about paging.
         let mut engine = DurableEngine::open(&memory).unwrap();
-        for (id, text) in [(3u32, "I once shipped a product about paging memory"), (41, "design is how it works")] {
+        // Real recovered bases mix sequential and hash-derived ids; one sits
+        // exactly where experience allocation starts.
+        for (id, text) in [
+            (3u32, "I once shipped a product about paging memory"),
+            (41, "design is how it works"),
+            (EXPERIENCE_ID_BASE, "a hash-derived recovered memory"),
+        ] {
             let row = Row {
                 id, vector: vec![1.0, 0.0], refs: None,
                 tags: BTreeMap::from([("text".to_string(), text.to_string())]),
@@ -81,7 +87,7 @@ async fn ingest_recall_restart_and_recovered_base_untouched() {
         assert_eq!(outcome.sections, 2);
         assert!(!outcome.duplicate);
         // Experience ids cannot collide with recovered ids (3, 41).
-        assert!(outcome.memory_id >= EXPERIENCE_ID_BASE);
+        assert_eq!(outcome.memory_id, EXPERIENCE_ID_BASE + 1);
 
         let again = runtime.ingest(Source::Text { title: None, text: DOC.into() }, None).await.unwrap();
         assert!(again.duplicate);
@@ -104,7 +110,7 @@ async fn ingest_recall_restart_and_recovered_base_untouched() {
     assert_eq!(section.cite, format!("[doc {doc_id}§{}]", section.index));
     assert!(recall.experience_hits.iter().any(|h| h.id == memory_id && h.tags["channel"] == "reading"));
     // Legacy `hits` still means recovered-base hits only.
-    assert!(recall.hits.iter().all(|h| h.id < EXPERIENCE_ID_BASE));
+    assert!(recall.hits.iter().all(|h| [3, 41, EXPERIENCE_ID_BASE].contains(&h.id)));
     assert!(recall.hits.iter().any(|h| h.id == 3));
 
     let read = runtime.document_section(&doc_id, section.index).unwrap();

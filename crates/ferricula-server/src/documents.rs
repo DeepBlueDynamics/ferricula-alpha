@@ -19,10 +19,10 @@ pub(super) struct DocumentPlane {
 }
 
 impl DocumentPlane {
-    pub(super) fn open(state_dir: &Path, recovered_max: Option<u32>) -> Result<Self> {
+    pub(super) fn open(state_dir: &Path, recovered_ids: std::collections::HashSet<u32>) -> Result<Self> {
         let store = DocumentStore::open(state_dir.join("documents"))
             .context("open document store")?;
-        let experience = ExperienceStore::open(state_dir.join("experience"), recovered_max)
+        let experience = ExperienceStore::open(state_dir.join("experience"), recovered_ids)
             .context("open experience store")?;
         Ok(Self { store: Mutex::new(store), experience })
     }
