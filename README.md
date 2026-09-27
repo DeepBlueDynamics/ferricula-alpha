@@ -138,8 +138,8 @@ Every route except `GET /` and `GET /health` needs `Authorization: Bearer <opera
 | `expected_agent_id` | Must match `identity.json`; startup refuses a different agent |
 | `memory_dir` / `state_dir` | Read-only identity + memory / writable runtime state |
 | `private_context_profiles` | Model profiles allowed to see private memory. An Ollama `:cloud` model listed here sends memory off-box: that is the operator's choice |
-| `ollama_model` / `ollama_reasoning_tokens` | Local model and extra output headroom for thinking models |
-| `[documents]` | Ingest: `grub_base_url`, `max_bytes`, `allow_url` |
+| `ollama_model` / `ollama_reasoning_tokens` / `ollama_context_tokens` | Local model, extra output headroom for thinking models, and its context window (default 8192; raise it for large-context models so evidence cards fit) |
+| `[documents]` | Ingest: `grub_base_url`, `max_bytes`, `allow_url`, `timeout_secs` |
 | `[budgets] max_model_usd_per_day` | Hard daily spend cap across all routes |
 | `[schedule]`, `[autonomy]`, `[sleep_cycle]` | Wakes, event-driven autonomy, sleep planning |
 
