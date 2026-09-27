@@ -85,7 +85,7 @@ Open questions: <numbered; each says what the agent assumed meanwhile>
 | WP-P plan directory | ready (after K1, K6) | — | — | — |
 | WP-J live fixes | ready | — | — | — |
 | WP-D decision DAG | ready | — | — | — |
-| WP-U1 UI phase 1 | ready (build now; ship after K3) | — | — | — |
+| WP-U1 UI phase 1 | assigned 2026-09-27 via Hyperia (lead Smooth Vicuna; login Binding Panda; page Cheerful Bison; check Local Mite) | v3/wp-u1-<lane> from 7708a1d | nemesis8 fleet | — |
 | WP-B benchmarks | ready (per B-id) | — | — | — |
 | WP-R paper | ready (after WP-P, or in `paper/` now) | — | — | — |
 | WP-G JEV and X9 | blocked on K2 and WP-J | — | — | — |

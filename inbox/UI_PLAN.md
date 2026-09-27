@@ -191,7 +191,7 @@ Each gate call is journaled with provenance (`GateProvenance`: version, features
 ## 5. Phases
 
 **Phase 1: the design on data we have (whole reply).** Requires §3a phase A0 (nuts-auth login). New `/talk` page with the tokens and layout above; header with disclosure and phase pill (`/life`); past turns; on send, a spinner-state stage bar (non-live), then the finished turn rendered: recall card from `memory_candidates` with provenance lines and verdict markers, tool calls as "searches", document cites, answer; rail from `/life` polled every 30 s; Stop disabled.
-Exit: a real conversation renders with every candidate's provenance, verdicts on 2147483702 shown, rail values matching `GET /life`; axe/keyboard pass; login via nuts-auth (§3a phase A1) works end to end; no credential stored in `localStorage`/`sessionStorage` and none left in the address bar after the callback.
+Exit: a real conversation renders with every candidate's provenance, verdicts on 2147483702 shown, rail values matching `GET /life`; axe/keyboard pass; login via nuts-auth (§3a phase A0) works end to end; no credential stored in `localStorage`/`sessionStorage` and none left in the address bar after the callback.
 
 **Phase 2: streaming and stages.** `POST /chat/stream`, `TurnEvent` channel through `converse`, Ollama `stream: true`, stage events per the map (approximations flagged), candidate/tool/verdict events, final-round token streaming with `token_reset`.
 Exit: a turn with two tool calls streams stage → candidates → tool calls → tokens; no `<use_tool>` text ever appears in the page (test with the scripted model from `chat.rs` tests emitting a tool call mid-round); `done` payload equals `GET /chat/{id}`'s stored turn; `/chat` unchanged (existing tests pass).
