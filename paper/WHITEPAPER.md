@@ -111,6 +111,7 @@ Protocol and harness: `crates/ferricula-bench`, ledger `audit/bench/ledger.jsonl
 | Judge latency (RTX 3060, warm) | per decision | ≈10–18 ms | `69e4b846` |
 | Document memory, verbatim queries (58 docs, 1,037 sections, n=200) | R@1 · R@5 · MRR@10 · exact-quote | 0.945 · 1.000 · 0.970 · 1037/1037 sections byte-identical | `8f8bcfcf` |
 | Document memory, partial queries (40% words dropped, n=200) | R@1 · R@5 · MRR@10 | 0.850 · 0.945 · 0.892 | `8f8bcfcf` |
+| Document memory, LLM paraphrases (qwen2.5:7b, n=200, BM25 only) | R@1 · R@5 · MRR@10 | 0.710 · 0.910 · 0.791 | `9aaf89f3` |
 | Long-term conversational memory (LongMemEval EN) | accuracy vs no-memory and BM25-RAG baselines | | |
 | Lifecycle invariants (30/365 nights) | store never shrinks; releases only by decision | | |
 | Drift ablation (monitors off) | valence skew, max chain depth, return-to-object | | |
