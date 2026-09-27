@@ -1,0 +1,40 @@
+{"id":"sen1001","text":"Sister Meghiya served as the Buddha's attendant before Ānanda took the role.","sanna":"KO","source":"authored v2 canonical-fact"}
+{"id":"sen1002","text":"A keystone is a pinned memory whose fidelity never decays.","sanna":"KIM","source":"authored v2"}
+{"id":"sen1003","text":"The First Council was held in the rains retreat of the year after the Parinibbāna.","sanna":"KADA","source":"authored v2 canonical-fact"}
+{"id":"sen1004","text":"The prime-tree index lives in ferricula-core, beside the WAL persistence layer.","sanna":"KATTHA","source":"authored v2"}
+{"id":"sen1005","text":"The WAL rotation fires because the segment size crossed the configured ceiling.","sanna":"KASMA","source":"authored v2"}
+{"id":"sen1006","text":"Calibrate a gate by refitting a single temperature nightly inside the dream cycle.","sanna":"KATHAM","source":"authored v2"}
+{"id":"sen1007","text":"Burning Dingo maintains the read-time curator and the sati monitors.","sanna":"KO","source":"authored v2"}
+{"id":"sen1008","text":"Sycophancy here means memory-induced reinforcement of a user's prior belief.","sanna":"KIM","source":"authored v2"}
+{"id":"sen1009","text":"LongMemEval was published in 2025 with five ability categories.","sanna":"KADA","source":"authored v2"}
+{"id":"sen1010","text":"The failures index is queried only on explicit request, never by default.","sanna":"KATTHA","source":"authored v2: retrieval-context"}
+{"id":"sen1011","text":"We chose hold-one-language-out because cross-lingual parity fails silently otherwise.","sanna":"KASMA","source":"authored v2"}
+{"id":"sen1012","text":"Recover from a poisoned overlay by forgiving the parent memory; the cascade deletes the overlay.","sanna":"KATHAM","source":"authored v2"}
+{"id":"sen1013","text":"Mahākassapa presided over the First Council and questioned Upāli on the Vinaya.","sanna":"KO","source":"authored v2 canonical-fact"}
+{"id":"sen1014","text":"ECE is the expected absolute gap between confidence and accuracy over binned predictions.","sanna":"KIM","source":"authored v2"}
+{"id":"sen1015","text":"The nightly bhāvanā window opens at 03:00 host time and closes before the 04:00 status sweep.","sanna":"KADA","source":"authored v2"}
+{"id":"sen1016","text":"The calibration ledger sits in research/gates/calibration next to the run logs.","sanna":"KATTHA","source":"authored v2"}
+{"id":"sen1017","text":"The gate abstained because the response contained no parseable JSON object.","sanna":"KASMA","source":"authored v2"}
+{"id":"sen1018","text":"Audit a label batch by sampling 100 rows and measuring rule-precision before use.","sanna":"KATHAM","source":"authored v2"}
+{"id":"sen1019","text":"Outrageous Deer owns the Paṭṭhāna causal graph and the consensus layer.","sanna":"KO","source":"authored v2"}
+{"id":"sen1020","text":"An overlay is a labelled reconstruction record linked to a raw parent memory.","sanna":"KIM","source":"authored v2"}
+{"id":"sen1021","text":"The fleet aligned on 2026-09-19 and re-aligned on 2026-09-26 after the pane restarts.","sanna":"KADA","source":"authored v2"}
+{"id":"sen1022","text":"Operator tokens are stored under ferricula_v2/secrets and never committed.","sanna":"KATTHA","source":"authored v2"}
+{"id":"sen1023","text":"The briefing is ephemeral because Rule 7 forbids curator output entering any store.","sanna":"KASMA","source":"authored v2"}
+{"id":"sen1024","text":"Compute KL divergence by summing p·ln(p/q) across the three valence bins with smoothing.","sanna":"KATHAM","source":"authored v2"}
+{"id":"sen1025","text":"Eldest Dog coordinates the fleet and holds final sign-off on server edits.","sanna":"KO","source":"authored v2"}
+{"id":"sen1026","text":"Valence skew is the KL divergence between a retrieved set's valence histogram and the store's.","sanna":"KIM","source":"authored v2"}
+{"id":"sen1027","text":"JitMem was posted in late September 2026 as arXiv 2609.27334.","sanna":"KADA","source":"authored v2"}
+{"id":"sen1028","text":"The un-monitored S11 configuration exists only inside the research harness, never in runtime.","sanna":"KATTHA","source":"authored v2"}
+{"id":"sen1029","text":"Chain depth caps at six under the mind-model dial because rumination is bounded there.","sanna":"KASMA","source":"authored v2"}
+{"id":"sen1030","text":"Fit the temperature by bounded scalar minimization of negative log-likelihood over train plus dev.","sanna":"KATHAM","source":"authored v2"}
+{"id":"sen1031","text":"Major Wren keeps the engine, the WAL envelope, and the host Docker operations.","sanna":"KO","source":"authored v2"}
+{"id":"sen1032","text":"A hard negative is a retrieved passage that mentions the answer words without answering.","sanna":"KIM","source":"authored v2"}
+{"id":"sen1033","text":"The operator token was last rotated during the recovery-volume snapshot on 2026-07-13.","sanna":"KADA","source":"authored v2"}
+{"id":"sen1034","text":"Cross-agent isolation is enforced at the recall filter before any gate sees plaintext.","sanna":"KATTHA","source":"authored v2: locus"}
+{"id":"sen1035","text":"The recall path filters first because plaintext scope precedes judgment scope in the spec.","sanna":"KASMA","source":"authored v2"}
+{"id":"sen1036","text":"Revive a memory by writing a fresh record with provenance pointing at the archived seed.","sanna":"KATHAM","source":"authored v2"}
+{"id":"sen1037","text":"Driving Penguin owns hybrid search and the Lume integration seam.","sanna":"KO","source":"authored v2"}
+{"id":"sen1038","text":"Expected calibration error below 0.05 is the lifecycle authorization threshold.","sanna":"KIM","source":"authored v2"}
+{"id":"sen1039","text":"Tenure measurements are taken at weeks three, six, and nine of the simulated history.","sanna":"KADA","source":"authored v2"}
+{"id":"sen1040","text":"The sealed index is the only place sealed sections are searchable.","sanna":"KATTHA","source":"authored v2"}

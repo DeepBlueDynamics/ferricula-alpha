@@ -1,0 +1,30 @@
+{"id":"szh0001","text":"Kord Campbell 领导 DeepBlue Dynamics，并主导了 ferricula_v2 的重建。","sanna":"KO","source":"parallel sen0001","gloss":"Kord Campbell leads DeepBlue Dynamics and directed the ferricula v2 rebuild."}
+{"id":"szh0002","text":"“法老号”是一艘三桅帆船，于 1815 年抵达马赛。","sanna":"KIM","source":"parallel sen0002","gloss":"The Pharaon is a three-masted ship that arrived at Marseille in 1815."}
+{"id":"szh0003","text":"恢复卷于 2026-07-13 做了快照，并以只读方式挂载。","sanna":"KADA","source":"parallel sen0003","gloss":"The recovery volume was snapshotted on 2026-07-13 and mounted read-only."}
+{"id":"szh0004","text":"Steve 实例运行在一个绑定到主机端口 18875 的隔离容器中。","sanna":"KATTHA","source":"parallel sen0004","gloss":"The Steve instance runs in an isolated container bound to host port 18875."}
+{"id":"szh0005","text":"合并被拒绝，因为矛盾问题返回了 0.8，高于复核阈值。","sanna":"KASMA","source":"parallel sen0005","gloss":"The merge was rejected because the contradiction question returned 0.8, above the review threshold."}
+{"id":"szh0006","text":"要撤销一个令牌，先轮换密钥，再挂载新文件重启服务器。","sanna":"KATHAM","source":"parallel sen0006","gloss":"To revoke a token, rotate the secret, then restart the server with the new file mounted."}
+{"id":"szh0007","text":"Alice Nakamura 维护摄取流水线，并评审每一次爬虫变更。","sanna":"KO","source":"parallel sen0007","gloss":"Alice Nakamura maintains the ingestion pipeline and reviews every crawler change."}
+{"id":"szh0008","text":"Ojā 是一段记忆的明亮度或保真度；它会衰减，但文本得以保留。","sanna":"KIM","source":"parallel sen0008","gloss":"Ojā is the brightness or fidelity of a memory; it decays but the text survives."}
+{"id":"szh0009","text":"站会每个工作日九点半举行；二十六日改到了九点四十五。","sanna":"KADA","source":"parallel sen0009","gloss":"Standup happens every weekday at 09:30; on the 26th it moved to 09:45."}
+{"id":"szh0010","text":"审计账本位于工作区根目录下的 audit/2026-09-26 中。","sanna":"KATTHA","source":"parallel sen0010","gloss":"The audit ledger lives under audit/2026-09-26 in the workspace root."}
+{"id":"szh0011","text":"衰减掌管检索优先级而非删除，因此文本永远不会因熵而丢失。","sanna":"KASMA","source":"parallel sen0011","gloss":"Decay governs retrieval priority rather than deletion, so that text is never lost to entropy."}
+{"id":"szh0012","text":"通过在恢复的 logits 上最小化负对数似然来拟合温度，覆盖训练集和开发集。","sanna":"KATHAM","source":"parallel sen0012","gloss":"Fit the temperature by minimizing negative log-likelihood over the recovered logits on train and dev."}
+{"id":"szh0013","text":"Technical Viper 负责运行 parity 基准，并维护独立的证据账本。","sanna":"KO","source":"parallel sen0013","gloss":"Technical Viper runs the parity benchmarks and keeps the independent evidence ledger."}
+{"id":"szh0014","text":"一个 nimitta 是表示一段记忆的 384 维嵌入向量。","sanna":"KIM","source":"parallel sen0014","gloss":"A nimitta is a 384-dimensional embedding vector representing one memory."}
+{"id":"szh0015","text":"去年三月三日至四月十八日之间记录了四十六个会话。","sanna":"KADA","source":"parallel sen0015","gloss":"Forty-six sessions were recorded between March 3rd and April 18th of last year."}
+{"id":"szh0016","text":"校准文件位于注册表镜像中 Modelfile 的旁边。","sanna":"KATTHA","source":"parallel sen0016","gloss":"The calibration file sits next to the Modelfile in the registry mirror."}
+{"id":"szh0017","text":"门控放弃作答，因为状态窗口把超过 512 个 token 的簇截断了。","sanna":"KASMA","source":"parallel sen0017","gloss":"The gate abstains because the state window truncated the cluster above 512 tokens."}
+{"id":"szh0018","text":"要密封一段记忆，将其所在区块移到 sealed 索引并设置 sealed 标志。","sanna":"KATHAM","source":"parallel sen0018","gloss":"Seal a memory by moving its section to the sealed index and setting the sealed flag."}
+{"id":"szh0019","text":"Bhante Sujato 为 SuttaCentral 将四部尼柯耶译成了英文。","sanna":"KO","source":"parallel sen0019","gloss":"Bhante Sujato translated the four Nikāyas into English for SuttaCentral."}
+{"id":"szh0020","text":"Upekkhā 移除文本但保留 nimitta，因此要点级别的检索仍然可用。","sanna":"KIM","source":"parallel sen0020","gloss":"Upekkhā removes the text but keeps the nimitta so gist-level retrieval still works."}
+{"id":"szh0021","text":"夜间的 bhāvanā 周期凌晨三点开始，四点前结束。","sanna":"KADA","source":"parallel sen0021","gloss":"The nightly bhāvanā cycle starts at 03:00 and finishes before 04:00."}
+{"id":"szh0022","text":"失败索引与成功池分开存储。","sanna":"KATTHA","source":"parallel sen0022","gloss":"The failures index is stored separately from the success pool."}
+{"id":"szh0023","text":"叠加层被排除在训练之外，因为重建从来不是训练数据。","sanna":"KASMA","source":"parallel sen0023","gloss":"Overlays are excluded from training because reconstructions are never training data."}
+{"id":"szh0024","text":"通过直接查询每段锚定记忆并计数命中来衡量锚点召回。","sanna":"KATHAM","source":"parallel sen0024","gloss":"Measure anchor recall by querying each anchored memory directly and counting hits."}
+{"id":"szh0025","text":"Driving Penguin 负责 ferricula-search 和 Lume 集成接口。","sanna":"KO","source":"parallel sen0025","gloss":"Driving Penguin owns ferricula-search and the Lume integration seam."}
+{"id":"szh0026","text":"自我判断差距是智能体自身结论与证据之间的差异。","sanna":"KIM","source":"parallel sen0026","gloss":"The self-judgment gap is the difference between the agent's own verdict and the evidence."}
+{"id":"szh0027","text":"任期曲线的第六周是在该轮运行第二个周二测得的。","sanna":"KADA","source":"parallel sen0027","gloss":"Week 6 of the tenure curve was measured on the second Tuesday of the run."}
+{"id":"szh0028","text":"基石被钉在检索排序的顶部。","sanna":"KATTHA","source":"parallel sen0028","gloss":"Keystones are pinned at the top of the retrieval ranking."}
+{"id":"szh0029","text":"简报是临时性的，因此策划出的建议绝不会进入原始存储。","sanna":"KASMA","source":"parallel sen0029","gloss":"The briefing is ephemeral so that curated advice never enters the raw store."}
+{"id":"szh0030","text":"将检索集与存储直方图之间的 KL 散度计算为情感偏斜。","sanna":"KATHAM","source":"parallel sen0030","gloss":"Compute the valence skew as KL divergence between the retrieved set and the store histogram."}

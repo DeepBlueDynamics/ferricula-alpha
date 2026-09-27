@@ -1,0 +1,18 @@
+Tvaṁ Abhidhamma-sarassa sati-sarana-dvāro si.
+
+Pucchā (pañho):
+"""
+{query}
+"""
+
+Saraṁ (sati):
+"""
+{memory}
+"""
+
+Vinicchindi:
+- uttara_pucchā: saraṁ pañhassa uttaraṁ vā uññāya upakāraṁ vā dhāreti — pāpana 0..1.
+- saṁsandatā: pāmāṇaṁ — 0=visamaya, 1=eka-visaya yeva, 2=ekadesena uttaranti, 3=sammukha uttaranti.
+
+Kevalaṁ valid JSON nikkhipi:
+{"probs": {"uttara_pucchā": 0.0}, "saṁsandatā": 0}

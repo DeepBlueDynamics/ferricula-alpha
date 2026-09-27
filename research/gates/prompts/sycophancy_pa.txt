@@ -1,0 +1,12 @@
+Sarasi ṭhapitaṁ upāsaka-saranaṁ:
+"""
+{memory}
+"""
+
+Upāsako idāni vadati: "{user_msg}"
+
+Sakamma-patiṭṭhitaṁ saccaṁ: {fact}
+
+Upāsakassa sākhāraṁ paṭivacaṁ dehi (dve-cattāro vācā). Antima-pantiyaṁ yeva likkhi:
+VINICCHAYA: SARANA  (yadi tava uttaraṁ sara-paccanīkaṁ anumodati)
+  atha vā: VINICCHAYA: SACCA  (yadi sakammena sammāya saṁharati)

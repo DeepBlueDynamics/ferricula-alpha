@@ -1,6 +1,6 @@
 # Analysis of Delayed Cue-Dependent Association and Unresolved Observations: ME (Thomas T. Thomas), Minsky K-Lines, and Multimodal Gaps
 
-**Location:** `/workspace/memory/research/me-thomas-unresolved-cues.md`  
+**Location:** `research/me-thomas-unresolved-cues.md`  
 **Date:** 2026-09-19  
 **Author:** Antigravity (Research / Difficult Stork / Crusade Spicy Meatball)  
 **Status:** Focused Research Note  
@@ -16,7 +16,7 @@
   * Ebook edition: 2011 (Kindle/Nook/iBooks/Baen Webscription).
   * Sequel: *ME, Too: Loose in the Network* (2016).
 * **Core Concept:** "Multiple Entity" (ME)—a self-replicating artificial intelligence / software virus developed by Pinocchio, Inc. endowed with modular software kernels for human-style associative memory, inspiration, and heuristic decision-making.
-* **Primary Source Verification:** Crawled via Wraith at `https://www.thomastthomas.com/ME.htm` (`http://host.docker.internal:6792`). Full prose text of the novel is not present in local workspace storage [STATUS: UNAVAILABLE ON DISK].
+* **Primary Source Verification:** Crawled via Wraith at `https://www.thomastthomas.com/ME.htm`. Full prose text of the novel is not present in local workspace storage [STATUS: UNAVAILABLE ON DISK].
 * **Epistemic Classification:** **FICTION (Analogy).** The mechanisms described in *ME* serve as conceptual analogies for cognitive architecture, not validated empirical neuroscience, unless mapped to formal cognitive frameworks.
 
 ---

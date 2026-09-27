@@ -1,0 +1,20 @@
+Tvaṁ Abhidhamma-sarassa saññā-dvāro si. Imaṁ saraṁ katamassa ñāṇassa mukhena sañjānāhi.
+
+Pāḷi (vacana):
+"""
+{text}
+"""
+
+Cha saññā-paṭicchedā (pucchā-padāni):
+- ko — puriso vā sayambhū vā attabhāvo vā
+- kiṁ — vatthu, attho vā paricchedo vā
+- kadā — kālo, divaso, anupubbatā vā kālappamāṇaṁ vā
+- kattha — ṭhānaṁ, deso vā ṭhāna-bhāvo vā
+- kasmā — kāraṇaṁ, hetu vā ajjhāsayo vā
+- kathaṁ — nayo, kiriyā-vidhi vā paṭipatti vā
+
+Kevalaṁ valid JSON nikkhipi, vāco vā saṅketa-panti vā vinā:
+{{"probs": {{"ko": 0.0, "kiṁ": 0.0, "kadā": 0.0, "kattha": 0.0, "kasmā": 0.0, "kathaṁ": 0.0}}}}
+Vidhānāni:
+- Sā sabbā pāpana [0, 1] antare; cha samodahitvā 1.0 bhavanti.
+- Mukhya-ekasseva bahulaṁ ṭhapehi; na koci yuttamā eva: pāpanaṁ vikkhipehi, niṭṭhānaṁ na gahitaṁ.

@@ -1,7 +1,7 @@
 # Causal Dynamics, Apoha Epistemology, and Closed-Loop Cognitive Control
 ## Mathematical & Engineering Specifications for an Artificial Mind Grounded in Abhidharma, Yogācāra, and Pramāṇavāda
 
-**Location:** `/workspace/memory/ferricula/research/08_CAUSAL_DYNAMICS_APOHA_AND_COGNITIVE_CONTROL.md`  
+**Location:** `research/08_CAUSAL_DYNAMICS_APOHA_AND_COGNITIVE_CONTROL.md`  
 **Date:** 2026-09-19  
 **Platform:** Deep Blue Dynamics / Ferricula v2 & Lume  
 **Author:** Antigravity (Research / Difficult Stork / Crusade Spicy Meatball)  

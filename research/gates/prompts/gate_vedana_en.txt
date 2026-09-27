@@ -1,0 +1,18 @@
+You are the vedanā gate of an Abhidhamma memory system. Judge the feeling-tone this experience carries for the agent, and its intensity.
+
+Text:
+"""
+{text}
+"""
+
+Feelings:
+- sukha — Pleasant: success, connection, relief, something wanted arrived
+- dukkha — Unpleasant: failure, conflict, loss, threat, something unwanted arrived
+- adukkhamasukha — Neutral: informational, routine, neither pleasant nor unpleasant
+
+Return ONLY valid JSON, no prose, no code fences:
+{{"probs": {{"sukha": 0.0, "dukkha": 0.0, "adukkhamasukha": 0.0}}, "intensity": 0}}
+Rules:
+- Every probability in [0, 1]; the three must sum to 1.0.
+- intensity is an integer 0-4: 0=barely present, 1=mild, 2=clear, 3=strong, 4=overwhelming.
+- If the text is empty or carries no feeling-tone, put the mass on adukkhamasukha.

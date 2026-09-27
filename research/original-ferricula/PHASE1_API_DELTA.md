@@ -1,6 +1,6 @@
 # API Spec: Phase One Integration
 
-This document defines the smallest API changes required in [api.rs](file:///workspace/ferricula_v2/crates/ferricula-server/src/api.rs) to expose the state and configuration of the newly integrated Phase One autonomy modules.
+This document defines the smallest API changes required in [api.rs](../../crates/ferricula-server/src/api.rs) to expose the state and configuration of the newly integrated Phase One autonomy modules.
 
 ---
 

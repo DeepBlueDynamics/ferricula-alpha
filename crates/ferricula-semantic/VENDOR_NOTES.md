@@ -3,7 +3,7 @@
 This crate contains the vendored implementation of embedding, chunking, vec2text inversion, similarity, and cryptographic matrix keys from `shivvr`.
 
 ## Source of Code
-- Original codebase: `/workspace/DeepBlueDynamics/nuts.services/shivvr/src/`
+- Original codebase: `nuts.services/shivvr/src/`
 - Vendored files:
   - `embedder.rs`
   - `chunker.rs`
@@ -25,7 +25,7 @@ This crate contains the vendored implementation of embedding, chunking, vec2text
 
 ## Mechanical Audit & Restorations
 - Date: July 7, 2026.
-- Audited all files against the read-only oracle `/workspace/DeepBlueDynamics/nuts.services/shivvr/src/`.
+- Audited all files against the read-only oracle `nuts.services/shivvr/src/`.
 - Action taken: Overwrote all 6 files (`chunker.rs`, `crypto.rs`, `embedder.rs`, `inverter.rs`, `openai.rs`, `similarity.rs`) with byte-for-byte original copies, and confirmed no changes are required to compile these specific files natively.
 - Current status: 100% parity with zero unintended changes.
 

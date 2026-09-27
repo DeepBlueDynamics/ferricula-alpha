@@ -5,7 +5,7 @@ This crate contains the casting, dream, identity, pali, planner, and clock syste
 *Credit to Planned Primate for completing the initial copy of these cognition modules.*
 
 ## Source of Code
-- Original codebase: `/workspace/DeepBlueDynamics/ferricula/src/`
+- Original codebase: `ferricula/src/`
 - Vendored files:
   - `casting.rs`
   - `clock.rs`

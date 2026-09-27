@@ -140,4 +140,4 @@ The paper identifies *yonisomanasikāra* (wise or root-level attention) as the c
 ---
 
 ## 6. Full Text Archival Note
-The primary source text has been fully indexed from `/workspace/memory/ferricula/research/MappingtheMindAModelBasedonTheravadaBuddhistTextsandPractices.pdf` and cross-referenced with SuttaCentral canonical editions (MN 18 *Madhupiṇḍika*, SN 35.23 *Sabba*, SN 35.93 *Dvaya*, SN 12.2 *Paṭiccasamuppāda*). This technical synthesis serves as the definitive reference specification for Ferricula's cognitive pipeline.
+The primary source text has been fully indexed from `research/MappingtheMindAModelBasedonTheravadaBuddhistTextsandPractices.pdf` and cross-referenced with SuttaCentral canonical editions (MN 18 *Madhupiṇḍika*, SN 35.23 *Sabba*, SN 35.93 *Dvaya*, SN 12.2 *Paṭiccasamuppāda*). This technical synthesis serves as the definitive reference specification for Ferricula's cognitive pipeline.

@@ -6,7 +6,7 @@ This specification analyzes the background value-assessment loop (the Advocate) 
 
 ## 1. Original Mechanics & Source References
 
-All references are mapped from the original source file [steve.py](file:///workspace/ferricula_v2/research/original-ferricula/source/arena/steve.py).
+All references are mapped from the original source file steve.py (upstream v1 `ferricula/arena/steve.py`).
 
 ### A. Cadence & Triggering
 * **Execution Interval**: The background loop is managed by `_advocate_loop()` (**Lines 4065–4099**), which sleeps for `ADVOCATE_INTERVAL = 180` seconds (**Lines 85, 4079**) before running.
@@ -30,7 +30,7 @@ In `_run_advocate_cycle()` (**Lines 4102–4130**), the loop retrieves a specifi
 ### D. Memory Writeback & Wisdom King Links
 * **Overlay Writes**: The advocate writes the verdict back to the memory engine via `tool_remember()` (**Line 4161**) under the `thinking` channel.
 * **Budget Gating**: To avoid creating downstream cost pressure, writebacks are blocked if `_budget_pressure() >= 0.75` (**Line 4160**).
-* **Wisdom King Archetype**: The advocate loop is a separate thread, but its cognitive weight aligns with the `WisdomKing::Advocate` archetype in [wisdom.rs](file:///workspace/ferricula_v2/crates/ferricula-cognition/src/wisdom.rs#L21), which deters impulsive publication by increasing `AudienceSimulation` (**Line 15** of [wisdom.rs](file:///workspace/ferricula_v2/crates/ferricula-cognition/src/wisdom.rs)).
+* **Wisdom King Archetype**: The advocate loop is a separate thread, but its cognitive weight aligns with the `WisdomKing::Advocate` archetype in [wisdom.rs](../../crates/ferricula-cognition/src/wisdom.rs#L21), which deters impulsive publication by increasing `AudienceSimulation` (**Line 15** of [wisdom.rs](../../crates/ferricula-cognition/src/wisdom.rs)).
 
 ### E. Action Authority (None)
 * **Command Capability**: The advocate cycle has **zero** action capabilities. It is not connected to a tool executor, cannot execute code, and cannot send messages to public channels. It functions strictly as a self-reflective warning system that updates internal memory.

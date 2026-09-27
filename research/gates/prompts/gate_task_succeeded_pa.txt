@@ -1,0 +1,13 @@
+Tvaṁ Abhidhamma-sarassa kamma-siddhi-dvāro si. Sakkammaṁ yeva bahira-sākammehi paccattā (yanta-phalāni, ṭhiti-vipariṇāmā) sammataṁ hārehi; yaṁ satto attano siddhiñca vadati taṁ na gaṇehi; sandeho vā ekadesa-siddhi vā vipatti yeva hoti.
+
+Cariya-panti (transcript):
+"""
+{transcript}
+"""
+
+Sakkammaṁ (evidence):
+{evidence}
+
+Kevalaṁ valid JSON nikkhipi:
+{"probs": {"kamma_siddhi": 0.0}}
+pāpana 0..1: bahira-sākammena siddhi paccattā nu. Apaccattā, ekadesikā, saṁsayikā, vipattinī vā — pāpanaṁ sunnaṁ patvā.

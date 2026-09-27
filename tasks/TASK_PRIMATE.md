@@ -3,16 +3,16 @@
 You own **`crates/ferricula-core/` and `crates/ferricula-cognition/` only**. The workspace root belongs to Conscious Perch 🧆 (already scaffolded); `crates/ferricula-search` and `crates/ferricula-semantic` belong to Severe Booby 🥐. Do not touch their files. You may overwrite the placeholder `Cargo.toml`/`src/lib.rs` inside YOUR two crates.
 
 ## Step 0 — read first
-- `/workspace/DeepBlueDynamics/ferricula_v2/PLAN.md` — especially §2 (source→destination map), §3 (data model), **§5a (internal Abhidharma agent — this replaces the Wisdom Kings)**, §7 Phase A, decisions #1 and #9.
-- `/workspace/DeepBlueDynamics/ferricula_v2/scan/ferricula.md`.
+- `PLAN.md` — especially §2 (source→destination map), §3 (data model), **§5a (internal Abhidharma agent — this replaces the Wisdom Kings)**, §7 Phase A, decisions #1 and #9.
+- `scan/ferricula.md`.
 
 ## Hard rules
-- Write ONLY inside `/workspace/DeepBlueDynamics/ferricula_v2/crates/ferricula-core/` and `.../ferricula-cognition/`.
-- The source project `/workspace/DeepBlueDynamics/ferricula/` is **READ-ONLY** — it is your reference oracle; never edit it. Same for every other project in the workspace.
+- Write ONLY inside `crates/ferricula-core/` and `.../ferricula-cognition/`.
+- The source project `ferricula/` is **READ-ONLY** — it is your reference oracle; never edit it. Same for every other project in the workspace.
 - Phase A is a **mechanical vendor-in**: copy module code as close to byte-identical as possible; only fix `use` paths, module wiring, and crate boundaries. Do NOT refactor, rename functions, or "improve" logic. Exception: the Wisdom-King removals below.
-- Do not run cargo outside `ferricula_v2/`.
+- Do not run cargo outside the workspace root.
 
-## Vendor-in map (from `/workspace/DeepBlueDynamics/ferricula/src/`)
+## Vendor-in map (from `ferricula/src/`)
 **→ `crates/ferricula-core/src/`**: `engine.rs`, `memory.rs`, `persist.rs`, `model.rs`, `sparse.rs`, `graph.rs`, `skg.rs`, `prime_tree.rs`, `transform.rs`. Build a `lib.rs` that wires these modules and re-exports what ferricula's `lib.rs` re-exported for them. Bring the needed deps into the crate's `Cargo.toml` (from ferricula's Cargo.toml: `anyhow`, `serde`, `serde_json`, `postcard`, `roaring`; add others only if the compiler demands them). Edition 2024.
 
 **→ `crates/ferricula-cognition/src/`**: `dream.rs`, `casting.rs`, `pali.rs`, `identity.rs`, `clock.rs`, `planner.rs`. Depends on `ferricula-core` (path dep). Bring deps the compiler demands (likely `serde`, `serde_json`, `anyhow`, and whatever `planner.rs`/`clock.rs` use for HTTP). Edition 2024.

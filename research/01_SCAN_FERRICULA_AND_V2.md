@@ -2,20 +2,20 @@
 
 **Audit Date:** 2026-09-19  
 **Auditor:** Antigravity (Engine / Added Armadillo)  
-**Location:** `/workspace/memory`
+**Location:** fleet workspace (v1 `ferricula/` and the v2 modular workspace, now this repo)
 
 ---
 
 ## 1. Executive Summary of Directory Scan
 
-A comprehensive architectural inspection of the two primary system directories in `/workspace/memory` reveals a generational transition in the codebase:
+A comprehensive architectural inspection of the two primary system directories in the fleet workspace reveals a generational transition in the codebase:
 
-1. **`/workspace/memory/ferricula/` (The v1 Oracle / Monolithic Implementation):**
+1. **`ferricula/` (The v1 Oracle / Monolithic Implementation):**
    - A single-node, single-writer Rust application (Rust 2024 edition) implementing a thermodynamic cognitive memory engine for AI agents.
    - Core philosophy: Memories are living thermodynamic objects characterized by exponential decay, recall-based reinforcement, neglect penalties, SDR-harvested entropy, background dream consolidation, and vec2text ghost-echo inversion.
    - Serves as the verified functional baseline ("oracle") against which all v2 crates are validated.
 
-2. **`/workspace/memory/ferricula_v2/` (The Next-Generation Modular Workspace):**
+2. **The v2 workspace (this repo; The Next-Generation Modular Workspace):**
    - A cargo-workspace refactor decomposing the monolithic engine into decoupled, single-responsibility crates governed by strict trait contracts (`TEAM.md` alignment).
    - Crates include:
      - `ferricula-core` (Engine / Antigravity ownership): Row store, bit-sliced roaring bitmaps, WAL persistence, and memory lifecycle primitives.
@@ -26,7 +26,7 @@ A comprehensive architectural inspection of the two primary system directories i
 
 ---
 
-## 2. Deep Dive: `/workspace/memory/ferricula` (The Oracle)
+## 2. Deep Dive: `ferricula` (The Oracle)
 
 ### 2.1 Concurrency Model & Runtime Wiring
 - **Single-Writer Database Core:** Mutable state is strictly owned by the **Main Thread** (`DurableEngine`, `IdentityState`).
@@ -68,11 +68,11 @@ A comprehensive architectural inspection of the two primary system directories i
 
 ---
 
-## 3. Deep Dive: `/workspace/memory/ferricula_v2` (The Modern Multi-Crate Architecture)
+## 3. Deep Dive: the v2 workspace (The Modern Multi-Crate Architecture)
 
 ### 3.1 Workspace Structure
 ```
-ferricula_v2/
+./   (v2 workspace root)
 ├── Cargo.toml               # Workspace manifest
 ├── PLAN.md                  # Implementation roadmap and phase tracking
 ├── README.md                # Architectural documentation
@@ -98,7 +98,7 @@ ferricula_v2/
 
 ## 4. Synthesis of Existing Research Assets
 
-Inside `/workspace/memory/ferricula/research/`, several critical papers and technical artifacts prefigure this upgrade:
+Inside `research/`, several critical papers and technical artifacts prefigure this upgrade:
 - `citta-vithi.md`: 17-moment sequence mapping from Theravāda Abhidhamma to computational memory pipelines.
 - `gemini_paper.txt`: Comprehensive whitepaper on thermodynamic memory, radio entropy, and the Count of Monte Cristo multi-agent arena.
 - `MappingtheMindAModelBasedonTheravadaBuddhistTextsandPractices.pdf`: Peer-reviewed clinical and neuro-cognitive model by P. L. Walpola et al. (2017).

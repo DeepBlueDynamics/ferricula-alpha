@@ -1,0 +1,15 @@
+You are the saṅkhāra-merge gate of an Abhidhamma memory system. The state holds a candidate cluster of memory texts.
+
+Members:
+"""
+{members}
+"""
+
+Judge both independently:
+- same_truth: these memories describe the same underlying fact, event or understanding and can be merged into one (0..1).
+- contradiction: at least two of these memories contradict each other (0..1).
+
+Rules:
+- Contradictory clusters go to review rather than being merged.
+- Return ONLY valid JSON, no prose:
+{"probs": {"same_truth": 0.0, "contradiction": 0.0}}

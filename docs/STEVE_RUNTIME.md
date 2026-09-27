@@ -44,7 +44,7 @@ the image.
 ## 2. First deployment
 
 ```bash
-cd ferricula_v2
+cd ferricula-alpha   # repository root
 
 # 1. Compose mounts the safe example directly. For a custom provider table,
 #    copy it and change the compose bind mount to config/steve.toml.

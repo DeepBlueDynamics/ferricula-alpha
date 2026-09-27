@@ -3,7 +3,7 @@
 This crate contains the vendored implementation of document search, spelling, semantic mesh, and crawling from `lume`.
 
 ## Source of Code
-- Original codebase: `/workspace/DeepBlueDynamics/lume/src/`
+- Original codebase: `lume/src/`
 - Vendored files:
   - `agent.rs`
   - `answer.rs`
@@ -37,7 +37,7 @@ This crate contains the vendored implementation of document search, spelling, se
 
 ## Mechanical Audit & Restorations
 - Date: July 7, 2026.
-- Audited all files against the read-only oracle `/workspace/DeepBlueDynamics/lume/src/`.
+- Audited all files against the read-only oracle `lume/src/`.
 - Found unintended drift in multiple files (including missing escaped braces in `main.rs` format strings and minor formatting changes elsewhere).
 - Action taken: Overwrote all 15 files (`agent.rs`, `answer.rs`, `bm25.rs`, `crawl.rs`, `eval.rs`, `fast_retrieval.rs`, `graph_search.rs`, `hybrid.rs`, `inversion.rs`, `lib.rs`, `main.rs`, `regex.rs`, `semantic_mesh.rs`, `spelling.rs`, `stream.rs`) with byte-for-byte original copies, and re-applied only the target import/alias/module configurations on top.
 - Current status: 100% parity with zero unintended changes.
