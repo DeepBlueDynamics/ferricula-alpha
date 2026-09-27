@@ -32,3 +32,5 @@ tempfile = "3"
 lopdf = "0.34"
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
+rsa = "0.9"
+rand = "0.8"

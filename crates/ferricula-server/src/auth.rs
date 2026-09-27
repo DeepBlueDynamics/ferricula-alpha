@@ -103,10 +103,18 @@ impl AuthIdentity {
     }
 }
 
+/// Hash a raw session token using SHA-256 for secure storage at rest.
+pub fn hash_session_id(session_id: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(session_id.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
 /// Persisted Ferricula session created after successful login.
+/// Session IDs are never stored raw at rest; only their SHA-256 hashes are persisted.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FerriculaSession {
-    pub session_id: String,
+    pub session_hash: String,
     pub user_id: String,
     pub email: String,
     #[serde(default)]
@@ -176,7 +184,9 @@ impl SessionStore {
         let initial_len = map.len();
         map.retain(|_, s| s.expires_at > now);
         if map.len() != initial_len {
-            let _ = Self::write_disk(&sessions_path, &map);
+            if let Err(e) = Self::write_disk(&sessions_path, &map) {
+                eprintln!("error: failed to write sessions to {}: {e}", sessions_path.display());
+            }
         }
 
         Ok(Self {
@@ -204,11 +214,12 @@ impl SessionStore {
         name: Option<&str>,
         via: &str,
         jwt_exp: u64,
-    ) -> Result<FerriculaSession> {
-        let session_id = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+    ) -> Result<(String, FerriculaSession)> {
+        let raw_session_id = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+        let session_hash = hash_session_id(&raw_session_id);
         let now = now_secs();
         let session = FerriculaSession {
-            session_id: session_id.clone(),
+            session_hash: session_hash.clone(),
             user_id: user_id.to_string(),
             email: email.to_string(),
             name: name.map(|s| s.to_string()),
@@ -219,15 +230,18 @@ impl SessionStore {
         };
 
         let mut lock = self.sessions.write().expect("session lock poisoned");
-        lock.insert(session_id, session.clone());
-        let _ = Self::write_disk(&self.sessions_path, &lock);
-        Ok(session)
+        lock.insert(session_hash, session.clone());
+        if let Err(e) = Self::write_disk(&self.sessions_path, &lock) {
+            eprintln!("error: failed to write sessions to {}: {e}", self.sessions_path.display());
+        }
+        Ok((raw_session_id, session))
     }
 
-    pub fn get_session(&self, session_id: &str) -> Option<FerriculaSession> {
+    pub fn get_session(&self, raw_session_id: &str) -> Option<FerriculaSession> {
+        let session_hash = hash_session_id(raw_session_id);
         let now = now_secs();
         let lock = self.sessions.read().expect("session lock poisoned");
-        if let Some(s) = lock.get(session_id) {
+        if let Some(s) = lock.get(&session_hash) {
             if s.expires_at > now {
                 return Some(s.clone());
             }
@@ -235,11 +249,14 @@ impl SessionStore {
         None
     }
 
-    pub fn delete_session(&self, session_id: &str) -> bool {
+    pub fn delete_session(&self, raw_session_id: &str) -> bool {
+        let session_hash = hash_session_id(raw_session_id);
         let mut lock = self.sessions.write().expect("session lock poisoned");
-        let removed = lock.remove(session_id).is_some();
+        let removed = lock.remove(&session_hash).is_some();
         if removed {
-            let _ = Self::write_disk(&self.sessions_path, &lock);
+            if let Err(e) = Self::write_disk(&self.sessions_path, &lock) {
+                eprintln!("error: failed to write sessions to {}: {e}", self.sessions_path.display());
+            }
         }
         removed
     }
@@ -675,12 +692,12 @@ impl AuthManager {
         name: Option<&str>,
         via: &str,
         jwt_exp: u64,
-    ) -> Result<FerriculaSession> {
+    ) -> Result<(String, FerriculaSession)> {
         self.sessions.create_session(user_id, email, name, via, jwt_exp)
     }
 
-    pub fn delete_session(&self, session_id: &str) -> bool {
-        self.sessions.delete_session(session_id)
+    pub fn delete_session(&self, raw_session_id: &str) -> bool {
+        self.sessions.delete_session(raw_session_id)
     }
 
     pub fn build_login_url(&self, return_url: &str) -> String {
@@ -701,11 +718,11 @@ impl AuthManager {
         Ok(format!("{origin}/auth/break-glass?token={nonce}"))
     }
 
-    pub fn redeem_break_glass_token(&self, nonce: &str) -> Option<FerriculaSession> {
+    pub fn redeem_break_glass_token(&self, nonce: &str) -> Option<(String, FerriculaSession)> {
         let mut lock = self.break_glass_tokens.lock().unwrap();
         if let Some((user_id, expires_at)) = lock.remove(nonce) {
             if Instant::now() < expires_at {
-                let session = self.sessions.create_session(
+                let (raw_id, session) = self.sessions.create_session(
                     &user_id,
                     "break-glass@local",
                     Some("Break-Glass Operator"),
@@ -713,7 +730,7 @@ impl AuthManager {
                     now_secs() + (self.config.session_hours * 3600),
                 ).ok()?;
                 eprintln!("SECURITY NOTICE: break-glass operator session created for user_id {user_id}");
-                return Some(session);
+                return Some((raw_id, session));
             }
         }
         None
@@ -797,40 +814,36 @@ pub fn verify_csrf(headers: &HeaderMap) -> Result<(), &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
     use jsonwebtoken::{EncodingKey, Header};
+    use rsa::pkcs8::{EncodePrivateKey, LineEnding};
+    use rsa::traits::PublicKeyParts;
+    use rsa::RsaPrivateKey;
 
-    const TEST_RSA_PRIV_KEY: &str = r#"-----BEGIN PRIVATE KEY-----
-MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCRZIBzpYPlAATx
-bO1ePQDGyxGrbkikpj11V4K0pAgXsfSMnFlnpFfx8qcLxQbYCdxlmwN0mEKjSfo8
-OdemVIdtvXM4Oxr5GD/Srqli0WcXvWKKRovgJ3ww91LeA4fl4uHQvBk4Xoz+r1lo
-1E8F8khqjvTe6uSrH0ZcGzS5qF7X6y0csjPCSxTVrstps5Ot0M1leoQ2yjMz4JE8
-NDcgTdse2zfcnu2eDZCozTclLogSiBZEZfEWYurEd/yhdHzK9GNXIeYOeXj7gjxu
-53hXMHfVU7xf5+k1uMC0P3HfLs0ivnZi1ycEdT2E/VZQ+oWgX72WyIyBQuPwHKuF
-44NcM0whAgMBAAECggEADI8O3W51pylKRARxuIsybvmJjDJZigdmFaW6f5oPrORN
-SHwU6PP0OM0KCuU5Ax5O8GPkd4TTdMFmIR+p9g8lJ6COvFO2r7+de7hkn0mRSyar
-xV/0oycl/iDPAqhxa7UeZmZpE0pviWxiH8D/FndoM/QnSL4nhHSOIlSjSEo37xSb
-ES7RXYoHNjWks/ita8bFofvkUEISHrnp4yreADDRQ3OZsV01CFzXgs9MshoLBTIe
-ohn6QK+fteJ7cfGC3wAqqEwgQqksTqM6mNooYK22fahWKC+gw/BPNPWo5fXWHa1q
-vwXXJErxCTrb9o7Clf1jq8ZDGI85cm7TXx+HEf7cxQKBgQDKp5A2VUKPKq/r2myk
-mFr+gxG4NxJlFk0J+MiiwAukZ/zYgQx7QgKQfN3Kv+ym+0jdd7Bp3Jxapva9pjzJ
-WKPlFy1rjjMoW+UbVQQ51MzI/mYtIC0NS4WyJtEyZvlnew+wo4anhSagZvabKXwp
-5FecI3Qom0swShJTYGnjM9XKuwKBgQC3qi7adBHwhByK7A4G/E7mI6+OLI9+2eC9
-QSABrJngx+xieseQc5Bdes95WyO1+9YW1AHkQw05/XqsiMNxwvFoS9ur+7XVRGww
-VlCgA8O55vG6dQ5XKd5CdG3Y7IfgxTvMvJ6tzFxvzCJxeCLp4KmWYurNrg8gVPIR
-sXxrrUZc0wKBgFOFT7g012Ot0idANDp52DbAyhLED769vC557Ca3Q5UUjm6kcQJz
-qB7od3hSNTR0qAkuhPR8SaxK17I9yxuofpOyQ7PqPUdK6FelaEJ1Y5kK0A2VDzxF
-fep4eQtuySdO3p6MJrjv9YVyKfy00klppHnjWsJJjmlufbMDL2DGQjx1AoGAa+8V
-Tcf8au4YoAONUsmfzFuYZeMGCTQdgNru5kz6uUCESHODJ/7iDi2IE/ddiysOa6f3
-3J8S/Mtb9l0BDq/TkslRtUZdW5G0SsvO4dqUgYGY+UylOtAeD8vAakTGrW77b5xB
-XD3G7OR4MVq6mdsvjnNfLbRmq0eAYql9RwIzYYUCgYBAaX+M7ztt6gtW2GoYiKRZ
-u7+7UDpRC9EJDIEtoFYlTpRWMMGwmko+Kx06048kQPblDDLxlaToQr+uGGa0ULTE
-LWPnW1V+fIzCt7H0n/TIfMlfv+2JbqrsS8LoZXjEY2Iq//qdFkKhb/Rwn/wz8w8L
-Hai0+5NPEoRUgOqxoUKL8w==
------END PRIVATE KEY-----"#;
+    fn generate_test_keypair(kid: &str) -> (String, String) {
+        let mut rng = rand::thread_rng();
+        let priv_key = RsaPrivateKey::new(&mut rng, 2048).expect("failed to generate RSA key");
+        let priv_pem = priv_key
+            .to_pkcs8_pem(LineEnding::LF)
+            .expect("failed to export PKCS#8 PEM")
+            .to_string();
 
-    const TEST_JWKS_JSON: &str = r#"{"keys":[{"kty":"RSA","kid":"nuts-auth-key-1","use":"sig","alg":"RS256","n":"kWSAc6WD5QAE8WztXj0AxssRq25IpKY9dVeCtKQIF7H0jJxZZ6RX8fKnC8UG2AncZZsDdJhCo0n6PDnXplSHbb1zODsa-Rg_0q6pYtFnF71iikaL4Cd8MPdS3gOH5eLh0LwZOF6M_q9ZaNRPBfJIao703urkqx9GXBs0uahe1-stHLIzwksU1a7LabOTrdDNZXqENsozM-CRPDQ3IE3bHts33J7tng2QqM03JS6IEogWRGXxFmLqxHf8oXR8yvRjVyHmDnl4-4I8bud4VzB31VO8X-fpNbjAtD9x3y7NIr52YtcnBHU9hP1WUPqFoF-9lsiMgULj8ByrheODXDNMIQ","e":"AQAB"}]}"#;
+        let pub_key = priv_key.to_public_key();
+        let n_bytes = pub_key.n().to_bytes_be();
+        let e_bytes = pub_key.e().to_bytes_be();
+        let n_b64 = URL_SAFE_NO_PAD.encode(&n_bytes);
+        let e_b64 = URL_SAFE_NO_PAD.encode(&e_bytes);
 
-    fn make_test_jwt(user_id: &str, sub: &str, exp: u64, kid: Option<&str>) -> String {
+        let jwks_json = format!(
+            r#"{{"keys":[{{"kty":"RSA","kid":"{}","use":"sig","alg":"RS256","n":"{}","e":"{}"}}]}}"#,
+            kid, n_b64, e_b64
+        );
+
+        (priv_pem, jwks_json)
+    }
+
+    fn make_test_jwt(priv_pem: &str, user_id: &str, sub: &str, exp: u64, kid: Option<&str>) -> String {
         let mut header = Header::new(Algorithm::RS256);
         header.kid = kid.map(|s| s.to_string());
         let claims = NutsClaims {
@@ -843,7 +856,7 @@ Hai0+5NPEoRUgOqxoUKL8w==
             aud: None,
             scopes: vec!["read".to_string(), "write".to_string()],
         };
-        let key = EncodingKey::from_rsa_pem(TEST_RSA_PRIV_KEY.as_bytes()).unwrap();
+        let key = EncodingKey::from_rsa_pem(priv_pem.as_bytes()).unwrap();
         jsonwebtoken::encode(&header, &claims, &key).unwrap()
     }
 
@@ -853,10 +866,16 @@ Hai0+5NPEoRUgOqxoUKL8w==
         let store = SessionStore::open(temp.path(), 12).unwrap();
         assert_eq!(store.len(), 0);
 
-        let s = store.create_session("uid-1", "user@test.org", Some("Alice"), "nuts-auth", now_secs() + 1800).unwrap();
+        let (raw_id, s) = store.create_session("uid-1", "user@test.org", Some("Alice"), "nuts-auth", now_secs() + 1800).unwrap();
         assert_eq!(store.len(), 1);
+        assert_eq!(s.session_hash, hash_session_id(&raw_id));
 
-        let retrieved = store.get_session(&s.session_id).unwrap();
+        // Ensure raw session ID is never stored on disk
+        let disk_content = fs::read_to_string(temp.path().join("sessions.json")).unwrap();
+        assert!(!disk_content.contains(&raw_id));
+        assert!(disk_content.contains(&s.session_hash));
+
+        let retrieved = store.get_session(&raw_id).unwrap();
         assert_eq!(retrieved.user_id, "uid-1");
         assert_eq!(retrieved.email, "user@test.org");
         assert_eq!(retrieved.name.as_deref(), Some("Alice"));
@@ -864,12 +883,12 @@ Hai0+5NPEoRUgOqxoUKL8w==
         // Reopen from disk to verify persistence
         let store2 = SessionStore::open(temp.path(), 12).unwrap();
         assert_eq!(store2.len(), 1);
-        assert!(store2.get_session(&s.session_id).is_some());
+        assert!(store2.get_session(&raw_id).is_some());
 
         // Deletion
-        assert!(store2.delete_session(&s.session_id));
+        assert!(store2.delete_session(&raw_id));
         assert_eq!(store2.len(), 0);
-        assert!(store2.get_session(&s.session_id).is_none());
+        assert!(store2.get_session(&raw_id).is_none());
 
         // Reopen after delete
         let store3 = SessionStore::open(temp.path(), 12).unwrap();
@@ -878,6 +897,7 @@ Hai0+5NPEoRUgOqxoUKL8w==
 
     #[test]
     fn test_jwt_verification_against_cached_jwks() {
+        let (priv_pem, jwks_json) = generate_test_keypair("nuts-auth-key-1");
         let temp = tempfile::tempdir().unwrap();
         let mut config = AuthConfig::default();
         config.mode = AuthMode::Both;
@@ -886,22 +906,22 @@ Hai0+5NPEoRUgOqxoUKL8w==
         // Write test JWKS to cache file on disk
         let auth_dir = temp.path().join("auth");
         fs::create_dir_all(&auth_dir).unwrap();
-        fs::write(auth_dir.join("jwks.json"), TEST_JWKS_JSON).unwrap();
+        fs::write(auth_dir.join("jwks.json"), &jwks_json).unwrap();
 
         let manager = AuthManager::new(&config, temp.path()).unwrap();
 
         // 1. Valid operator JWT
-        let valid_jwt = make_test_jwt("kord-uid-123", "kord@test.org", now_secs() + 1800, Some("nuts-auth-key-1"));
+        let valid_jwt = make_test_jwt(&priv_pem, "kord-uid-123", "kord@test.org", now_secs() + 1800, Some("nuts-auth-key-1"));
         let auth_res = manager.check_authorization(Some(&valid_jwt), None, None);
         assert!(matches!(auth_res, AuthCheckResult::Authorized(ref id) if id.user_id == "kord-uid-123"));
 
         // 2. Valid JWT but non-operator user -> 403 Forbidden
-        let other_jwt = make_test_jwt("intruder-uid-999", "intruder@test.org", now_secs() + 1800, Some("nuts-auth-key-1"));
+        let other_jwt = make_test_jwt(&priv_pem, "intruder-uid-999", "intruder@test.org", now_secs() + 1800, Some("nuts-auth-key-1"));
         let auth_res2 = manager.check_authorization(Some(&other_jwt), None, None);
         assert!(matches!(auth_res2, AuthCheckResult::Forbidden(_)));
 
         // 3. Expired operator JWT -> 401 Unauthorized
-        let expired_jwt = make_test_jwt("kord-uid-123", "kord@test.org", now_secs() - 100, Some("nuts-auth-key-1"));
+        let expired_jwt = make_test_jwt(&priv_pem, "kord-uid-123", "kord@test.org", now_secs() - 100, Some("nuts-auth-key-1"));
         let auth_res3 = manager.check_authorization(Some(&expired_jwt), None, None);
         assert!(matches!(auth_res3, AuthCheckResult::Unauthorized(ref msg) if msg.contains("expired")));
 
@@ -930,13 +950,13 @@ Hai0+5NPEoRUgOqxoUKL8w==
         assert!(matches!(res_bad, AuthCheckResult::Unauthorized(_)));
 
         // 3. Create session for operator and verify session cookie succeeds
-        let session = manager.create_session("operator-uuid", "op@test.org", None, "nuts-auth", now_secs() + 1800).unwrap();
-        let res_cookie = manager.check_authorization(None, Some(&session.session_id), Some("my-secret-token"));
+        let (raw_id, _) = manager.create_session("operator-uuid", "op@test.org", None, "nuts-auth", now_secs() + 1800).unwrap();
+        let res_cookie = manager.check_authorization(None, Some(&raw_id), Some("my-secret-token"));
         assert!(matches!(res_cookie, AuthCheckResult::Authorized(ref id) if id.user_id == "operator-uuid" && id.via == "nuts-auth"));
 
         // 4. Session for non-operator returns 403 Forbidden
-        let non_op_session = manager.create_session("guest-uuid", "guest@test.org", None, "nuts-auth", now_secs() + 1800).unwrap();
-        let res_non_op = manager.check_authorization(None, Some(&non_op_session.session_id), Some("my-secret-token"));
+        let (non_op_raw_id, _) = manager.create_session("guest-uuid", "guest@test.org", None, "nuts-auth", now_secs() + 1800).unwrap();
+        let res_non_op = manager.check_authorization(None, Some(&non_op_raw_id), Some("my-secret-token"));
         assert!(matches!(res_non_op, AuthCheckResult::Forbidden(_)));
     }
 
@@ -948,10 +968,10 @@ Hai0+5NPEoRUgOqxoUKL8w==
         config.operators = vec!["operator-uuid".to_string()];
 
         let manager = AuthManager::new(&config, temp.path()).unwrap();
-        let session = manager.create_session("operator-uuid", "op@test.org", None, "nuts-auth", now_secs() + 1800).unwrap();
+        let (raw_id, _) = manager.create_session("operator-uuid", "op@test.org", None, "nuts-auth", now_secs() + 1800).unwrap();
 
         // In static mode, session cookie alone is rejected
-        let res = manager.check_authorization(None, Some(&session.session_id), Some("my-secret-token"));
+        let res = manager.check_authorization(None, Some(&raw_id), Some("my-secret-token"));
         assert!(matches!(res, AuthCheckResult::Unauthorized(_)));
 
         // But static token succeeds
@@ -983,9 +1003,10 @@ Hai0+5NPEoRUgOqxoUKL8w==
         assert!(link.starts_with("http://127.0.0.1:18875/auth/break-glass?token="));
 
         let token = link.split("token=").nth(1).unwrap();
-        let session = manager.redeem_break_glass_token(token).unwrap();
+        let (raw_id, session) = manager.redeem_break_glass_token(token).unwrap();
         assert_eq!(session.user_id, "kord-emergency-uid");
         assert_eq!(session.via, "break-glass");
+        assert_eq!(session.session_hash, hash_session_id(&raw_id));
 
         // Second redemption attempt fails (single-use)
         assert!(manager.redeem_break_glass_token(token).is_none());

@@ -890,20 +890,21 @@ fn require_operator_identity(
     }
 }
 
-fn get_request_origin(headers: &HeaderMap, runtime: &AgentRuntime) -> String {
-    let host = headers
-        .get(axum::http::header::HOST)
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or_else(|| {
-            if runtime.config.bind.ip().is_loopback() {
-                "127.0.0.1:18875"
-            } else {
-                "localhost"
-            }
-        });
-    let is_https = is_request_secure(headers);
+fn get_public_base_url(runtime: &AgentRuntime, headers: &HeaderMap) -> String {
+    if let Some(ref url) = runtime.auth.config.public_url {
+        return url.trim_end_matches('/').to_string();
+    }
+
+    let bind = runtime.config.bind;
+    let host_port = if bind.ip().is_loopback() || bind.ip().is_unspecified() {
+        format!("127.0.0.1:{}", bind.port())
+    } else {
+        bind.to_string()
+    };
+
+    let is_https = runtime.auth.config.trust_proxy && is_request_secure(headers);
     let scheme = if is_https { "https" } else { "http" };
-    format!("{scheme}://{host}")
+    format!("{scheme}://{host_port}")
 }
 
 fn is_request_secure(headers: &HeaderMap) -> bool {
@@ -912,6 +913,18 @@ fn is_request_secure(headers: &HeaderMap) -> bool {
         .and_then(|p| p.to_str().ok())
         .map(|p| p.eq_ignore_ascii_case("https"))
         .unwrap_or(false)
+}
+
+fn is_secure_connection(runtime: &AgentRuntime, headers: &HeaderMap) -> bool {
+    if let Some(ref url) = runtime.auth.config.public_url {
+        if url.starts_with("https://") {
+            return true;
+        }
+    }
+    if runtime.auth.config.trust_proxy {
+        return is_request_secure(headers);
+    }
+    false
 }
 
 async fn auth_login(
@@ -924,7 +937,7 @@ async fn auth_login(
             Json(json!({ "error": "nuts-auth login is disabled" })),
         ));
     }
-    let origin = get_request_origin(&headers, &runtime);
+    let origin = get_public_base_url(&runtime, &headers);
     let return_url = format!("{origin}/auth/callback");
     let redirect_url = runtime.auth.build_login_url(&return_url);
     let mut response = axum::response::Redirect::to(&redirect_url).into_response();
@@ -981,7 +994,7 @@ async fn auth_callback(
         ));
     }
 
-    let session = runtime
+    let (raw_session_id, _session) = runtime
         .auth
         .create_session(
             &claims.user_id,
@@ -992,9 +1005,9 @@ async fn auth_callback(
         )
         .map_err(|e| internal(e))?;
 
-    let is_secure = is_request_secure(&headers);
+    let is_secure = is_secure_connection(&runtime, &headers);
     let max_age_secs = runtime.auth.config.session_hours * 3600;
-    let cookie = crate::auth::format_session_cookie(&session.session_id, max_age_secs, is_secure);
+    let cookie = crate::auth::format_session_cookie(&raw_session_id, max_age_secs, is_secure);
 
     let mut response = axum::response::Redirect::to("/talk").into_response();
     *response.status_mut() = StatusCode::SEE_OTHER;
@@ -1011,7 +1024,7 @@ async fn auth_logout(
     if let Some(session_id) = crate::auth::extract_session_cookie(&headers) {
         runtime.auth.delete_session(session_id);
     }
-    let is_secure = is_request_secure(&headers);
+    let is_secure = is_secure_connection(&runtime, &headers);
     let clear_cookie = crate::auth::format_clear_session_cookie(is_secure);
     let mut response = Json(json!({ "ok": true })).into_response();
     if let Ok(cookie_val) = axum::http::HeaderValue::from_str(&clear_cookie) {
@@ -1064,16 +1077,16 @@ async fn auth_break_glass(
             Json(json!({ "error": "missing break-glass token" })),
         ));
     };
-    let Some(session) = runtime.auth.redeem_break_glass_token(&token) else {
+    let Some((raw_session_id, _session)) = runtime.auth.redeem_break_glass_token(&token) else {
         return Err((
             StatusCode::UNAUTHORIZED,
             Json(json!({ "error": "invalid or expired break-glass token" })),
         ));
     };
 
-    let is_secure = is_request_secure(&headers);
+    let is_secure = is_secure_connection(&runtime, &headers);
     let max_age_secs = runtime.auth.config.session_hours * 3600;
-    let cookie = crate::auth::format_session_cookie(&session.session_id, max_age_secs, is_secure);
+    let cookie = crate::auth::format_session_cookie(&raw_session_id, max_age_secs, is_secure);
 
     let mut response = axum::response::Redirect::to("/talk").into_response();
     *response.status_mut() = StatusCode::SEE_OTHER;

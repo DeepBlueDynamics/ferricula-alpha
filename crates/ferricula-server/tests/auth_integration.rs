@@ -12,12 +12,17 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use http_body_util::BodyExt;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
+use rsa::pkcs8::{EncodePrivateKey, LineEnding};
+use rsa::traits::PublicKeyParts;
+use rsa::RsaPrivateKey;
 use serde_json::Value;
 use tower::ServiceExt;
 
@@ -28,36 +33,27 @@ use ferricula_server::config::{AuthConfig, AuthMode, RuntimeConfig};
 use ferricula_server::inspect_data_dir;
 use ferricula_server::runtime::AgentRuntime;
 
-const TEST_RSA_PRIV_KEY: &str = r#"-----BEGIN PRIVATE KEY-----
-MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCRZIBzpYPlAATx
-bO1ePQDGyxGrbkikpj11V4K0pAgXsfSMnFlnpFfx8qcLxQbYCdxlmwN0mEKjSfo8
-OdemVIdtvXM4Oxr5GD/Srqli0WcXvWKKRovgJ3ww91LeA4fl4uHQvBk4Xoz+r1lo
-1E8F8khqjvTe6uSrH0ZcGzS5qF7X6y0csjPCSxTVrstps5Ot0M1leoQ2yjMz4JE8
-NDcgTdse2zfcnu2eDZCozTclLogSiBZEZfEWYurEd/yhdHzK9GNXIeYOeXj7gjxu
-53hXMHfVU7xf5+k1uMC0P3HfLs0ivnZi1ycEdT2E/VZQ+oWgX72WyIyBQuPwHKuF
-44NcM0whAgMBAAECggEADI8O3W51pylKRARxuIsybvmJjDJZigdmFaW6f5oPrORN
-SHwU6PP0OM0KCuU5Ax5O8GPkd4TTdMFmIR+p9g8lJ6COvFO2r7+de7hkn0mRSyar
-xV/0oycl/iDPAqhxa7UeZmZpE0pviWxiH8D/FndoM/QnSL4nhHSOIlSjSEo37xSb
-ES7RXYoHNjWks/ita8bFofvkUEISHrnp4yreADDRQ3OZsV01CFzXgs9MshoLBTIe
-ohn6QK+fteJ7cfGC3wAqqEwgQqksTqM6mNooYK22fahWKC+gw/BPNPWo5fXWHa1q
-vwXXJErxCTrb9o7Clf1jq8ZDGI85cm7TXx+HEf7cxQKBgQDKp5A2VUKPKq/r2myk
-mFr+gxG4NxJlFk0J+MiiwAukZ/zYgQx7QgKQfN3Kv+ym+0jdd7Bp3Jxapva9pjzJ
-WKPlFy1rjjMoW+UbVQQ51MzI/mYtIC0NS4WyJtEyZvlnew+wo4anhSagZvabKXwp
-5FecI3Qom0swShJTYGnjM9XKuwKBgQC3qi7adBHwhByK7A4G/E7mI6+OLI9+2eC9
-QSABrJngx+xieseQc5Bdes95WyO1+9YW1AHkQw05/XqsiMNxwvFoS9ur+7XVRGww
-VlCgA8O55vG6dQ5XKd5CdG3Y7IfgxTvMvJ6tzFxvzCJxeCLp4KmWYurNrg8gVPIR
-sXxrrUZc0wKBgFOFT7g012Ot0idANDp52DbAyhLED769vC557Ca3Q5UUjm6kcQJz
-qB7od3hSNTR0qAkuhPR8SaxK17I9yxuofpOyQ7PqPUdK6FelaEJ1Y5kK0A2VDzxF
-fep4eQtuySdO3p6MJrjv9YVyKfy00klppHnjWsJJjmlufbMDL2DGQjx1AoGAa+8V
-Tcf8au4YoAONUsmfzFuYZeMGCTQdgNru5kz6uUCESHODJ/7iDi2IE/ddiysOa6f3
-3J8S/Mtb9l0BDq/TkslRtUZdW5G0SsvO4dqUgYGY+UylOtAeD8vAakTGrW77b5xB
-XD3G7OR4MVq6mdsvjnNfLbRmq0eAYql9RwIzYYUCgYBAaX+M7ztt6gtW2GoYiKRZ
-u7+7UDpRC9EJDIEtoFYlTpRWMMGwmko+Kx06048kQPblDDLxlaToQr+uGGa0ULTE
-LWPnW1V+fIzCt7H0n/TIfMlfv+2JbqrsS8LoZXjEY2Iq//qdFkKhb/Rwn/wz8w8L
-Hai0+5NPEoRUgOqxoUKL8w==
------END PRIVATE KEY-----"#;
+static TEST_KEYPAIR: LazyLock<(String, String)> = LazyLock::new(|| {
+    let mut rng = rand::thread_rng();
+    let priv_key = RsaPrivateKey::new(&mut rng, 2048).expect("failed to generate RSA key");
+    let priv_pem = priv_key
+        .to_pkcs8_pem(LineEnding::LF)
+        .expect("failed to export PKCS#8 PEM")
+        .to_string();
 
-const TEST_JWKS_JSON: &str = r#"{"keys":[{"kty":"RSA","kid":"nuts-auth-key-1","use":"sig","alg":"RS256","n":"kWSAc6WD5QAE8WztXj0AxssRq25IpKY9dVeCtKQIF7H0jJxZZ6RX8fKnC8UG2AncZZsDdJhCo0n6PDnXplSHbb1zODsa-Rg_0q6pYtFnF71iikaL4Cd8MPdS3gOH5eLh0LwZOF6M_q9ZaNRPBfJIao703urkqx9GXBs0uahe1-stHLIzwksU1a7LabOTrdDNZXqENsozM-CRPDQ3IE3bHts33J7tng2QqM03JS6IEogWRGXxFmLqxHf8oXR8yvRjVyHmDnl4-4I8bud4VzB31VO8X-fpNbjAtD9x3y7NIr52YtcnBHU9hP1WUPqFoF-9lsiMgULj8ByrheODXDNMIQ","e":"AQAB"}]}"#;
+    let pub_key = priv_key.to_public_key();
+    let n_bytes = pub_key.n().to_bytes_be();
+    let e_bytes = pub_key.e().to_bytes_be();
+    let n_b64 = URL_SAFE_NO_PAD.encode(&n_bytes);
+    let e_b64 = URL_SAFE_NO_PAD.encode(&e_bytes);
+
+    let jwks_json = format!(
+        r#"{{"keys":[{{"kty":"RSA","kid":"nuts-auth-key-1","use":"sig","alg":"RS256","n":"{}","e":"{}"}}]}}"#,
+        n_b64, e_b64
+    );
+
+    (priv_pem, jwks_json)
+});
 
 const KORD_USER_ID: &str = "e6a86c62-3bf9-4b82-9017-0599a80b6239";
 const OTHER_USER_ID: &str = "00000000-0000-0000-0000-000000000000";
@@ -76,7 +72,7 @@ fn make_test_jwt(user_id: &str, sub: &str, exp: u64, kid: Option<&str>) -> Strin
         aud: None,
         scopes: vec!["read".to_string(), "write".to_string()],
     };
-    let key = EncodingKey::from_rsa_pem(TEST_RSA_PRIV_KEY.as_bytes()).unwrap();
+    let key = EncodingKey::from_rsa_pem(TEST_KEYPAIR.0.as_bytes()).unwrap();
     jsonwebtoken::encode(&header, &claims, &key).unwrap()
 }
 
@@ -101,7 +97,7 @@ fn setup_test_runtime(mode: AuthMode) -> (tempfile::TempDir, Arc<AgentRuntime>) 
     // Cache test JWKS in state_dir/auth/jwks.json so no network calls are needed
     let auth_dir = state.join("auth");
     fs::create_dir_all(&auth_dir).unwrap();
-    fs::write(auth_dir.join("jwks.json"), TEST_JWKS_JSON).unwrap();
+    fs::write(auth_dir.join("jwks.json"), &TEST_KEYPAIR.1).unwrap();
 
     {
         let mut engine = DurableEngine::open(&memory).unwrap();
@@ -131,6 +127,8 @@ fn setup_test_runtime(mode: AuthMode) -> (tempfile::TempDir, Arc<AgentRuntime>) 
         login_url: "https://auth.nuts.services/login".to_string(),
         jwks_url: "https://auth.nuts.services/.well-known/jwks.json".to_string(),
         validate_url: "https://auth.nuts.services/api/validate".to_string(),
+        public_url: Some("http://127.0.0.1:18875".to_string()),
+        trust_proxy: false,
         require_iss: false,
         require_aud: false,
         expected_iss: None,
@@ -214,11 +212,12 @@ async fn test_auth_login_redirect() {
     let (_dir, runtime) = setup_test_runtime(AuthMode::Both);
     let app = api::router(runtime);
 
+    // Host header is evil.attacker.com, but return_url MUST be built from configured public_url / loopback!
     let res = app
         .oneshot(
             Request::builder()
                 .uri("/auth/login")
-                .header(header::HOST, "127.0.0.1:18875")
+                .header(header::HOST, "evil.attacker.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -229,6 +228,8 @@ async fn test_auth_login_redirect() {
     let location = res.headers().get(header::LOCATION).unwrap().to_str().unwrap();
     assert!(location.starts_with("https://auth.nuts.services/login?return_url="));
     assert!(location.contains("127.0.0.1%3A18875%2Fauth%2Fcallback") || location.contains("127.0.0.1:18875/auth/callback"));
+    // Verify client Host header is never used to determine credential destination
+    assert!(!location.contains("evil.attacker.com"));
 }
 
 #[tokio::test]
@@ -326,6 +327,12 @@ async fn test_auth_callback_flow_and_exit_criteria() {
         .find_map(|p| p.trim().strip_prefix("ferricula_session="))
         .unwrap();
 
+    // Verify session ID is stored hashed on disk, never raw
+    let sessions_disk = fs::read_to_string(_dir.path().join("state/auth/sessions.json")).unwrap();
+    assert!(!sessions_disk.contains(session_val), "raw session ID must not be stored in sessions.json");
+    let session_hash = ferricula_server::auth::hash_session_id(session_val);
+    assert!(sessions_disk.contains(&session_hash), "hashed session ID must be stored in sessions.json");
+
     // 5. Use session cookie on protected route (e.g. GET /status)
     let res_status = app
         .clone()
@@ -420,4 +427,71 @@ async fn test_phase_a0_both_modes_accept_operator_token() {
         .await
         .unwrap();
     assert_eq!(res_jwt.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_auth_public_url_and_proxy_trust() {
+    // 1. With configured HTTPS public_url
+    let (_dir, runtime) = setup_test_runtime(AuthMode::Both);
+    let mut config = runtime.config.clone();
+    config.auth.public_url = Some("https://agent.deepblue.example.com".to_string());
+    config.auth.trust_proxy = false;
+    let inspection = inspect_data_dir(&config.memory_dir).unwrap();
+    let runtime_https = AgentRuntime::open(config, inspection).unwrap();
+    let app_https = api::router(runtime_https);
+
+    // Login redirects to configured public_url (ignoring Host)
+    let res_login = app_https
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/auth/login")
+                .header(header::HOST, "random-host.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_login.status(), StatusCode::SEE_OTHER);
+    let location = res_login.headers().get(header::LOCATION).unwrap().to_str().unwrap();
+    assert!(location.contains("https%3A%2F%2Fagent.deepblue.example.com%2Fauth%2Fcallback")
+        || location.contains("https://agent.deepblue.example.com/auth/callback"));
+
+    // Callback on HTTPS public_url sets Secure cookie
+    let valid_jwt = make_test_jwt(KORD_USER_ID, "kord@test.org", now_secs() + 1800, Some("nuts-auth-key-1"));
+    let res_cb = app_https
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/auth/callback?token={valid_jwt}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_cb.status(), StatusCode::SEE_OTHER);
+    let cookie = res_cb.headers().get(header::SET_COOKIE).unwrap().to_str().unwrap();
+    assert!(cookie.contains("; Secure"));
+
+    // 2. With trust_proxy = true and loopback bind
+    let (_dir2, runtime2) = setup_test_runtime(AuthMode::Both);
+    let mut config2 = runtime2.config.clone();
+    config2.auth.public_url = None;
+    config2.auth.trust_proxy = true;
+    let inspection2 = inspect_data_dir(&config2.memory_dir).unwrap();
+    let runtime_proxy = AgentRuntime::open(config2, inspection2).unwrap();
+    let app_proxy = api::router(runtime_proxy);
+
+    let res_proxy_cb = app_proxy
+        .oneshot(
+            Request::builder()
+                .uri(format!("/auth/callback?token={valid_jwt}"))
+                .header("x-forwarded-proto", "https")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let proxy_cookie = res_proxy_cb.headers().get(header::SET_COOKIE).unwrap().to_str().unwrap();
+    assert!(proxy_cookie.contains("; Secure"));
 }

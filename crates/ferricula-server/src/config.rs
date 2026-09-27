@@ -201,6 +201,11 @@ pub struct AuthConfig {
     pub login_url: String,
     pub jwks_url: String,
     pub validate_url: String,
+    /// Public base URL for building callback/redirect URLs (e.g. "https://agent.example.com").
+    /// If None, derived from `runtime.config.bind` (e.g. "http://127.0.0.1:<port>").
+    pub public_url: Option<String>,
+    /// Whether to trust `X-Forwarded-Proto` header from reverse proxies when detecting scheme.
+    pub trust_proxy: bool,
     pub require_iss: bool,
     pub require_aud: bool,
     pub expected_iss: Option<String>,
@@ -218,6 +223,8 @@ impl Default for AuthConfig {
             login_url: "https://auth.nuts.services/login".into(),
             jwks_url: "https://auth.nuts.services/.well-known/jwks.json".into(),
             validate_url: "https://auth.nuts.services/api/validate".into(),
+            public_url: None,
+            trust_proxy: false,
             require_iss: false,
             require_aud: false,
             expected_iss: None,
@@ -243,6 +250,11 @@ impl AuthConfig {
                 if !(url.starts_with("http://") || url.starts_with("https://")) || url.contains('@') {
                     bail!("{name} must be an http(s) URL without inline credentials");
                 }
+            }
+        }
+        if let Some(ref url) = self.public_url {
+            if !(url.starts_with("http://") || url.starts_with("https://")) || url.contains('@') {
+                bail!("auth.public_url must be an http(s) URL without inline credentials");
             }
         }
         if self.session_hours == 0 || self.session_hours > 24 * 365 {
@@ -1290,12 +1302,16 @@ name = "Memory Bench"
         assert_eq!(config.auth.session_hours, 12);
         assert_eq!(config.auth.ahp_cache_minutes, 10);
         assert!(config.auth.operators.is_empty());
+        assert_eq!(config.auth.public_url, None);
+        assert!(!config.auth.trust_proxy);
 
         let parsed: RuntimeConfig = toml::from_str(
             r#"
             [auth]
             mode = "both"
             operators = ["e6a86c62-3bf9-4b82-9017-0599a80b6239"]
+            public_url = "https://agent.example.com"
+            trust_proxy = true
             session_hours = 24
             ahp_cache_minutes = 15
             require_iss = true
@@ -1311,6 +1327,8 @@ name = "Memory Bench"
         assert_eq!(parsed.auth.mode, AuthMode::Both);
         assert!(parsed.auth.login_enabled());
         assert_eq!(parsed.auth.operators, vec!["e6a86c62-3bf9-4b82-9017-0599a80b6239"]);
+        assert_eq!(parsed.auth.public_url.as_deref(), Some("https://agent.example.com"));
+        assert!(parsed.auth.trust_proxy);
         assert_eq!(parsed.auth.session_hours, 24);
         assert_eq!(parsed.auth.ahp_cache_minutes, 15);
         assert!(parsed.auth.require_iss);
@@ -1327,5 +1345,9 @@ name = "Memory Bench"
         bad_mode.auth.mode = AuthMode::Both;
         bad_mode.auth.login_url = "ftp://invalid".into();
         assert!(bad_mode.validate().is_err());
+
+        let mut bad_pub = RuntimeConfig::default();
+        bad_pub.auth.public_url = Some("ftp://invalid".into());
+        assert!(bad_pub.validate().is_err());
     }
 }
