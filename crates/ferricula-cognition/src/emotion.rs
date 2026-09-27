@@ -1,4 +1,4 @@
-//! Provider-neutral Plutchik affect + somatic state for Steve.
+//! Provider-neutral Plutchik affect + somatic state for the agent.
 //!
 //! Pure planning semantics only:
 //! - eight base emotions and the original primary dyads;
@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 /// Somatic lag coefficient from the original arena (`_update_somatic`).
 pub const SOMATIC_ALPHA: f32 = 0.35;
 
-/// Default baseline emotion when scores are flat (Steve's curious idle).
+/// Default baseline emotion when scores are flat (the agent's curious idle).
 pub const DEFAULT_BASELINE: BaseEmotion = BaseEmotion::Interest;
 
 /// How close the runner-up must be to form a dyad (fraction of top score).

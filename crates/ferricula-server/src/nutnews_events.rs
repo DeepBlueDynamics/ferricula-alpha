@@ -1413,7 +1413,7 @@ mod tests {
                         "item_id": 9001,
                         "comment_id": 501,
                         "actor": "alice",
-                        "text": "hey @steve — thoughts on simplicity?",
+                        "text": "hey @agent — thoughts on simplicity?",
                         "reply_to": null
                     }),
                 },
@@ -1458,7 +1458,7 @@ mod tests {
                         "item": 36,
                         "parent": null,
                         "by": "bob",
-                        "text": "hey @steve — thoughts?",
+                        "text": "hey @agent — thoughts?",
                         "ts": 1_700_000_010u64
                     }),
                 },
@@ -2084,7 +2084,7 @@ mod tests {
             "id": 1,
             "item": 2,
             "by": "alice",
-            "text": "@steve hi",
+            "text": "@agent hi",
             "ts": 1
         });
         let err = parse_event_page_value(&bare).unwrap_err().to_string();
@@ -2165,7 +2165,7 @@ mod tests {
         assert_eq!(comment.comment_id, Some(501));
         assert_eq!(comment.item_id, Some(36));
         assert_eq!(comment.actor, "bob");
-        assert!(comment.text.contains("@steve"));
+        assert!(comment.text.contains("@agent"));
         assert!(!comment.is_ignorable_noise());
 
         let vote = normalize_event_fields(&page.events[2].event).unwrap();

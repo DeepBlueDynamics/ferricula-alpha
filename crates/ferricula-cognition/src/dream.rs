@@ -216,7 +216,7 @@ pub(crate) fn find_similarity_groups(engine: &Engine, ids: &[u32], threshold: f3
 
 /// Phase 5.5: Build dream-imagery candidates from the SKG summary's top
 /// emerging term pairs. Each candidate's prompt is the pair concatenated; a
-/// downstream consumer (Steve runtime, arena tools) materializes the image
+/// downstream consumer (agent runtime, arena tools) materializes the image
 /// via an external backend and writes the resulting `seeing` channel memory.
 ///
 /// We take at most `top_n` candidates, requiring a positive Weber bracket.

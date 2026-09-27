@@ -1,4 +1,4 @@
-//! Bounded, provider-neutral **autonomy** state machine for Steve.
+//! Bounded, provider-neutral **autonomy** state machine for the agent.
 //!
 //! Implements the V2 event-driven redesign of the arena think loop
 //! (`research/original-ferricula/AUTONOMY_LOOP_SPEC.md`):

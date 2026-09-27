@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod ollaya;
 
-pub const VERSION: &str = "ferricula-gates/2.0.0-alpha.0";
+pub const VERSION: &str = "ferricula-gates/3.0.0-alpha.0";
 /// Prompt-set version; bump on any prompt text change.
 pub const PROMPT_VERSION: &str = "prompts/2026-09-26.v1";
 
@@ -233,7 +233,8 @@ fn argmax(v: &[(String, f32)]) -> (String, f32) {
 }
 
 // ---------------------------------------------------------------- prompts
-// English prompts mirror research/gates/prompts (PROMPT_VERSION pinned).
+// English prompts mirror research/gates/prompts (PROMPT_VERSION pinned);
+// the vedana prompt is vendored under crates/ferricula-gates/prompts/.
 
 const VEDANA_PROMPT: &str = include_str!("../prompts/gate_vedana_en.txt");
 

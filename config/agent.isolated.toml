@@ -1,21 +1,24 @@
-# Isolated Steve test config — NOT for production.
+# Isolated agent test config — NOT for production.
 #
-# Purpose: paused load/test against recovery memory read-only.
+# Purpose: paused load/test against recovered memory, read-only.
 # Must not grant private_context to any :cloud model.
-# Mount as /app/config/steve.toml via compose.isolated.yaml.
+# Mount as /app/config/agent.toml via compose.isolated.yaml.
+# Set expected_agent_id / [models.identity] to the agent_id in the mounted
+# memory's identity.json (see config/examples/steve/steve.toml).
 #
-# Do not copy these settings into steve.example.toml without a separate review.
+# Do not copy these settings into agent.example.toml without a separate review.
 # Parsed by RuntimeConfig::load (crates/ferricula-server/src/config.rs).
 
 bind = "0.0.0.0:8875"
-memory_dir = "/data/steve-memory"
-state_dir = "/data/steve-runtime"
+expected_agent_id = "ferricula-agent"
+memory_dir = "/data/agent-memory"
+state_dir = "/data/agent-runtime"
 operator_token_env = "FERRICULA_OPERATOR_TOKEN"
 require_operator_auth = true
 
-# Empty: recovered memory must not be authorized onto any model profile.
-# Combined with no :cloud model, this closes the example.toml hole
-# (local_ollama listed in private_context_profiles + glm-5.2:cloud).
+# Empty: recovered memory must not be authorized onto any model profile in
+# this isolated test stack. (A `:cloud` Ollama model listed here would send
+# private memory off-box — an operator choice that does not belong in tests.)
 private_context_profiles = []
 
 # Genuinely local name only. Unused while paused; must not end in :cloud.
@@ -41,8 +44,8 @@ max_model_usd_per_day = 5.0
 enabled = false
 mcp_url = "https://news.nuts.services/mcp"
 public_url = "https://news.nuts.services"
-token_env = "NUTNEWS_STEVE_TOKEN"
-handle = "steve"
+token_env = "NUTNEWS_TOKEN"
+handle = "agent"
 allow_writes = false
 
 [autonomy]
@@ -64,14 +67,18 @@ max_excerpt_chars = 600
 [mentions]
 enabled = false
 instance = "news.nuts.services"
-steve_handle = "steve"
+agent_handle = "agent"
 
 [overlay]
 enabled = false
-path = "/data/steve-runtime/overlay/overlay.json"
+path = "/data/agent-runtime/overlay/overlay.json"
 
 [emotion]
 enabled = false
 
 [advocate]
 enabled = false
+
+[models.identity]
+agent_id = "ferricula-agent"
+name = "Ferricula Agent"

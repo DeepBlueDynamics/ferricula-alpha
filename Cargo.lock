@@ -623,7 +623,7 @@ checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
 
 [[package]]
 name = "ferricula-cognition"
-version = "2.0.0-alpha.0"
+version = "3.0.0-alpha.0"
 dependencies = [
  "anyhow",
  "ferricula-core",
@@ -640,7 +640,7 @@ dependencies = [
 
 [[package]]
 name = "ferricula-core"
-version = "2.0.0-alpha.0"
+version = "3.0.0-alpha.0"
 dependencies = [
  "anyhow",
  "postcard",
@@ -651,7 +651,7 @@ dependencies = [
 
 [[package]]
 name = "ferricula-episode"
-version = "2.0.0-alpha.0"
+version = "3.0.0-alpha.0"
 dependencies = [
  "anyhow",
  "ferricula-core",
@@ -662,7 +662,7 @@ dependencies = [
 
 [[package]]
 name = "ferricula-gates"
-version = "2.0.0-alpha.0"
+version = "3.0.0-alpha.0"
 dependencies = [
  "ferricula-cognition",
  "serde",
@@ -687,7 +687,7 @@ dependencies = [
 
 [[package]]
 name = "ferricula-search"
-version = "2.0.0-alpha.0"
+version = "3.0.0-alpha.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -697,7 +697,7 @@ dependencies = [
 
 [[package]]
 name = "ferricula-semantic"
-version = "2.0.0-alpha.0"
+version = "3.0.0-alpha.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -719,7 +719,7 @@ dependencies = [
 
 [[package]]
 name = "ferricula-server"
-version = "2.0.0-alpha.0"
+version = "3.0.0-alpha.0"
 dependencies = [
  "anyhow",
  "axum",

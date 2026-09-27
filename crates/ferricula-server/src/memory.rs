@@ -7,7 +7,7 @@ use ferricula_core::{DurableEngine, LifecycleState};
 use serde::Serialize;
 
 /// Read access to the recovery copy. Experience commits remain serialized by
-/// the Steve task loop; candidate lookup itself never mutates memory.
+/// the agent task loop; candidate lookup itself never mutates memory.
 pub struct MemoryRuntime {
     engine: Mutex<DurableEngine>,
 }
@@ -49,7 +49,7 @@ impl MemoryRuntime {
         })
     }
 
-    /// Provider-free lexical candidate retrieval keeps Steve's continuity
+    /// Provider-free lexical candidate retrieval keeps the agent's continuity
     /// available before an embedding service is configured. Dense/hybrid
     /// ranking can refine these candidates later.
     pub fn recall_candidates(&self, query: &str, limit: usize) -> Vec<MemoryHit> {
