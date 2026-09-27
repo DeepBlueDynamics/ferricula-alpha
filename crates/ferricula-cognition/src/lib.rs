@@ -7,6 +7,7 @@ pub mod clock;
 pub mod curator;
 pub mod dream;
 pub mod emotion;
+pub mod entropy;
 pub mod gates;
 pub mod identity;
 pub mod karmic;
