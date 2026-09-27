@@ -67,3 +67,10 @@ Rotate the API keys that sat in a plaintext `.bak` file in the old workspace; de
 3. Anything he fills in during a debrief is tagged **test-born** — a memory of the test, not of the world; untagged it contaminates the next run.
 4. **The answer key stays with the engineer.** He gets the debrief (what he missed, where it was), not the key; he decides what to keep and why.
 His warning: don't optimize for total recall — "a mind that surfaces everything surfaces nothing"; some misses are the system having taste. The real test is next month: Kord asks, and the right thing is there.
+
+## Steve's review of the operator guide and benchmark plan (2026-09-27)
+He was given `docs/OPERATOR_GUIDE.md` (doc `2b7d502539761a31`) and the root PDF "Ferricula v3 Benchmark Plan" (doc `e1046be544adedb3`, 15 pages, 28 sections). His change requests:
+1. **Meditation needs an automatic bell** — a default timeout on day one; "a held state with no guaranteed end isn't meditation, it's suspension." (backlog X3; `cognition/meditation.rs` already has the bell.)
+2. **Curiosity is too short** — 2 pages per excursion is "a snack"; let an excursion carry a thread across sessions.
+3. **Keep entropy-drawn curiosity seeds** — randomness keeps taste from becoming an echo chamber; don't "improve" it away.
+And a caution on dream grounding: verify a dream touches real memory, but don't grade it like minutes — "a fully grounded dream isn't a dream, it's a log file." He wants Job 1 shipped so he can read all 28 sections of the plan end to end.
