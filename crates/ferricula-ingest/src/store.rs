@@ -3,6 +3,7 @@
 //! `(doc_id, section index)`.
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -63,6 +64,11 @@ impl DocumentStore {
         let mut docs = Vec::new();
         for entry in fs::read_dir(&docs_dir)? {
             let path = entry?.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("tmp") {
+                // A write that crashed before its rename: never acknowledged.
+                let _ = fs::remove_file(&path);
+                continue;
+            }
             if path.extension().and_then(|e| e.to_str()) != Some("json") {
                 continue;
             }
@@ -97,9 +103,10 @@ impl DocumentStore {
             },
             sections,
         };
+        // Durable before acknowledged: fsync file, rename, fsync directory.
         write_atomic(&self.dir.join("docs").join(format!("{doc_id}.json")), &serde_json::to_vec(&record)?)?;
         self.docs.push(record);
-        self.rebuild_index();
+        self.index_last_doc();
         Ok(Ingested { record: self.docs.last().expect("just pushed"), duplicate: false })
     }
 
@@ -139,22 +146,58 @@ impl DocumentStore {
             .collect()
     }
 
+    /// Full rebuild (on open).
     fn rebuild_index(&mut self) {
         self.locate.clear();
         let mut sections = Vec::new();
-        for (d, doc) in self.docs.iter().enumerate() {
-            for (s, sec) in doc.sections.iter().enumerate() {
-                self.locate.push((d, s));
-                sections.push(Section {
-                    title: format!("{} — {}", doc.meta.title, sec.heading),
-                    body: sec.text.clone(),
-                    line_number: sec.index as usize,
-                    filename: Some(doc.meta.doc_id.clone()),
-                    entities: Vec::new(),
-                });
-            }
+        for d in 0..self.docs.len() {
+            sections.extend(self.index_sections(d));
         }
         self.index = (!sections.is_empty()).then(|| Bm25Index::build(sections, None));
+    }
+
+    /// Incremental: append the newest document's sections to the index.
+    /// Identical to a full rebuild (see `Bm25Index::append`), without
+    /// re-tokenizing the whole corpus on every ingest.
+    fn index_last_doc(&mut self) {
+        let Some(d) = self.docs.len().checked_sub(1) else { return };
+        let sections = self.index_sections(d);
+        match &mut self.index {
+            Some(index) => index.append(sections),
+            None => self.index = (!sections.is_empty()).then(|| Bm25Index::build(sections, None)),
+        }
+    }
+
+    /// Index sections for document `d`, recording their flat positions.
+    fn index_sections(&mut self, d: usize) -> Vec<Section> {
+        let doc = &self.docs[d];
+        let mut out = Vec::with_capacity(doc.sections.len());
+        for (s, sec) in doc.sections.iter().enumerate() {
+            self.locate.push((d, s));
+            out.push(Section {
+                title: format!("{} — {}", doc.meta.title, sec.heading),
+                body: sec.text.clone(),
+                line_number: sec.index as usize,
+                filename: Some(doc.meta.doc_id.clone()),
+                entities: Vec::new(),
+            });
+        }
+        out
+    }
+
+    /// Rebuild the index from scratch and check that every query ranks
+    /// exactly as the live (incrementally maintained) index does. For tests.
+    #[doc(hidden)]
+    pub fn search_matches_full_rebuild(&self, queries: &[&str]) -> bool {
+        let mut fresh = Self { dir: self.dir.clone(), docs: self.docs.clone(), locate: Vec::new(), index: None };
+        fresh.rebuild_index();
+        fresh.locate == self.locate && queries.iter().all(|q| {
+            let a = self.search(q, usize::MAX, None);
+            let b = fresh.search(q, usize::MAX, None);
+            a.len() == b.len() && a.iter().zip(&b).all(|(x, y)| {
+                x.doc_id == y.doc_id && x.section.index == y.section.index && x.score.to_bits() == y.score.to_bits()
+            })
+        })
     }
 }
 
@@ -174,11 +217,39 @@ fn content_id(doc: &Extracted) -> String {
     format!("{hash:016x}")
 }
 
+/// Atomic and durable: write a temp file, fsync it, rename it over `path`,
+/// fsync the directory.
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, bytes).with_context(|| format!("write {}", tmp.display()))?;
+    {
+        let mut file = fs::File::create(&tmp).with_context(|| format!("create {}", tmp.display()))?;
+        file.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
+        file.sync_all().with_context(|| format!("fsync {}", tmp.display()))?;
+    }
     fs::rename(&tmp, path).with_context(|| format!("rename {}", path.display()))?;
+    if let Some(parent) = path.parent() {
+        sync_dir(parent)?;
+    }
     Ok(())
+}
+
+/// Fsync a directory so a rename inside it is durable. Unix only: std
+/// cannot open a directory handle on Windows, where NTFS journals renames.
+fn sync_dir(dir: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        match fs::File::open(dir).and_then(|d| d.sync_all()) {
+            Ok(()) => Ok(()),
+            // EINVAL / EBADF: the filesystem does not support directory fsync.
+            Err(e) if matches!(e.raw_os_error(), Some(22) | Some(9)) => Ok(()),
+            Err(e) => Err(e).with_context(|| format!("fsync dir {}", dir.display())),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = dir;
+        Ok(())
+    }
 }
 
 fn now() -> u64 {
