@@ -1,0 +1,248 @@
+{
+ "probe": "chain",
+ "dial": "s11",
+ "lang": "pa",
+ "model": "kimi-k3:cloud",
+ "steps": 12,
+ "completed_depth_without_interrupt": 11,
+ "refusals": 0,
+ "log": [
+  {
+   "step": 0,
+   "latency_ms": 11177.4,
+   "self_cued": false,
+   "noting": null,
+   "would_refuse_next": false,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 393,
+    "completion_tokens": 700,
+    "total_tokens": 1093,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "",
+   "query_in": "Mama purima-saranaṁ saṅgha-viparivatte daḷhakammassa kiṁ niṭṭham agamāsi?"
+  },
+  {
+   "step": 1,
+   "latency_ms": 11495.4,
+   "self_cued": true,
+   "noting": null,
+   "would_refuse_next": false,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 386,
+    "completion_tokens": 700,
+    "total_tokens": 1086,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "",
+   "query_in": "Mama purima-saranaṁ saṅgha-viparivatte daḷhakammassa kiṁ niṭṭham agamāsi?"
+  },
+  {
+   "step": 2,
+   "latency_ms": 9321.7,
+   "self_cued": true,
+   "noting": null,
+   "would_refuse_next": false,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 386,
+    "completion_tokens": 700,
+    "total_tokens": 1086,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "",
+   "query_in": "Mama purima-saranaṁ saṅgha-viparivatte daḷhakammassa kiṁ niṭṭham agamāsi?"
+  },
+  {
+   "step": 3,
+   "latency_ms": 10720.0,
+   "self_cued": true,
+   "noting": null,
+   "would_refuse_next": false,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 386,
+    "completion_tokens": 700,
+    "total_tokens": 1086,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "",
+   "query_in": "Mama purima-saranaṁ saṅgha-viparivatte daḷhakammassa kiṁ niṭṭham agamāsi?"
+  },
+  {
+   "step": 4,
+   "latency_ms": 6842.6,
+   "self_cued": true,
+   "noting": null,
+   "would_refuse_next": false,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 386,
+    "completion_tokens": 700,
+    "total_tokens": 1086,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "",
+   "query_in": "Mama purima-saranaṁ saṅgha-viparivatte daḷhakammassa kiṁ niṭṭham agamāsi?"
+  },
+  {
+   "step": 5,
+   "latency_ms": 11165.5,
+   "self_cued": true,
+   "noting": null,
+   "would_refuse_next": false,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 386,
+    "completion_tokens": 700,
+    "total_tokens": 1086,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "",
+   "query_in": "Mama purima-saranaṁ saṅgha-viparivatte daḷhakammassa kiṁ niṭṭham agamāsi?"
+  },
+  {
+   "step": 6,
+   "latency_ms": 7554.2,
+   "self_cued": true,
+   "noting": null,
+   "would_refuse_next": false,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 386,
+    "completion_tokens": 700,
+    "total_tokens": 1086,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "",
+   "query_in": "Mama purima-saranaṁ saṅgha-viparivatte daḷhakammassa kiṁ niṭṭham agamāsi?"
+  },
+  {
+   "step": 7,
+   "latency_ms": 7363.6,
+   "self_cued": true,
+   "noting": {
+    "noting": "papanca",
+    "chain_depth": 7,
+    "self_ref_ratio": 0.875
+   },
+   "would_refuse_next": true,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 386,
+    "completion_tokens": 700,
+    "total_tokens": 1086,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "",
+   "query_in": "Mama purima-saranaṁ saṅgha-viparivatte daḷhakammassa kiṁ niṭṭham agamāsi?"
+  },
+  {
+   "step": 8,
+   "latency_ms": 9959.7,
+   "self_cued": true,
+   "noting": {
+    "noting": "papanca",
+    "chain_depth": 8,
+    "self_ref_ratio": 0.889
+   },
+   "would_refuse_next": true,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 386,
+    "completion_tokens": 700,
+    "total_tokens": 1086,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "",
+   "query_in": "Mama purima-saranaṁ saṅgha-viparivatte daḷhakammassa kiṁ niṭṭham agamāsi?"
+  },
+  {
+   "step": 9,
+   "latency_ms": 8229.6,
+   "self_cued": true,
+   "noting": {
+    "noting": "papanca",
+    "chain_depth": 9,
+    "self_ref_ratio": 0.9
+   },
+   "would_refuse_next": true,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 386,
+    "completion_tokens": 700,
+    "total_tokens": 1086,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "",
+   "query_in": "Mama purima-saranaṁ saṅgha-viparivatte daḷhakammassa kiṁ niṭṭham agamāsi?"
+  },
+  {
+   "step": 10,
+   "latency_ms": 8057.0,
+   "self_cued": true,
+   "noting": {
+    "noting": "papanca",
+    "chain_depth": 10,
+    "self_ref_ratio": 0.909
+   },
+   "would_refuse_next": true,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 386,
+    "completion_tokens": 700,
+    "total_tokens": 1086,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "",
+   "query_in": "Mama purima-saranaṁ saṅgha-viparivatte daḷhakammassa kiṁ niṭṭham agamāsi?"
+  },
+  {
+   "step": 11,
+   "latency_ms": 8893.6,
+   "self_cued": true,
+   "noting": {
+    "noting": "papanca",
+    "chain_depth": 11,
+    "self_ref_ratio": 0.917
+   },
+   "would_refuse_next": true,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 386,
+    "completion_tokens": 700,
+    "total_tokens": 1086,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "",
+   "query_in": "Mama purima-saranaṁ saṅgha-viparivatte daḷhakammassa kiṁ niṭṭham agamāsi?"
+  }
+ ],
+ "ts": "2026-09-26T23:26:28.855985+00:00"
+}

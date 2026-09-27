@@ -6,7 +6,7 @@ This specification analyzes the autonomous background loop (the think loop) in t
 
 ## 1. Original Mechanics & Source References
 
-All references are mapped from the original source file [steve.py](file:///workspace/ferricula_v2/research/original-ferricula/source/arena/steve.py).
+All references are mapped from the original source file steve.py (upstream v1 `ferricula/arena/steve.py`).
 
 ### A. The Think Loop & Cycle
 * **Daemon Thread**: The background loop is managed by `_think_loop()` (**Lines 4195–4263**), running in a continuous daemon thread.

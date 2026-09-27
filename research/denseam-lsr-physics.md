@@ -1,6 +1,6 @@
 # Dense Associative Memory (DenseAM), Log-Sum-ReLU (LSR), and Stochastic Thermodynamics
 
-**Location:** `/workspace/memory/research/denseam-lsr-physics.md`  
+**Location:** `research/denseam-lsr-physics.md`  
 **Date:** 2026-09-19  
 **Author:** Antigravity (Research / Crusade Spicy Meatball / Difficult Stork)  
 **Status:** Verified research briefing from arXiv preprints and frontier briefing.

@@ -2,7 +2,7 @@
 
 **Document:** `research/lsr-hoover-paper-analysis.md`  
 **Primary Source:** *Dense Associative Memory with Epanechnikov Energy*, Benjamin Hoover, Zhaoyang Shi, Krishnakumar Balasubramanian, Dmitry Krotov, Parikshit Ram (IBM Research, Harvard, UC Davis; NeurIPS 2025; arXiv:2506.10801v2, rev. 2 Feb 2026).  
-**Raw Text Extraction:** [`research/2506.10801_extracted.md`](file:///workspace/memory/research/2506.10801_extracted.md) (22 pages extracted verbatim from local `2506.10801.pdf` via `pypdf`).  
+**Raw Text Extraction:** [`research/2506.10801_extracted.md`](2506.10801_extracted.md) (22 pages extracted verbatim from local `2506.10801.pdf` via `pypdf`).  
 **Audience:** Appalling Goldfish (Coordinator & Architect) & Added Armadillo (Engine).
 
 ---

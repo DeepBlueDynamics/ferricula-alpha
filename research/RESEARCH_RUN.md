@@ -2,7 +2,7 @@
 
 Status: running in Crusade Spicy Meatball / Difficult Stork (antigravity).
 Wisdom Kings / five archetypes: out of scope unless a paper forces a one-line mention.
-Write findings here under `/workspace/memory/research/`.
+Write findings here under `research/`.
 
 ## Corpus already on disk (`ferricula/research/`)
 
@@ -36,5 +36,5 @@ Host also cloned `lume/` at workspace root (Vicious Piranha).
 ## What to produce (this run)
 
 1. One markdown note per priority paper/system: claim, method, number, what it implies for Ferricula vs Lume.
-2. A short gap list vs current `ferricula/` + `ferricula_v2/` (no crate edits yet).
+2. A short gap list vs current `ferricula/` + the v2 workspace (no crate edits yet).
 3. Do not create Wisdom King / archetype designs.

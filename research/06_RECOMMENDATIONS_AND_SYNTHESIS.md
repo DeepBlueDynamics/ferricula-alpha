@@ -1,8 +1,8 @@
 # Strategic Synthesis and Engineering Recommendations for Ferricula v2
 
 **Document Version:** 1.0.0  
-**Target Platform:** `/workspace/memory/ferricula_v2`  
-**Location:** `/workspace/memory/research/06_RECOMMENDATIONS_AND_SYNTHESIS.md`  
+**Target Platform:** the v2 workspace (this repo)  
+**Location:** `research/06_RECOMMENDATIONS_AND_SYNTHESIS.md`  
 
 ---
 
@@ -78,7 +78,7 @@ ferricula-core                ferricula-cognition                ferricula-searc
   $$\text{Score}(q, d) = \text{BM25}(q, d) \times \left(1 + \alpha \cdot \text{Cosine}(v_q, v_d) + \beta \cdot \text{SKG\_Relatedness}(q, d)\right)$$
   Where the SKG relatedness signal uses Trey Grainger's foreground-versus-background co-occurrence z-score, tanh-squashed into $[-1, 1]$ to suppress promiscuous hubs.
 
-### Upgrade 5: Establish Standardized Benchmark Harnesses (`ferricula_v2/parity/`)
+### Upgrade 5: Establish Standardized Benchmark Harnesses (`parity/`)
 - To establish undisputed technical authority, Ferricula must publish reproducible benchmarks on standard community suites:
   1. **LoCoMo (Long-Context Memory):** 1,540 complex conversational multi-session questions across 32 sessions. (Target: match or exceed Mem0's 92.5 and Memanto's 87.1).
   2. **LongMemEval:** 500 questions assessing extraction, temporal reasoning, multi-session aggregation, and knowledge updates. (Target: $> 90\%$).
@@ -95,4 +95,4 @@ ferricula-core                ferricula-cognition                ferricula-searc
 | Model 17-Moment Citta-Vīthi pipeline and Sati-Veto gate | `ferricula-cognition` | Appalling Goldfish (Architect) | Deterministic state-transition logs; short-circuit on duplicate inputs. |
 | Integrate Qwen3-Embedding / BGE-M3 into Shivvr bridge | `ferricula-semantic` | Gigantic Whippet (Retrieval) | Vector generation latency $< 25\text{ ms}$; MTEB parity. |
 | Multiplicative hybrid score fusion with Lume SKG | `ferricula-search` | Gigantic Whippet (Retrieval) | Hit@10 $> 95\%$ on Monte Cristo evaluation corpus. |
-| Automated LoCoMo / LongMemEval test runner | `ferricula_v2/parity` | Evil Magpie (Parity) | Published report comparing v1 Oracle vs v2 Engine vs Mem0. |
+| Automated LoCoMo / LongMemEval test runner | `parity/` | Evil Magpie (Parity) | Published report comparing v1 Oracle vs v2 Engine vs Mem0. |

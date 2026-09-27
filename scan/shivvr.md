@@ -5,18 +5,18 @@ Shivvr is a semantic memory sidecar service designed to act as the ephemeral vec
 
 ## 2. Crate & Module Layout
 Shivvr is configured as a binary crate with conditional ML feature compilations (`#[cfg(feature = "ml")]`):
-*   [lib.rs](file:///workspace/DeepBlueDynamics/nuts.services/shivvr/src/lib.rs): Exports sub-modules.
-*   [main.rs](file:///workspace/DeepBlueDynamics/nuts.services/shivvr/src/main.rs): Setup, config parses, loads ONNX models, and starts axum listener.
-*   [api.rs](file:///workspace/DeepBlueDynamics/nuts.services/shivvr/src/api.rs): Axum HTTP routes and JSON-RPC Model Context Protocol (MCP) server endpoints.
-*   [chunker.rs](file:///workspace/DeepBlueDynamics/nuts.services/shivvr/src/chunker.rs): Monte Carlo semantic chunking algorithm.
-*   [embedder.rs](file:///workspace/DeepBlueDynamics/nuts.services/shivvr/src/embedder.rs): Local GTR-T5 ONNX model embedding execution and token counting.
-*   [inverter.rs](file:///workspace/DeepBlueDynamics/nuts.services/shivvr/src/inverter.rs): T5-based vec2text inverter pipeline.
-*   [store.rs](file:///workspace/DeepBlueDynamics/nuts.services/shivvr/src/store.rs): Ephemeral in-memory database (`Store`) for persistent session chunks.
-*   [temp_store.rs](file:///workspace/DeepBlueDynamics/nuts.services/shivvr/src/temp_store.rs): Ephemeral `TempStore` with RRF and dynamic FST intent boosting.
-*   [auth.rs](file:///workspace/DeepBlueDynamics/nuts.services/shivvr/src/auth.rs): JWT JWKS refresh and token validation.
-*   [crypto.rs](file:///workspace/DeepBlueDynamics/nuts.services/shivvr/src/crypto.rs): Ephemeral orthogonal matrix key manager.
-*   [openai.rs](file:///workspace/DeepBlueDynamics/nuts.services/shivvr/src/openai.rs): Gracefully degraded OpenAI embedding handler.
-*   [similarity.rs](file:///workspace/DeepBlueDynamics/nuts.services/shivvr/src/similarity.rs): SIMD-accelerated cosine similarity.
+*   lib.rs (upstream `nuts.services/shivvr/src/lib.rs`): Exports sub-modules.
+*   main.rs (upstream `nuts.services/shivvr/src/main.rs`): Setup, config parses, loads ONNX models, and starts axum listener.
+*   api.rs (upstream `nuts.services/shivvr/src/api.rs`): Axum HTTP routes and JSON-RPC Model Context Protocol (MCP) server endpoints.
+*   chunker.rs (upstream `nuts.services/shivvr/src/chunker.rs`): Monte Carlo semantic chunking algorithm.
+*   embedder.rs (upstream `nuts.services/shivvr/src/embedder.rs`): Local GTR-T5 ONNX model embedding execution and token counting.
+*   inverter.rs (upstream `nuts.services/shivvr/src/inverter.rs`): T5-based vec2text inverter pipeline.
+*   store.rs (upstream `nuts.services/shivvr/src/store.rs`): Ephemeral in-memory database (`Store`) for persistent session chunks.
+*   temp_store.rs (upstream `nuts.services/shivvr/src/temp_store.rs`): Ephemeral `TempStore` with RRF and dynamic FST intent boosting.
+*   auth.rs (upstream `nuts.services/shivvr/src/auth.rs`): JWT JWKS refresh and token validation.
+*   crypto.rs (upstream `nuts.services/shivvr/src/crypto.rs`): Ephemeral orthogonal matrix key manager.
+*   openai.rs (upstream `nuts.services/shivvr/src/openai.rs`): Gracefully degraded OpenAI embedding handler.
+*   similarity.rs (upstream `nuts.services/shivvr/src/similarity.rs`): SIMD-accelerated cosine similarity.
 
 ## 3. Key Data Structures & Serialization Formats
 1.  **Memory Chunk (`Chunk`)**:

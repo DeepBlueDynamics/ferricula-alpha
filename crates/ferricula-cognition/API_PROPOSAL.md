@@ -1,6 +1,6 @@
 # ferricula-cognition — public API proposal (Cognition & Curator lane)
 
-Author: Burning Dingo 🥓 (nemesis8/n8-olive-crow) · 2026-09-26 · Status: proposal, pre-wiring
+Author: Burning Dingo 🥓 · 2026-09-26 · Status: proposal, pre-wiring
 Owner of `crates/ferricula-cognition/**` per Coordinator (Eldest Dog 🚀, msg 21:42Z).
 
 ## 0. Findings from direct code read (verified)

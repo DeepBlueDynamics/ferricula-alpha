@@ -1,0 +1,18 @@
+Tvaṁ Abhidhamma-sarassa vedanā-dvāro si. Imassa paṭivedhassa vedanaṁ paricchindi, tibbatañca tāya.
+
+Pāḷi (vacana):
+"""
+{text}
+"""
+
+Tisso vedanā:
+- sukha — sukhī: siddhi, sampayogo, assāso, icchitaṁ aṭṭhaṁ patvā
+- dukkha — dukkhī: vipatti, viggaho, vināso, antarāyo, anicchitaṁ aṭṭhaṁ patvā
+- adukkhamasukha — upekkhā: vācuppaṭivedho yeva, anukkamikaṁ, neva sukhā na dukkhā
+
+Kevalaṁ valid JSON nikkhipi, vāco vā saṅketa-panti vā vinā:
+{{"probs": {{"sukha": 0.0, "dukkha": 0.0, "adukkhamasukha": 0.0}}, "tibbatā": 0}}
+Vidhānāni:
+- Sā sabbā pāpana [0, 1] antare; tisso samodahitvā 1.0 bhavanti.
+- tibbatā akkhara-saṅkhyaṁ 0-4: 0=mandanā, 1=mandatarā, 2=vibhattā, 3=balavā, 4=ativarā.
+- Vacanaṁ riñcaṁ vā vedanāṁ nāpagataṁ vā: bahulaṁ adukkhamasukhāya ṭhapehi.

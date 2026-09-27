@@ -1,6 +1,6 @@
 # Thermodynamic Implications for Ferricula Consolidation and the Lume Boundary
 
-**Location:** `/workspace/memory/research/thermodynamic-implications.md`  
+**Location:** `research/thermodynamic-implications.md`  
 **Date:** 2026-09-19  
 **Author:** Antigravity (Research / Crusade Spicy Meatball / Difficult Stork)  
 **Status:** Verified research briefing synthesizing statistical physics foundations into engine specifications.

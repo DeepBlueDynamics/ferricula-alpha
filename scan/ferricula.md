@@ -5,26 +5,26 @@ Ferricula is a stateful agent memory system designed to act as the "experiential
 
 ## 2. Crate & Module Layout
 Ferricula is structured as a library + binary crate with the following modules:
-*   [lib.rs](file:///workspace/DeepBlueDynamics/ferricula/src/lib.rs): Library entry point exporting modules and core engine structures.
-*   [main.rs](file:///workspace/DeepBlueDynamics/ferricula/src/main.rs): Setup, REPL command handler, HTTP / MCP server routing, and main clock event loops.
-*   [memory.rs](file:///workspace/DeepBlueDynamics/ferricula/src/memory.rs): Implements `MemoryRecord`, `LifecycleState`, thermodynamic decay math, and `ResonanceGate` definitions.
-*   [engine.rs](file:///workspace/DeepBlueDynamics/ferricula/src/engine.rs): Low-level in-memory storage (`Engine`) featuring roaring bitmap indexing over tags (`tag_index`) and tag ranges.
-*   [persist.rs](file:///workspace/DeepBlueDynamics/ferricula/src/persist.rs): Provides `DurableEngine` and `Persistence` managing postcard snapshot serialization and Write-Ahead Log (WAL) appending.
-*   [graph.rs](file:///workspace/DeepBlueDynamics/ferricula/src/graph.rs): Relational memory graph (`MemoryGraph`) with semantic, causal, and structural edges.
-*   [skg.rs](file:///workspace/DeepBlueDynamics/ferricula/src/skg.rs): Semantic Knowledge Graph calculations (co-occurrence frequency, significance).
-*   [prime_tree.rs](file:///workspace/DeepBlueDynamics/ferricula/src/prime_tree.rs): Concept hierarchy tree using Gödel prime factorization for membership.
-*   [http.rs](file:///workspace/DeepBlueDynamics/ferricula/src/http.rs): Launches synchronous HTTP API using `tiny_http`.
-*   [mcp.rs](file:///workspace/DeepBlueDynamics/ferricula/src/mcp.rs): Implements axum HTTP transport for the Model Context Protocol (MCP) server.
-*   [planner.rs](file:///workspace/DeepBlueDynamics/ferricula/src/planner.rs): LLM query rewrite planner.
-*   [identity.rs](file:///workspace/DeepBlueDynamics/ferricula/src/identity.rs): Generates agent keys and identity anchors.
-*   [pali.rs](file:///workspace/DeepBlueDynamics/ferricula/src/pali.rs): Translational mapping for Abhidhamma Buddhist Pali terminologies.
-*   [archetypes.rs](file:///workspace/DeepBlueDynamics/ferricula/src/archetypes.rs): Maps Wisdom King archetypes to cognitive operations.
-*   [casting.rs](file:///workspace/DeepBlueDynamics/ferricula/src/casting.rs): Trigram emotion and I Ching oracle casting helpers.
-*   [clock.rs](file:///workspace/DeepBlueDynamics/ferricula/src/clock.rs): Spawnable telemetry/cadence ticking clock.
-*   [inversion.rs](file:///workspace/DeepBlueDynamics/ferricula/src/inversion.rs): Vector-inversion drift checker.
-*   [tokenizer.rs](file:///workspace/DeepBlueDynamics/ferricula/src/tokenizer.rs): Simple regex tokenizer.
-*   [transform.rs](file:///workspace/DeepBlueDynamics/ferricula/src/transform.rs): String sanitizers.
-*   [sparse.rs](file:///workspace/DeepBlueDynamics/ferricula/src/sparse.rs) & [model.rs](file:///workspace/DeepBlueDynamics/ferricula/src/model.rs): Data model structures (`Row`, `DistanceMetric`, `MemoryRef`).
+*   lib.rs (upstream v1 `ferricula/src/lib.rs`): Library entry point exporting modules and core engine structures.
+*   main.rs (upstream v1 `ferricula/src/main.rs`): Setup, REPL command handler, HTTP / MCP server routing, and main clock event loops.
+*   memory.rs (upstream v1 `ferricula/src/memory.rs`): Implements `MemoryRecord`, `LifecycleState`, thermodynamic decay math, and `ResonanceGate` definitions.
+*   engine.rs (upstream v1 `ferricula/src/engine.rs`): Low-level in-memory storage (`Engine`) featuring roaring bitmap indexing over tags (`tag_index`) and tag ranges.
+*   persist.rs (upstream v1 `ferricula/src/persist.rs`): Provides `DurableEngine` and `Persistence` managing postcard snapshot serialization and Write-Ahead Log (WAL) appending.
+*   graph.rs (upstream v1 `ferricula/src/graph.rs`): Relational memory graph (`MemoryGraph`) with semantic, causal, and structural edges.
+*   skg.rs (upstream v1 `ferricula/src/skg.rs`): Semantic Knowledge Graph calculations (co-occurrence frequency, significance).
+*   prime_tree.rs (upstream v1 `ferricula/src/prime_tree.rs`): Concept hierarchy tree using Gödel prime factorization for membership.
+*   http.rs (upstream v1 `ferricula/src/http.rs`): Launches synchronous HTTP API using `tiny_http`.
+*   mcp.rs (upstream v1 `ferricula/src/mcp.rs`): Implements axum HTTP transport for the Model Context Protocol (MCP) server.
+*   planner.rs (upstream v1 `ferricula/src/planner.rs`): LLM query rewrite planner.
+*   identity.rs (upstream v1 `ferricula/src/identity.rs`): Generates agent keys and identity anchors.
+*   pali.rs (upstream v1 `ferricula/src/pali.rs`): Translational mapping for Abhidhamma Buddhist Pali terminologies.
+*   archetypes.rs (upstream v1 `ferricula/src/archetypes.rs`): Maps Wisdom King archetypes to cognitive operations.
+*   casting.rs (upstream v1 `ferricula/src/casting.rs`): Trigram emotion and I Ching oracle casting helpers.
+*   clock.rs (upstream v1 `ferricula/src/clock.rs`): Spawnable telemetry/cadence ticking clock.
+*   inversion.rs (upstream v1 `ferricula/src/inversion.rs`): Vector-inversion drift checker.
+*   tokenizer.rs (upstream v1 `ferricula/src/tokenizer.rs`): Simple regex tokenizer.
+*   transform.rs (upstream v1 `ferricula/src/transform.rs`): String sanitizers.
+*   sparse.rs (upstream v1 `ferricula/src/sparse.rs`) & model.rs (upstream v1 `ferricula/src/model.rs`): Data model structures (`Row`, `DistanceMetric`, `MemoryRef`).
 
 ## 3. Key Data Structures & Serialization Formats
 1.  **Durable Engine Serialization (`persist.rs`)**:

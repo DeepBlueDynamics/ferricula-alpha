@@ -1,7 +1,7 @@
 # Monks, Engineers, and Pioneers: Who Built the Abhidharma Memory Systems?
 
 **Research Dossier:** Identification of Monastic Creators, Historical Architects, and Modern Systems Builders  
-**Location:** `/workspace/memory/research/04_MONKS_AND_SYSTEM_BUILDERS.md`  
+**Location:** `research/04_MONKS_AND_SYSTEM_BUILDERS.md`  
 
 ---
 

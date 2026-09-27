@@ -1,0 +1,37 @@
+{
+  "temperature": [
+    0.8609,
+    0.8609,
+    0.8609,
+    0.8609,
+    0.8609,
+    0.8609
+  ],
+  "acceptance": {
+    "gate": "sanna",
+    "score_provenance": "model-reported (verbalized probability at temperature 0) — NOT logit-derived; calibration discipline per Eldest Dog 2026-09-26",
+    "n_judged_labelled": 28,
+    "split": {
+      "train": 10,
+      "dev": 9,
+      "test": 9
+    },
+    "split_note": "row-hash thirds (fewer than 3 source families)",
+    "split_disjoint_by": "label source family (source field before ':')",
+    "temperature_fitted": 0.8609,
+    "held_out": {
+      "ece_raw": 0.2633,
+      "ece_calibrated": 0.2618,
+      "accuracy_raw": 0.8889,
+      "accuracy_calibrated": 0.8889,
+      "n": 9
+    },
+    "dev": {
+      "ece_raw": 0.2367,
+      "ece_calibrated": 0.2616
+    },
+    "dev_ece_improved": false,
+    "lifecycle_authorized": false,
+    "note": "calibrated probabilities never claimed from this run"
+  }
+}

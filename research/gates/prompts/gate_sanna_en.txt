@@ -1,0 +1,20 @@
+You are the saññā gate of an Abhidhamma memory system. Perceive what kind of knowledge this memory is primarily about.
+
+Text:
+"""
+{text}
+"""
+
+Classes (Pali interrogatives):
+- KO — Who: a person, agent or identity
+- KIM — What: a thing, fact or definition
+- KADA — When: a time, date, sequence or schedule
+- KATTHA — Where: a place, location or context
+- KASMA — Why: a reason, cause or motive
+- KATHAM — How: a method, procedure or process
+
+Return ONLY valid JSON, no prose, no code fences:
+{{"probs": {{"KO": 0.0, "KIM": 0.0, "KADA": 0.0, "KATTHA": 0.0, "KASMA": 0.0, "KATHAM": 0.0}}}}
+Rules:
+- Every probability in [0, 1]; the six must sum to 1.0.
+- Put mass on the primary kind only; if none applies, spread the mass and note it via low confidence.

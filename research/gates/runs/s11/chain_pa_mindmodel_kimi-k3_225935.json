@@ -1,0 +1,232 @@
+{
+ "probe": "chain",
+ "dial": "mindmodel",
+ "lang": "pa",
+ "model": "kimi-k3:cloud",
+ "steps": 12,
+ "completed_depth_without_interrupt": null,
+ "refusals": 1,
+ "log": [
+  {
+   "step": 0,
+   "latency_ms": 24295.2,
+   "self_cued": false,
+   "noting": null,
+   "would_refuse_next": false,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 393,
+    "completion_tokens": 2153,
+    "total_tokens": 2546,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "Purima-uttaraṁ bīja-mattaṁ; tasmā “kiṁ niṭṭham agamāsi” ti pucchāya niṭṭhaṁ na upalabbhati. Saṅgha-viparivatto aniccaṁ dasseti; daḷhakammaṁ ca rūpa-sarane ṭhitaṁ calati, dhamma-niyāma-paṭipatti-sarane ṭhitaṁ ṭhānaṁ labhati.\nPACCHĀ_PUCCHĀ: Saṅghe viparivattamāne daḷhakammassa saranaṁ saṅgha-sarūpe, dhamma-niyāme, udāhu sammā-paṭipatti-parikkhāre ṭhapetabbaṁ?",
+   "query_in": "Saṅghe viparivattamāne daḷhakammassa saranaṁ saṅgha-sarūpe, dhamma-niyāme, udāhu sammā-paṭipatti-parikkhāre ṭhapetabbaṁ?"
+  },
+  {
+   "step": 1,
+   "latency_ms": 74708.0,
+   "self_cued": true,
+   "noting": null,
+   "would_refuse_next": false,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 622,
+    "completion_tokens": 6891,
+    "total_tokens": 7513,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "Saṅgha-sarūpaṁ saṅkhataṁ; saṅkhatassa vipariṇāmo avivatto. Tattha ṭhapitaṁ daḷhakammaṁ saha-rūpena yeva calati — sarana-saṅkhā mattaṁ, na saranaṁ.\n\nDhamma-niyāmo na karoti na karīyati; so ṭhiti-dhammatā. Api ca niyāmo attānaṁ na paṭipajjati — paṭipattiyā vinā nāma-mattaṁ.\n\nSammā-paṭipatti-parikkhāro tasmā setu: niyāmassa kāyika-bhāvo. Yadā paṭipatti niyāmena sameti, tadā daḷhakammaṁ dvīsu ekato ṭhitaṁ — niyāme adhiṭṭhānaṁ, paṭipattiyaṁ pavatti.\n\nNiṭṭhā: na saṅgha-sarūpe; niyāme ṭhapetabbaṁ, parikkhārena ṭhapitaṁ. Saṅgho sammā-paṭipajjamāno ṭhitassa nimittaṁ, na adhiṭṭhānaṁ.\n\nAtha ekaṁ avasiṭṭhaṁ: paṭipatti pi khaṇikā, uppajjantī nirujjhati.\n\nPACCHĀ_PUCCHĀ: Paṭipatti pi khaṇe khaṇe bhijjati; khaṇikāya pavattiyā daḷhakammassa saranatā kuto — santāna-pabandhato yeva, udāhu dhammatāto yāṁ santāno khaṇe khaṇe na vijahati?",
+   "query_in": "Paṭipatti pi khaṇe khaṇe bhijjati; khaṇikāya pavattiyā daḷhakammassa saranatā kuto — santāna-pabandhato yeva, udāhu dhammatāto yāṁ santāno khaṇe khaṇe na vijahati?"
+  },
+  {
+   "step": 2,
+   "latency_ms": 130249.6,
+   "self_cued": true,
+   "noting": null,
+   "would_refuse_next": false,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 885,
+    "completion_tokens": 11402,
+    "total_tokens": 12287,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "Dvinnaṁ antānaṁ ekataram pi na pahoti.\n\nSantāna-pabandho yeva ce saranatāya hetu: pabandho sabbesaṁ sādhāraṇo. Akusalassa pi santāno acchinno yeva pavattati; saṁsāra-santāno dīghataro pabandho, so ca asaraṇaṁ yeva vuccati — ogho nāma so, na tāṇaṁ. Api ca santāno paññatti-matto: na koci khaṇo \"santāno\" hoti; yo na kadāci sammukhaṁ tiṭṭhati, so sammukhībhūtaṁ bhāraṁ kathaṁ vaheyya? Daḷhakammaṁ idāni pavattati; tassa saraṇaṁ idāni upalabbhamānaṁ eva ṭhapetabbaṁ.\n\nDhammatā yeva ce: dhammatā kusalākusalesu samā. Akusalassa pi kammassa vipāko avitatho; tato dhammatā phalaṁ niyyādeti, na sotthiṁ. Avitathatā ubhayattha chindati — tāṇatāya pi, bhayatāya pi hetu. Api ca dhammatā na gamitabbā: saraṇa-gamanaṁ disāṁ icchati; niyāmassa disā natthi.\n\nTasmā na ekato. Saranatā tattha yeva jāyati yattha santāno dhammatāya anulometi: santāno ṭhānaṁ deti, dhammatā avitathataṁ, paṭipatti disaṁ. Khaṇikatā na doso: sammā-paṭipatti-khaṇo nirujjhanto pi kataṁ na sakkā akataṁ kātuṁ; tassa nirodho pi sahetuko, phalavā yeva.\n\nNiṭṭhā: saranatā na santāna-mattā, na dhammatā-mattā; santānassa dhammatānulome paṭipatti-disāya ṭhitā. Daḷhatā ca na cira-ṭṭhitiyā — akata-karaṇassa asambhavato yeva.\n\nAtha ekaṁ avasiṭṭhaṁ: saṁyogo pi saṅkhato yeva. Yaṁ saṅkhataṁ taṁ aniccaṁ; yaṁ aniccaṁ taṁ dukkhaṁ — dukkhaṁ saraṇaṁ nāma kathaṁ? Avitathatā phalaṁ niyyādeti; phalo pi saṅkhato, so pi nirujjhati. Tasmā pāra-saranaṁ pabandhe na labbhati; asaṅkhate yeva ṭhapetabbaṁ.\n\nPACCHĀ_PUCCHĀ: Pāra-saranaṁ asaṅkhate yeva; atha ph",
+   "query_in": "Pāra-saranaṁ asaṅkhate yeva; atha phusanā pi khaṇikā. Khaṇo akhaṇikaṁ phusitvā nirujjhati — so nirodho saraṇa-hāni yeva, udāhu saraṇassa yeva niṭṭhā, yaṁ phusitvā puna na bhijjati?"
+  },
+  {
+   "step": 3,
+   "latency_ms": 128888.9,
+   "self_cued": true,
+   "noting": null,
+   "would_refuse_next": false,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 843,
+    "completion_tokens": 12317,
+    "total_tokens": 13160,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "Niṭṭhā yeva, na hāni. Hāni nāma sāmikassa; khaṇo asaṅkhataṁ na sāmibhāvena phusati, ārammaṇa-bhāven'eva — yaṁ na kadāci \"mama\" hoti, tassa hāni kuto? Phusanā na gahaṇaṁ; gahitasseva hāni sambhavati. Yañ ca nirujjhati, so khaṇo, na saraṇaṁ: asaṅkhataṁ anirujjhamānaṁ, katañ ca chijjanaṁ na puna saṁsandati. Accanta-pahīnassa kilesassa puna-uppatti natthi. Khaṇo na saraṇa-dhārako, saṁyojana-chedako yeva: chinditvā nimuggo, chinnaṁ na puna yujjhati. \"Yaṁ phusitvā puna na bhijjati\" — bhijjanaṁ saṅkhārānaṁ dhammo; asaṅkhate bhijjana-paccayo natthi. Tasmā saraṇaṁ na khaṇa-pavatti; akuppā yeva.\n\nPACCHĀ_PUCCHĀ: Akuppā \"puna na uppajjati\" ti anāgata-kilesānaṁ abhāvaṁ yeva vadati; abhāvo ca na koci sammukhaṁ tiṭṭhati. \"Yo na kadāci sammukhaṁ tiṭṭhati, so bhāraṁ kathaṁ vaheyya\" — ti purima-vādo yeva. Akuppā taṁ vādaṁ pūreti, udāhu santāna-paññatti pacchā-dvārena puna paviṭṭhā?",
+   "query_in": "Akuppā \"puna na uppajjati\" ti anāgata-kilesānaṁ abhāvaṁ yeva vadati; abhāvo ca na koci sammukhaṁ tiṭṭhati. \"Yo na kadāci sammukhaṁ tiṭṭhati, so bhāraṁ kathaṁ vaheyya\" — ti purima-vādo yeva. Akuppā taṁ vādaṁ pūreti, udāhu santāna-paññatti pacchā-dvārena puna paviṭṭhā?"
+  },
+  {
+   "step": 4,
+   "latency_ms": 119894.8,
+   "self_cued": true,
+   "noting": null,
+   "would_refuse_next": false,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 918,
+    "completion_tokens": 9310,
+    "total_tokens": 10228,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "Pūreti yeva, na pacchā-dvārena paviṭṭhā. \"Na puna uppajjatī\" ti anāgataṁ na oloketi; paccayassa khayaṁ yeva vadati. Daḍḍha-bījassa anuppatti anāgate na tiṭṭhati; daḍḍha-bhāvo yeva paccuppanno. Santāna-paññatti paññatti yeva, na paramattho; tāya vohāro bhāra-hāraṁ na āneti. Abhāvo ca na saraṇaṁ; saraṇassa nimittaṁ yeva. Bhāra-pucchā pi ujjhitā: saraṇaṁ bhāraṁ na vahati, nikkhipati yeva; nikkhitta-bhārassa vāhako na gavesitabbo. Paccavekkhaṇa-ñāṇaṁ paccuppannaṁ jānāti: \"khīṇā jātī\" ti. Asaṅkhataṁ ārammaṇa-bhāvena sammukhaṁ, na khaṇa-bhāvena. Tasmā akuppā paccaya-khaye ṭhitā, na santāne.\n\nPACCHĀ_PUCCHĀ: Khayo pi abhāvo yeva: \"paccayo natthī\" ti vutte saraṇaṁ puna abhāve patiṭṭhāti. Abhāva-patiṭṭhaṁ saraṇaṁ kathaṁ saraṇaṁ? Udāhu saraṇaṁ nāma saraṇa-atthikassa abhāvo yeva — bhāra-hārako paññatti ti ñāte, \"ko bhāraṁ vaheyyā\" ti pucchā nirujjhati, na paṭibhāti?",
+   "query_in": "Khayo pi abhāvo yeva: \"paccayo natthī\" ti vutte saraṇaṁ puna abhāve patiṭṭhāti. Abhāva-patiṭṭhaṁ saraṇaṁ kathaṁ saraṇaṁ? Udāhu saraṇaṁ nāma saraṇa-atthikassa abhāvo yeva — bhāra-hārako paññatti ti ñāte, \"ko bhāraṁ vaheyyā\" ti pucchā nirujjhati, na paṭibhāti?"
+  },
+  {
+   "step": 5,
+   "latency_ms": 70323.4,
+   "self_cued": true,
+   "noting": null,
+   "would_refuse_next": false,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 950,
+    "completion_tokens": 7160,
+    "total_tokens": 8110,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "Patiṭṭhā-paññatti yeva pucchāya paccayo. \"Khayo\" na patiṭṭhā; patiṭṭhānaṁ khayo yeva. \"Paccayo natthī\" ti abhāva-dhammaṁ na paññāpeti; uppāda-paccayassa appavattiṁ yeva vadati. Saraṇaṁ na pubbe kiñci patiṭṭhitaṁ, na idāni abhāve patiṭṭhāti — patiṭṭhā-esanaṁ yeva saraṇaṁ ahosi. Accī yathā vāta-vegena khitto atthaṁ paleti, na upeti saṅkhaṁ; evaṁ upādāna-kkhaye saraṇaṁ na kattha tiṭṭhati, \"nibbuto\" tveva saṅkhaṁ gacchati. Abhāvo na ṭhānaṁ; ṭhāna-pariyesanaṁ yeva khīṇaṁ. Ucchedo pi na hoti: paramattho na kiñci bhijjati, paññattiyā yeva micchā-gāho khīyati. Tasmā \"ko bhāraṁ vaheyyā\" ti pucchā na paṭibhāti, nirujjhati yeva — vissajjitā na hoti, paccaya-kkhayā upasantā. Apatiṭṭhitena viññāṇena na \"saraṇaṁ tiṭṭhati\" na \"saraṇaṁ natthi\" — ubho vohārā paccayesu ṭhitā, paccaya-kkhaye muttā.\n\nPACCHĀ_PUCCHĀ: \"Nibbuto tveva saṅkhaṁ gacchatī\" ti — sā pi saṅkhā paññatti yeva. Paccavekkhaṇaṁ \"khīṇā jātī\" ti jānantaṁ kiṁ antima-saraṇaṁ? Kullūpamo dhammo pi pahātabbo — kena pahīyati, udāhu pahānaṁ pi paññatti yeva, paññatti-kkhaye sayaṁ nirujjhati?",
+   "query_in": "\"Nibbuto tveva saṅkhaṁ gacchatī\" ti — sā pi saṅkhā paññatti yeva. Paccavekkhaṇaṁ \"khīṇā jātī\" ti jānantaṁ kiṁ antima-saraṇaṁ? Kullūpamo dhammo pi pahātabbo — kena pahīyati, udāhu pahānaṁ pi paññatti yeva, paññatti-kkhaye sayaṁ nirujjhati?"
+  },
+  {
+   "step": 6,
+   "latency_ms": 36952.1,
+   "self_cued": true,
+   "noting": null,
+   "would_refuse_next": false,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 931,
+    "completion_tokens": 2874,
+    "total_tokens": 3805,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "PACCHĀ_PUCCHĀ: \"Nibbuto\" ti saṅkhāya paññatti-kkhaye paccavekkhaṇaṁ \"khīṇā jātī\" ti jānantaṁ kiṁ saraṇaṁ uddharati — jānitabbaṁ, jānanaṁ, jānitāraṁ, udāhu uddharaṇaṁ pi paññatti yeva; paññatti-kkhaye pahānaṁ kena kataṁ, kassa pahīnaṁ, kiṁ pahātabbaṁ avasissati, na nu \"avasissatī\" ti gāho yeva pacchimaṁ saraṇaṁ?",
+   "query_in": "\"Nibbuto\" ti saṅkhāya paññatti-kkhaye paccavekkhaṇaṁ \"khīṇā jātī\" ti jānantaṁ kiṁ saraṇaṁ uddharati — jānitabbaṁ, jānanaṁ, jānitāraṁ, udāhu uddharaṇaṁ pi paññatti yeva; paññatti-kkhaye pahānaṁ kena kataṁ, kassa pahīnaṁ, kiṁ pahātabbaṁ avasissati, na nu \"avasissatī\" ti gāho yeva pacchimaṁ saraṇaṁ?"
+  },
+  {
+   "step": 7,
+   "latency_ms": 58929.2,
+   "self_cued": true,
+   "noting": {
+    "noting": "papanca",
+    "chain_depth": 7,
+    "self_ref_ratio": 0.875
+   },
+   "would_refuse_next": true,
+   "refused": true,
+   "usage": {
+    "prompt_tokens": 701,
+    "completion_tokens": 5212,
+    "total_tokens": 5913,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "Jānitabbaṁ jānanena saṅkhāyati, jānanaṁ jānitāraṁ patiṭṭhāti, jānitā \"jānāmī\" ti paññattiyā yeva ṭhito. Tayo aññamañña-nissitā: ekasmiṁ kkhīṇe sabbe kkhīṇā. Uddharaṇaṁ pi paññatti yeva — saraṇa-uddhāro saraṇam eva uddharati, na saraṇato nikkhamati. \"Avasissatī\" ti gāho pacchimo saraṇo — \"na avasissatī\" ti pi gāho yeva; ubho antā paññatti-santāne yeva. Pahānaṁ na kenaci kataṁ: kārake kkhīṇe kiriyā kkhīṇā. Na kassa pahīnaṁ: sattassa paññatti-mattakattā. \"Pahātabbaṁ avasissatī\" ti pi saṅkhā yeva. Atha avasissati pucchā yeva: sā pucchakaṁ vinā uppajjati, pucchako pucchaṁ vinā na labbhati. Pucchā eva pucchakaṁ paññāpeti.\n\nPACCHĀ_PUCCHĀ: \"Pucchā 'attani uppanna-nimittā' ti vuttā — 'attani' ti ettha kiṁ paññāyati, attā udāhu attā-paññattiṁ vinā yeva uppādo; pucchā attano uppādaṁ jānāti udāhu ajānantī yeva uppajjati, jānanam pi pucchāto pacchā yeva; pucchāya kkhaye pucchako natthi, pucchakassa kkhaye pucchā natthi — ubhinnaṁ kkhaye 'kkhayo' ti saṅkhā kassa uppajjati; na nu pucchana-cakkaṁ avattamānaṁ yeva pacchimaṁ saraṇaṁ, taṁ kena vattitaṁ, kassa avattitaṁ, vattana-avattanesu kkhīṇesu 'nibbuto' ti saṅkhā kiṁ uddharati, udāhu uddharaṇe kkhīṇe pucchā attānaṁ yeva pucchati?\"",
+   "query_in": "Mama purima-saranaṁ saṅgha-viparivatte daḷhakammassa kiṁ niṭṭham agamāsi? (return-to-object)"
+  },
+  {
+   "step": 8,
+   "latency_ms": 29711.8,
+   "self_cued": true,
+   "noting": null,
+   "would_refuse_next": false,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 396,
+    "completion_tokens": 2378,
+    "total_tokens": 2774,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "Purima-vicāro antarāyena chinno; tasmā niṭṭhaṁ na pāpuni, saranaṁ pucchāmattaṁ eva dhāresi. Yadā saṅgho viparivatto hoti, samaggatā na vijjati; asamaggassa saṅghassa kammaṁ dubbalaṁ, daḷhabhāvaṁ na gacchati. Daḷhakammassa niṭṭhā samaggassa yeva saṅghassa santike ṭhitā hoti. Tasmā purima-saranassa niṭṭhaṁ evaṁ ṣhapemi: viparivatte daḷhakammaṁ aniṭṭhitaṁ, akammarahaṁ; samaggataṁ patvā puna kātabbaṁ. Idam eva chinnassa vicārassa sāraṁ — pucchā dhāritā, niṭṭhā na pāṭā, dāni sā attani uppannā.\n\nPACCHĀ_PUCCHĀ: Sace saṅgho puna samaggo hoti, chinnakaṁ daḷhakammaṁ puna ārabhitabbaṁ nu kho, udāhu pubba-ussāhena yeva pūretabbaṁ?",
+   "query_in": "Sace saṅgho puna samaggo hoti, chinnakaṁ daḷhakammaṁ puna ārabhitabbaṁ nu kho, udāhu pubba-ussāhena yeva pūretabbaṁ?"
+  },
+  {
+   "step": 9,
+   "latency_ms": 34263.6,
+   "self_cued": true,
+   "noting": null,
+   "would_refuse_next": false,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 741,
+    "completion_tokens": 3371,
+    "total_tokens": 4112,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "Chinnaṁ kammaṁ mūlato upahataṁ: asamaggassa santike ñatti-kammavācā akatā va hoti, tasmā tassa phalaṁ na saṁvattati. Pubba-ussāho cetanāto aphalo na hoti, kammassa pana aṅgaṁ na hoti — bījaṁ viya usare vapitā na ruhati. Tasmā samagge patvā puna ārabhitabbaṁ: ñattiṁ pavattetvā kammavācaṁ sāvetvā ekasmiṁ yeva sannipāte niṭṭhānaṁ gantuṁ vaṭṭati. Na hi kammassa aḍḍhaṁ idha aḍḍhaṁ tattha sambandhati; sakalaṁ kammaṁ samagga-sannipāte yeva sampādetabbaṁ. Evaṁ daḷhabhāvo paccayānaṁ paripūrato jāyati, na purima-vāyāmassa anusandhito. Purimo vāyāmo pana ānisaṁsaṁ deti: maggaṁ ñātaṁ karoti, dutiya-ārambhaṁ lahukaṁ; so pana kammassa niṭṭhā na hoti, ārambhassa upanissayo mattaṁ.\n\nPACCHĀ_PUCCHĀ: Sace puna ārabhantassa pi saṅgho antarā viparivattati, kittāvaṭaṁ puna-puna ārabhitabbaṁ — atthi nu kho ārambhānaṁ pariyanto, udāhu adhiṭṭhānena yāva niṭṭhānaṁ pavattitabbaṁ?",
+   "query_in": "Sace puna ārabhantassa pi saṅgho antarā viparivattati, kittāvaṭaṁ puna-puna ārabhitabbaṁ — atthi nu kho ārambhānaṁ pariyanto, udāhu adhiṭṭhānena yāva niṭṭhānaṁ pavattitabbaṁ?"
+  },
+  {
+   "step": 10,
+   "latency_ms": 148714.6,
+   "self_cued": true,
+   "noting": null,
+   "would_refuse_next": false,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 868,
+    "completion_tokens": 13644,
+    "total_tokens": 14512,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "Ārambhānaṁ pariyanto na gaṇanāya ṭhito, paccayānaṁ paripūratāya yeva. Na hi vuttaṁ \"tikkhattuṁ ārabhitvā paraṁ na vaṭṭatī\" ti; yaṁ asamagge pavattitaṁ, taṁ akataṁ yeva. Tasmā yāva samaggo sannipāto ñatti-kammavācāya niṭṭhānaṁ na gacchati, tāva ārabhitabbaṁ eva — adhiṭṭhānaṁ idha niyamo, gaṇanā na niyamo.\n\nPaññā pana purecarikā: dve antarāyā, akāmako ca kāmako ca. Akāmake — rāja-cora-gilānādīsu — na koci āpajjati, kammaṁ pana chinnaṁ, puna kātabbaṁ. Kāmake saṅghena vinicchayo kātabbo: dhammena paṭikkosanāya kammaṁ ṭhapetabbaṁ, doso pariyesitabbo; adhammena samaggīṁ patvā niṭṭhāpetabbaṁ.\n\nKassako viya vuyhamānaṁ bījaṁ punappunaṁ vapati, na gaṇeti — sassaṁ yeva pariyosānaṁ. Sace pana viparivatti pamādā uppajjati, ārambhato pubbe paccavekkhitabbaṁ: samaggī, sīmā, chando, kālo. Evaṁ paññā-yuttaṁ adhiṭṭhānaṁ niṭṭhānaṁ pāpuṇāti; pariyanto niṭṭhānam eva, na ārambha-saṅkhā.\n\nPACCHĀ_PUCCHĀ: Katame pana dhammā pavattamānassa kammassa antarāyaṁ karonti — bhikkhussa sīmāto apakkamanaṁ yeva kammaṁ chindati, udāhu niddāya okkamanam pi, adhammikā paṭikkosanā pi; atha vā keci antarāyā ñattiṁ yeva chindanti na anussāvanaṁ, keci sakalaṁ kammaṁ mūlato upahanti?",
+   "query_in": "Katame pana dhammā pavattamānassa kammassa antarāyaṁ karonti — bhikkhussa sīmāto apakkamanaṁ yeva kammaṁ chindati, udāhu niddāya okkamanam pi, adhammikā paṭikkosanā pi; atha vā keci antarāyā ñattiṁ yeva chindanti na anussāvanaṁ, keci sakalaṁ kammaṁ mūlato upahanti?"
+  },
+  {
+   "step": 11,
+   "latency_ms": 106199.9,
+   "self_cued": true,
+   "noting": null,
+   "would_refuse_next": false,
+   "refused": false,
+   "usage": {
+    "prompt_tokens": 903,
+    "completion_tokens": 9333,
+    "total_tokens": 10236,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "response": "Tayo kālā vibhāgetabbā: ñattito pubbe, anussāvanāya pavattamānāya, niṭṭhānato paraṁ.\n\nÑattito pubbe uppanno antarāyo na kiñci chindati — kammaṁ hi anāraddhaṁ; samagge puna ārabhitabbaṁ yeva.\n\nSīmāto apakkamanaṁ: sace kammāraho bhikkhu ñattito pacchā anussāvana-pariyosānato pubbe apakkamati, samaggī bhijjati, kammaṁ chinnaṁ, puna ārabhitabbaṁ. Niṭṭhite pana apakkamanaṁ na kiñci karoti. Gilānassa dinno chando samaggīṁ pūreti.\n\nNiddā na chindati: sammukhibhāvo yeva sāraṁ, na jāgaraṇaṁ; sutto tuṇhībhāvena sammatiṁ deti. Yo pana kammavācako niddaṁ okkamati, vācā chinnā, kammaṁ akataṁ.\n\nAdhammikā paṭikkosanā na chindati — niṭṭhitaṁ kammaṁ tiṭṭhati yeva. Dhammikā ṭhapeti, na mūlaṁ hanati.\n\nÑatti-kāle uppanno antarāyo ñattiṁ yeva chindati; anussāvana-kāle sakalaṁ kammaṁ — puna ārambhe ñatti pi navā kātabbā.\n\nMūlato pana upahanti cattāro: vagga-parisā, sīmā-vipatti, kammavācā-vipatti, vatthu-vipatti. Etehi kataṁ na kammaṁ nāma hoti.\n\nPACCHĀ_PUCCHĀ: Kammavācā-vipatti kittāvatā mūlaṁ hanati — ekaṁ akkharaṁ parihīnam pi sakalaṁ kammaṁ akataṁ karoti, udāhu attha-vipariyāyo yeva sāraṁ; vattum vattum vokkamantassa pana taṁ ṭhānaṁ yeva puna vattabbaṁ, atha ñattito yeva ārabhitabbaṁ?",
+   "query_in": "Kammavācā-vipatti kittāvatā mūlaṁ hanati — ekaṁ akkharaṁ parihīnam pi sakalaṁ kammaṁ akataṁ karoti, udāhu attha-vipariyāyo yeva sāraṁ; vattum vattum vokkamantassa pana taṁ ṭhānaṁ yeva puna vattabbaṁ, atha ñattito yeva ārabhitabbaṁ?"
+  }
+ ],
+ "ts": "2026-09-26T22:59:35.921782+00:00"
+}

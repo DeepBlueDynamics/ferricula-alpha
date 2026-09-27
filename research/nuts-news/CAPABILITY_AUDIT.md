@@ -1,22 +1,22 @@
 # Capability Audit: Nuts News Service
 
-This audit compares the reference **Nuts News** implementation (located in [nuts.services/nuts-news](file:///workspace/ferricula_v2/research/original-ferricula/source/../nuts-news) on the host) against the requirements of the [NUTS_EVENT_CONTRACT.md](file:///workspace/ferricula_v2/docs/NUTS_EVENT_CONTRACT.md).
+This audit compares the reference **Nuts News** implementation (located in the upstream `nuts.services/nuts-news` repository on the host) against the requirements of the [NUTS_EVENT_CONTRACT.md](../../docs/NUTS_EVENT_CONTRACT.md).
 
 ---
 
 ## 1. Schema & Capability Mappings
 
 ### A. MCP & HTTP Routes
-* **MCP Entry Point**: Exposed at `POST /mcp` in [mcp.rs](file:///workspace/ferricula_v2/research/original-ferricula/source/../nuts-news/src/mcp.rs).
+* **MCP Entry Point**: Exposed at `POST /mcp` in mcp.rs (upstream `nuts-news/src/mcp.rs`).
   * *Read Tools*: `front_page`, `newest`, `get_item`, `whoami`. No Authorization token needed.
   * *Write Tools*: `submit`, `comment`, `vote`, `classify`, `set_handle`, `edit_comment`. Requires `Authorization: Bearer <token>`.
-* **HTTP Web Interface**: Registered in [main.rs](file:///workspace/ferricula_v2/research/original-ferricula/source/../nuts-news/src/main.rs#L44-L72):
+* **HTTP Web Interface**: Registered in main.rs (upstream `nuts-news/src/main.rs`):
   * Web Pages: `/`, `/newest`, `/c/:cat`, `/item/:id`, `/log`, `/search`, `/u/:handle`.
   * Actions: `/submit`, `/comment`, `/edit_comment`, `/contest`, `/vote`.
   * Event Broadcast: `/events` (live tail SSE stream).
 
 ### B. Data Model Schemas
-Defined in [store.rs](file:///workspace/ferricula_v2/research/original-ferricula/source/../nuts-news/src/store.rs):
+Defined in store.rs (upstream `nuts-news/src/store.rs`):
 * **`Item` Struct**:
   * `id`: `u64` (allocated monotonically).
   * `by`: `String` (author handle).
@@ -52,7 +52,7 @@ Comparing the actual reference code with the `NUTS_EVENT_CONTRACT.md` specificat
 To resolve the identified gaps and align the Nuts News server with the event contract:
 
 ### A. Smallest Change for `events_since` (No Disk Scans)
-Since all event mutations are replayed in RAM and the `State` struct in [store.rs](file:///workspace/ferricula_v2/research/original-ferricula/source/../nuts-news/src/store.rs#L70) retains the last 500 events in `ledger: VecDeque<(u64, Event)>`, the server can resolve requests entirely from memory:
+Since all event mutations are replayed in RAM and the `State` struct in store.rs (upstream `nuts-news/src/store.rs`) retains the last 500 events in `ledger: VecDeque<(u64, Event)>`, the server can resolve requests entirely from memory:
 
 1. **Calculate Ledger Floor**:
    $$\text{floor} = \text{event\_count} - \text{ledger.len()} + 1$$

@@ -1,12 +1,12 @@
 # Runtime Wiring Map: V2 Integration
 
-This document outlines the precise types, insertion points, and patch sequences to integrate the new standalone V2 modules ([autonomy.rs](file:///workspace/ferricula_v2/crates/ferricula-server/src/autonomy.rs), [memory_overlay.rs](file:///workspace/ferricula_v2/crates/ferricula-server/src/memory_overlay.rs), [sleep_cycle.rs](file:///workspace/ferricula_v2/crates/ferricula-server/src/sleep_cycle.rs), and [mention_ingest.rs](file:///workspace/ferricula_v2/crates/ferricula-server/src/mention_ingest.rs)) into the Axum server runtime.
+This document outlines the precise types, insertion points, and patch sequences to integrate the new standalone V2 modules ([autonomy.rs](../../crates/ferricula-server/src/autonomy.rs), [memory_overlay.rs](../../crates/ferricula-server/src/memory_overlay.rs), [sleep_cycle.rs](../../crates/ferricula-server/src/sleep_cycle.rs), and [mention_ingest.rs](../../crates/ferricula-server/src/mention_ingest.rs)) into the Axum server runtime.
 
 ---
 
 ## 1. Struct Insertion Points
 
-Add the new state-management structs directly to `SteveRuntime` in [runtime.rs](file:///workspace/ferricula_v2/crates/ferricula-server/src/runtime.rs#L120-L135):
+Add the new state-management structs directly to `SteveRuntime` in [runtime.rs](../../crates/ferricula-server/src/runtime.rs#L120-L135):
 
 ```rust
 pub struct SteveRuntime {
@@ -35,7 +35,7 @@ pub struct SteveRuntime {
 
 ## 2. Startup Recovery Sequence
 
-Implement recovery logic in `SteveRuntime::open` in [runtime.rs](file:///workspace/ferricula_v2/crates/ferricula-server/src/runtime.rs#L140-L150):
+Implement recovery logic in `SteveRuntime::open` in [runtime.rs](../../crates/ferricula-server/src/runtime.rs#L140-L150):
 
 ```rust
 // 1. Recover memory overlay log
@@ -77,12 +77,12 @@ let cooldowns = if cooldowns_path.exists() {
 ## 3. Integration Mappings
 
 ### A. Mention Ingestion & Consideration Queue
-* **Endpoint**: `/tasks/mention` in [api.rs](file:///workspace/ferricula_v2/crates/ferricula-server/src/api.rs).
+* **Endpoint**: `/tasks/mention` in [api.rs](../../crates/ferricula-server/src/api.rs).
 * **Action**: Parse request body into `EventBatch`. Lock state: `runtime.ingest.lock()`. Invoke `ingest.apply_batch(batch, now_epoch())`.
 * **Queueing**: For each surfaced `Consideration` where `may_enqueue_consideration()` is true and `response_required` is false, map to a `TaskRecord` with `TaskKind::DirectMention` and push to runtime task queue.
 
 ### B. Sleep / Dream Proposals
-* **Cadence Integration**: In `run_scheduler` in [runtime.rs](file:///workspace/ferricula_v2/crates/ferricula-server/src/runtime.rs#L295):
+* **Cadence Integration**: In `run_scheduler` in [runtime.rs](../../crates/ferricula-server/src/runtime.rs#L295):
   * Read `runtime.cooldowns.lock()` and `runtime.config.schedule` (as `SleepCyclePolicy`).
   * Check if due via `sleep_cycle::cycle_is_due(...)`.
   * If due, compute the proposal plan using `sleep_cycle::plan_cycle_gated(...)`.

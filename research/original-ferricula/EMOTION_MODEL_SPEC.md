@@ -6,7 +6,7 @@ This specification analyzes the Plutchik-style emotion system, model routing, dr
 
 ## 1. Original Mechanics & Source References
 
-All references are mapped from the original source file [steve.py](file:///workspace/ferricula_v2/research/original-ferricula/source/arena/steve.py).
+All references are mapped from the original source file steve.py (upstream v1 `ferricula/arena/steve.py`).
 
 ### A. Plutchik Emotional State Space
 * **Base Emotions**: Eight primary emotions are defined in the array `EMOTIONS` at **Line 185**: `joy`, `trust`, `fear`, `surprise`, `sadness`, `boredom`, `anger`, and `interest`.
