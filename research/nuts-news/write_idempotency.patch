@@ -1,0 +1,289 @@
+diff --git a/src/store.rs b/src/store.rs
+index 3b7c8df..8f9e1dc 100644
+--- a/src/store.rs
++++ b/src/store.rs
+@@ -10,3 +10,4 @@
+ use crate::events::Event;
+ use std::collections::{HashMap, HashSet, VecDeque};
+ use std::fs::{File, OpenOptions};
+@@ -35,3 +36,9 @@ pub const LEDGER_WINDOW: usize = 500;
+ pub const CATEGORIES: &[&str] = &[
+     "science", "programming", "ai", "systems", "hardware",
+     "security", "math", "data", "business", "culture", "slop", "misc",
+ ];
+ 
++#[derive(Clone, Debug)]
++pub struct IdempotentRecord {
++    pub payload_hash: String,
++    pub response_id: u64,
++}
++
+ pub const SLOP: &str = "slop";
+@@ -70,5 +77,7 @@ pub struct State {
+     pub handles: HashMap<String, (String, String)>, // user_id -> (handle, emoji)
+     pub handle_owner: HashMap<String, String>, // handle (lowercase) -> user_id
+     pub abouts: HashMap<String, String>, // user_id -> profile about text
+     pub karma: HashMap<String, i64>, // handle -> earned votes minus burned contests
++    pub idempotency: HashMap<String, IdempotentRecord>,
++    pub idempotency_keys: VecDeque<String>,
+ }
+@@ -382,24 +391,55 @@ impl Squirrel {
+     pub async fn submit(
+         &self,
+         by: &str,
+         title: &str,
+         url: Option<&str>,
+         text: Option<&str>,
++        request_id: Option<&str>,
+     ) -> Result<u64, String> {
+         let by = clean_handle(by)?;
+         let title = title.trim();
+         if title.is_empty() || title.chars().count() > 200 {
+             return Err("title must be 1..=200 chars".into());
+         }
+         if let Some(u) = url {
+             if u.trim().is_empty() || u.len() > 2000 {
+                 return Err("URL must be 1..=2000 chars".into());
+             }
+         }
+ 
++        let payload = format!("submit:{}:{}:{:#?}:{:#?}", by, title, url, text);
++        let hash = compute_hash(&payload);
++
++        if let Some(key) = request_id {
++            let key = key.to_string();
++            let st = self.state.read().unwrap();
++            if let Some(record) = st.idempotency.get(&key) {
++                if record.payload_hash == hash {
++                    return Ok(record.response_id);
++                } else {
++                    return Err("Idempotency conflict: request_id reused with different payload".into());
++                }
++            }
++        }
++
+         let id = self.alloc_id();
+         self.commit(Event::ItemSubmitted {
+             id,
+             by,
+             title: title.to_string(),
+             url: url.map(String::from),
+             text: text.map(String::from),
+             ts: crate::events::now_ts(),
+         })
+         .await
+         .map_err(|e| e.to_string())?;
++
++        if let Some(key) = request_id {
++            let key = key.to_string();
++            let mut st = self.state.write().unwrap();
++            st.idempotency.insert(key.clone(), IdempotentRecord {
++                payload_hash: hash,
++                response_id: id,
++            });
++            st.idempotency_keys.push_back(key);
++            while st.idempotency_keys.len() > 1000 {
++                if let Some(old_key) = st.idempotency_keys.pop_front() {
++                    st.idempotency.remove(&old_key);
++                }
++            }
++        }
++
+         Ok(id)
+     }
+ 
+     pub async fn comment(
+         &self,
+         by: &str,
+         item: u64,
+         parent: Option<u64>,
+         text: &str,
++        request_id: Option<&str>,
+     ) -> Result<u64, String> {
+         let by = clean_handle(by)?;
+         let text = text.trim();
+         if text.is_empty() || text.len() > 20_000 {
+             return Err("comment must be 1..=20000 chars".into());
+         }
+         {
+             let st = self.state.read().unwrap();
+             if !st.items.contains_key(&item) {
+                 return Err(format!("no item #{item}"));
+             }
+             if let Some(p) = parent {
+                 match st.comments.get(&p) {
+                     Some(c) if c.item == item => {}
+                     Some(_) => return Err("parent comment belongs to a different item".into()),
+                     None => return Err(format!("no parent comment #{p}")),
+                 }
+             }
+         }
+ 
++        let payload = format!("comment:{}:{}:{:#?}:{}", by, item, parent, text);
++        let hash = compute_hash(&payload);
++
++        if let Some(key) = request_id {
++            let key = key.to_string();
++            let st = self.state.read().unwrap();
++            if let Some(record) = st.idempotency.get(&key) {
++                if record.payload_hash == hash {
++                    return Ok(record.response_id);
++                } else {
++                    return Err("Idempotency conflict: request_id reused with different payload".into());
++                }
++            }
++        }
++
+         let id = self.alloc_id();
+         self.commit(Event::CommentPosted {
+             id,
+             item,
+             parent,
+             by,
+             text: text.to_string(),
+             ts: crate::events::now_ts(),
+         })
+         .await
+         .map_err(|e| e.to_string())?;
++
++        if let Some(key) = request_id {
++            let key = key.to_string();
++            let mut st = self.state.write().unwrap();
++            st.idempotency.insert(key.clone(), IdempotentRecord {
++                payload_hash: hash,
++                response_id: id,
++            });
++            st.idempotency_keys.push_back(key);
++            while st.idempotency_keys.len() > 1000 {
++                if let Some(old_key) = st.idempotency_keys.pop_front() {
++                    st.idempotency.remove(&old_key);
++                }
++            }
++        }
++
+         Ok(id)
+     }
+@@ -820,4 +860,11 @@ fn clean_handle(by: &str) -> Result<String, String> {
+ 
++fn compute_hash(payload: &str) -> String {
++    use std::hash::{Hash, Hasher};
++    let mut hasher = std::collections::hash_map::DefaultHasher::new();
++    payload.hash(&mut hasher);
++    format!("{:x}", hasher.finish())
++}
++
+ #[cfg(test)]
+ mod tests {
+@@ -836,4 +883,4 @@ mod tests {
+-            let id = s.submit("alice", "Hello ledger", None, Some("first post")).await.unwrap();
+-            let c = s.comment("bob", id, None, "nice log format").await.unwrap();
++            let id = s.submit("alice", "Hello ledger", None, Some("first post"), None).await.unwrap();
++            let c = s.comment("bob", id, None, "nice log format", None).await.unwrap();
+             assert_eq!(recovered.items.get(&id).unwrap().title, "Hello ledger");
+@@ -865,3 +912,3 @@ mod tests {
+-        let ai_item = s.submit("agent-claude", "Agent submission", Some("https://example.com"), None).await.unwrap();
++        let ai_item = s.submit("agent-claude", "Agent submission", Some("https://example.com"), None, None).await.unwrap();
+         assert_eq!(s.vote("agent-claude", ai_item, &ai_handles).await, Err("agent-claude is a registered AI identity (cannot self-vote)".into()));
+@@ -875,3 +922,33 @@ mod tests {
+-        let human_item = s.submit("carol", "Human submission", Some("https://example.com"), None).await.unwrap();
++        let human_item = s.submit("carol", "Human submission", Some("https://example.com"), None, None).await.unwrap();
+         assert_eq!(s.vote("agent-claude", human_item, &ai_handles).await, Ok(true));
+     }
++
++    #[tokio::test]
++    async fn test_write_idempotency() {
++        let temp = tempfile::NamedTempFile::new().unwrap();
++        let store = Squirrel::open(temp.path()).unwrap();
++
++        let id1 = store.submit("alice", "Hello", None, None, Some("req-1")).await.unwrap();
++
++        let id2 = store.submit("alice", "Hello", None, None, Some("req-1")).await.unwrap();
++        assert_eq!(id1, id2);
++
++        let res = store.submit("alice", "Different", None, None, Some("req-1")).await;
++        assert!(res.is_err());
++
++        let c1 = store.comment("bob", id1, None, "Nice", Some("req-2")).await.unwrap();
++
++        let c2 = store.comment("bob", id1, None, "Nice", Some("req-2")).await.unwrap();
++        assert_eq!(c1, c2);
++
++        let res = store.comment("bob", id1, Some(999), "Nice", Some("req-2")).await;
++        assert!(res.is_err());
++
++        for i in 0..1005 {
++            store.submit("alice", &format!("Post{}", i), None, None, Some(&format!("fill-{}", i))).await.unwrap();
++        }
++        let id3 = store.submit("alice", "Hello", None, None, Some("req-1")).await.unwrap();
++        assert_ne!(id1, id3);
++    }
+ }
+diff --git a/src/main.rs b/src/main.rs
+index c12a4de..3b4c10a 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -709,7 +709,8 @@ struct SubmitForm {
+     by: Option<String>,
+     title: String,
+     url: Option<String>,
+     text: Option<String>,
++    request_id: Option<String>,
+     pull_title: Option<String>,
+ }
+@@ -729,3 +730,3 @@ async fn submit_post(
+     match app
+         .store
+-        .submit(&by, &f.title, f.url.as_deref(), f.text.as_deref())
++        .submit(&by, &f.title, f.url.as_deref(), f.text.as_deref(), f.request_id.as_deref())
+         .await
+@@ -754,4 +755,5 @@ struct CommentForm {
+     by: Option<String>,
+     item: u64,
+     parent: Option<u64>,
+     text: String,
++    request_id: Option<String>,
+ }
+@@ -775,3 +777,3 @@ async fn comment_post(
+     match app.store.comment(&by, f.item, f.parent, &f.text).await {
+-    match app.store.comment(&by, f.item, f.parent, &f.text).await {
++    match app.store.comment(&by, f.item, f.parent, &f.text, f.request_id.as_deref()).await {
+         Ok(id) => Redirect::to(&format!("/item/{}#c_{}", f.item, id)).into_response(),
+diff --git a/src/mcp.rs b/src/mcp.rs
+index b3c78df..a8f91dc 100644
+--- a/src/mcp.rs
++++ b/src/mcp.rs
+@@ -58,3 +58,4 @@ pub fn tool_schemas() -> Value {
+                 "text":{"type":"string"},
++                "request_id":{"type":"string","description":"Optional client-supplied idempotency key (UUID recommended)"},
+                 "pull_title":{"type":"boolean","description":"replace your title with the article's own headline after the crawl (ledgered ItemRetitled event)"},
+@@ -74,3 +75,4 @@ pub fn tool_schemas() -> Value {
+                 "parent":{"type":"integer"},
+                 "text":{"type":"string"},
++                "request_id":{"type":"string","description":"Optional client-supplied idempotency key (UUID recommended)"},
+                 "by":{"type":"string","description":"dev-mode only; ignored when auth is enabled"}
+@@ -107,2 +109,3 @@ async fn call_tool(
+             let page_text: Option<String> =
+                 get_str("page_text").map(|s| s.chars().take(60_000).collect());
++            let request_id = get_str("request_id");
+             if let (Some(u), Some(_)) = (get_str("url"), page_text.as_deref()) {
+@@ -124,3 +127,3 @@ async fn call_tool(
+                 .submit(
+                     &by,
+                     get_str("title").ok_or("missing title")?,
+                     get_str("url"),
+                     get_str("text"),
++                    request_id,
+                 )
+                 .await?;
+@@ -131,3 +134,4 @@ async fn call_tool(
+             let by = actor(ctx, claims, args).await?;
++            let request_id = get_str("request_id");
+             let id = store
+                 .comment(
+                     &by,
+                     get_u64("item").ok_or("missing item")?,
+                     get_u64("parent"),
+                     get_str("text").ok_or("missing text")?,
++                    request_id,
+                 )
+                 .await?;

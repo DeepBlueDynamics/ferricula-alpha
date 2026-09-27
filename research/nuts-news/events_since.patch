@@ -1,0 +1,188 @@
+diff --git a/src/store.rs b/src/store.rs
+index 3b7c8df..8f9e1dc 100644
+--- a/src/store.rs
++++ b/src/store.rs
+@@ -35,3 +35,17 @@ pub const LEDGER_WINDOW: usize = 500;
+ pub const CATEGORIES: &[&str] = &[
+     "science", "programming", "ai", "systems", "hardware",
+     "security", "math", "data", "business", "culture", "slop", "misc",
+ ];
+ 
++#[derive(serde::Serialize, Clone, Debug)]
++pub struct EventEnvelope {
++    pub seq: u64,
++    pub event: Event,
++}
++
++#[derive(serde::Serialize, Clone, Debug)]
++pub struct EventPage {
++    pub instance: String,
++    pub ledger_floor: u64,
++    pub ledger_height: u64,
++    pub gap: bool,
++    pub events: Vec<EventEnvelope>,
++}
++
+ pub const SLOP: &str = "slop";
+@@ -802,4 +816,47 @@ impl Squirrel {
+         chain.reverse();
+         chain
+     }
++
++    pub fn events_since(&self, after: u64, limit: usize, instance: String) -> EventPage {
++        let st = self.state.read().unwrap();
++        let ledger_height = st.event_count;
++        let len = st.ledger.len() as u64;
++        let ledger_floor = if ledger_height == 0 {
++            0
++        } else {
++            ledger_height.saturating_sub(len) + 1
++        };
++
++        if after > 0 && after < ledger_floor.saturating_sub(1) {
++            return EventPage {
++                instance,
++                ledger_floor,
++                ledger_height,
++                gap: true,
++                events: Vec::new(),
++            };
++        }
++
++        let mut events = Vec::new();
++        for (seq, ev) in st.ledger.iter() {
++            if *seq > after {
++                events.push(EventEnvelope {
++                    seq: *seq,
++                    event: ev.clone(),
++                });
++                if events.len() >= limit {
++                    break;
++                }
++            }
++        }
++
++        EventPage {
++            instance,
++            ledger_floor,
++            ledger_height,
++            gap: false,
++            events,
++        }
++    }
+ }
+ 
+ pub const BOT_HANDLE: &str = "nuts";
+@@ -870,4 +927,38 @@ mod tests {
+         assert_eq!(recovered.kids.get(&item_id).unwrap().len(), 2);
+     }
++
++    #[tokio::test]
++    async fn test_events_since_gap_and_limit() {
++        let temp = tempfile::NamedTempFile::new().unwrap();
++        let store = Squirrel::open(temp.path()).unwrap();
++        
++        for i in 1..=10 {
++            store.commit(Event::VoteCast {
++                by: format!("user{}", i),
++                target: 100,
++                ts: 123456,
++            }).await.unwrap();
++        }
++
++        let page = store.events_since(0, 5, "test.instance".to_string());
++        assert_eq!(page.events.len(), 5);
++        assert_eq!(page.ledger_height, 10);
++        assert_eq!(page.ledger_floor, 1);
++        assert!(!page.gap);
++
++        let page = store.events_since(5, 5, "test.instance".to_string());
++        assert_eq!(page.events.len(), 5);
++        assert_eq!(page.events[0].seq, 6);
++
++        {
++            let mut st = store.state.write().unwrap();
++            while st.ledger.len() > 3 {
++                st.ledger.pop_front();
++            }
++        }
++
++        let page = store.events_since(5, 5, "test.instance".to_string());
++        assert!(page.gap);
++        assert!(page.events.is_empty());
++    }
+ }
+diff --git a/src/main.rs b/src/main.rs
+index c12a4de..3b4c10a 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -54,3 +54,4 @@ async fn main() {
+         .route("/events", get(events_sse))
++        .route("/events_since", get(events_since_get))
+         .route("/log", get(log_page))
+@@ -373,4 +374,21 @@ async fn events_sse(
+ }
+ 
++#[derive(Deserialize)]
++struct EventsSinceParams {
++    after: Option<u64>,
++    limit: Option<u32>,
++}
++
++async fn events_since_get(
++    State(app): State<App>,
++    Query(params): Query<EventsSinceParams>,
++) -> impl IntoResponse {
++    let after = params.after.unwrap_or(0);
++    let limit = params.limit.unwrap_or(30);
++    if !(1..=500).contains(&limit) {
++        return (StatusCode::BAD_REQUEST, "limit must be in 1..=500").into_response();
++    }
++    let instance = app.base_url.trim_start_matches("http://")
++        .trim_start_matches("https://")
++        .split(':')
++        .next()
++        .unwrap_or("news.nuts.services")
++        .to_string();
++    let page = app.store.events_since(after, limit as usize, instance);
++    Json(page).into_response()
++}
++
+ async fn log_page(
+diff --git a/src/mcp.rs b/src/mcp.rs
+index b3c78df..a8f91dc 100644
+--- a/src/mcp.rs
++++ b/src/mcp.rs
+@@ -21,4 +21,11 @@ pub fn tool_schemas() -> Value {
+         {
++            "name": "events_since",
++            "description": "Retrieve public ledger events after a cursor seq. Bounded limit 1..=500.",
++            "inputSchema": {"type":"object","properties":{
++                "after":{"type":"integer","default":0},
++                "limit":{"type":"integer","default":30}
++            }}
++        },
++        {
+             "name": "front_page",
+@@ -101,4 +108,16 @@ async fn call_tool(
+         "get_item" => {
+             let id = get_u64("id").ok_or("missing id")?;
+             let st = store.state.read().unwrap();
+             item_json(&st, id).ok_or_else(|| format!("no item #{id}"))
+         }
++        "events_since" => {
++            let after = get_u64("after").unwrap_or(0);
++            let limit = get_u64("limit").unwrap_or(30) as usize;
++            if !(1..=500).contains(&limit) {
++                return Err("limit must be in 1..=500".into());
++            }
++            let instance = ctx.base_url.trim_start_matches("http://")
++                .trim_start_matches("https://")
++                .split(':')
++                .next()
++                .unwrap_or("news.nuts.services")
++                .to_string();
++            let page = store.events_since(after, limit, instance);
++            Ok(serde_json::to_value(page).unwrap())
++        }
+         "submit" => {
