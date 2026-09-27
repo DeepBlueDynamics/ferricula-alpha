@@ -708,6 +708,7 @@ name = "ferricula-semantic"
 version = "3.0.0-alpha.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "chrono",
  "ferricula-search",
  "futures-util",
