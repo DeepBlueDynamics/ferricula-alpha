@@ -150,22 +150,18 @@ impl AgentRuntime {
                 "question": hit.tags.get("question"),
             })).collect();
         let candidates = Value::Array(memory_hits);
-        // Document cards: with the dense arm, the fused section candidates
-        // first (topped up from BM25); without it, BM25 as before.
-        let bm25_sections = self.search_documents(&request.message, DOCUMENT_CARDS, None);
-        let sections = if recalled.dense_hits.is_empty() {
-            bm25_sections
-        } else {
-            let mut fused: Vec<crate::recall::SectionEvidence> =
-                recalled.candidates.iter().filter_map(|c| c.section.clone()).collect();
-            for s in bm25_sections {
-                if !fused.iter().any(|f| f.doc_id == s.doc_id && f.index == s.index) {
-                    fused.push(s);
-                }
+        // Document cards: BM25 first (the docs benchmark shows GTR-T5 over
+        // long sections is less precise than BM25: paraphrase R@1 0.37 vs
+        // 0.71), topped up with sections the dense arm found.
+        let mut sections = self.search_documents(&request.message, DOCUMENT_CARDS, None);
+        for s in recalled.candidates.iter().filter_map(|c| c.section.clone()) {
+            if sections.len() >= DOCUMENT_CARDS {
+                break;
             }
-            fused.truncate(DOCUMENT_CARDS);
-            fused
-        };
+            if !sections.iter().any(|f| f.doc_id == s.doc_id && f.index == s.index) {
+                sections.push(s);
+            }
+        }
         let document_evidence = serde_json::to_value(document_cards(&sections))?;
         let episode_response = self.query_episodes(&ferricula_episode::query::EpisodeQueryRequest {
             query: request.message.clone(), mode: ferricula_episode::query::RetrievalMode::Explore,
