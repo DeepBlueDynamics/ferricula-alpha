@@ -11,7 +11,7 @@ Read this first, then `docs/BACKLOG.md` (ordered work), `PLAN_V3.md` (phases, §
 ## What is live
 | Service | Where | Notes |
 |---|---|---|
-| **Steve** (`ferricula-steve`) | `127.0.0.1:18875` | image `ferricula:3.0.0-alpha.0` built from `v3/r0`; config `config/steve.toml` (gitignored, mounted read-only); recovered memory volume `steve-jobs-data-recovery-20260713` **read-only**; state volume `ferricula-steve-runtime`. Operator token file: `C:\Users\kordl\Code\DeepBlueDynamics\memory\ferricula_v2\secrets\ferricula_operator_token` (use `FERRICULA_OPERATOR_TOKEN_FILE`; never print it). |
+| **Steve** (`ferricula-steve`) | `127.0.0.1:18875` | image `ferricula:3.0.0-alpha.0` built from `v3/r0`; config `config/steve.toml` (gitignored, mounted read-only); recovered memory volume `steve-jobs-data-recovery-20260713` **read-only**; state volume `ferricula-steve-runtime`. Operator token file: `secrets/ferricula_operator_token` in this repo, gitignored (use `FERRICULA_OPERATOR_TOKEN_FILE`; never print it). |
 | shivvr (GTR-T5 text + SigLIP image embeddings, `/embed`) | `:8085` | local branch `feat/vision-audio-embed` in `nuts.services/shivvr`, not pushed |
 | Ollaya (judges, `laya`) | `127.0.0.1:11435` | GPU container `ollaya` |
 | grub crawler | `:6792` | renders web pages → markdown; **cannot read PDFs** (PDFs are fetched directly) |
