@@ -21,6 +21,10 @@ use anyhow::{Context, Result};
 use ferricula_ingest::{DocumentStore, ExtractConfig, Source, extract};
 use serde_json::{Value, json};
 
+use ferricula_semantic::text_embed::{ShivvrEmbedder, TextEmbedder};
+use ferricula_server::meaning::{CatalogItem, MeaningIndex, MeaningKey, MeaningSet, SearchFilter};
+use ferricula_server::recall::{ArmList, RecallCandidate, SectionEvidence, fuse_arms_all, promote_keys};
+
 use crate::ledger::{Rng, RunContext, display_path, sha256_hex};
 use crate::metrics::{j, mean, mrr, percentile, recall_at_k};
 
@@ -30,6 +34,8 @@ pub struct DocsArgs {
     pub n: usize,
     pub drop_frac: f64,
     pub paraphrase: Option<(String, String)>,
+    /// shivvr base URL for the dense and hybrid arms (None: BM25 only).
+    pub shivvr: Option<String>,
 }
 
 const CUTOFF: usize = 10;
@@ -162,29 +168,94 @@ pub fn run(ctx: &RunContext, args: &DocsArgs) -> Result<()> {
         }
     }
 
+    // ---- dense index over every section (optional)
+    let mut dense_note: Option<String> = None;
+    let mut dense: Option<(ShivvrEmbedder, MeaningIndex, f64)> = None;
+    if let Some(url) = &args.shivvr {
+        match build_dense(url, &all_sections) {
+            Ok(d) => dense = Some(d),
+            Err(e) => dense_note = Some(format!("dense arms skipped: {e:#}")),
+        }
+    }
+    let mut query_embed_ms = 0.0;
+    let qvecs: Option<Vec<Vec<f32>>> = match &dense {
+        Some((embedder, _, _)) => {
+            let texts: Vec<&str> = queries.iter().map(|q| q.text.as_str()).collect();
+            let t0 = Instant::now();
+            match embedder.embed(&texts) {
+                Ok(v) => {
+                    query_embed_ms = t0.elapsed().as_secs_f64() * 1000.0 / texts.len().max(1) as f64;
+                    Some(v)
+                }
+                Err(e) => {
+                    dense_note = Some(format!("dense arms skipped: query embedding failed: {e:#}"));
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+
     // ---- query
-    let mut by_kind: BTreeMap<&str, (Vec<Option<usize>>, Vec<Option<usize>>, Vec<f64>, usize)> = BTreeMap::new();
+    // (kind, arm) -> (ranks, doc ranks, latency ms, empty results)
+    type Acc = (Vec<Option<usize>>, Vec<Option<usize>>, Vec<f64>, usize);
+    let mut by_kind: BTreeMap<(&str, &str), Acc> = BTreeMap::new();
     let mut examples: Vec<Value> = Vec::new();
-    for q in &queries {
+    for (qi, q) in queries.iter().enumerate() {
         let t0 = Instant::now();
         let hits = store.search(&q.text, CUTOFF, None);
         let ms = t0.elapsed().as_secs_f64() * 1000.0;
-        let rank = hits.iter().position(|h| h.doc_id == q.gold_doc && h.section.index == q.gold_section).map(|r| r + 1);
-        let doc_rank = hits.iter().position(|h| h.doc_id == q.gold_doc).map(|r| r + 1);
-        let e = by_kind.entry(q.kind).or_default();
-        e.0.push(rank);
-        e.1.push(doc_rank);
-        e.2.push(ms);
-        if hits.is_empty() { e.3 += 1; }
-        if rank != Some(1) && examples.len() < 12 {
-            examples.push(json!({"kind": q.kind, "query": q.text, "gold": format!("{}#{}", q.gold_doc, q.gold_section),
-                "rank": rank, "top1": hits.first().map(|h| format!("{}#{} ({})", h.doc_id, h.section.index, h.title))}));
+        let bm25: Vec<(String, u32)> = hits.iter().map(|h| (h.doc_id.clone(), h.section.index)).collect();
+        let mut arms: Vec<(&str, Vec<(String, u32)>, f64)> = vec![("bm25", bm25.clone(), ms)];
+        if let (Some((_, index, _)), Some(qvecs)) = (&dense, &qvecs) {
+            let t1 = Instant::now();
+            let filter = SearchFilter { recovered: false, experience: false, ..SearchFilter::evidence(false) };
+            let dhits = index.search(&qvecs[qi], CUTOFF * 2, &filter);
+            let dense_keys: Vec<(String, u32)> = dhits.iter().filter_map(|h| match &h.key {
+                MeaningKey::Section(d, i) => Some((d.clone(), *i)),
+                _ => None,
+            }).collect();
+            let dense_ms = t1.elapsed().as_secs_f64() * 1000.0;
+            let as_list = |arm: &'static str, keys: &[(String, u32)]| ArmList {
+                arm,
+                weight: 1.0,
+                items: keys.iter().enumerate().map(|(i, (d, x))| RecallCandidate::from_section(&SectionEvidence {
+                    doc_id: d.clone(), index: *x, page: None, title: String::new(), heading: String::new(),
+                    origin: String::new(), text: String::new(), score: 0.0, cite: String::new(),
+                }, i + 1)).collect(),
+            };
+            let t2 = Instant::now();
+            let rrf = fuse_arms_all(vec![as_list("bm25", &bm25), as_list("dense", &dense_keys)]);
+            let mut guaranteed = rrf.clone();
+            let promote: Vec<String> = dense_keys.iter().take(2).map(|(d, x)| format!("doc:{d}:{x}")).collect();
+            promote_keys(&mut guaranteed, &promote);
+            let fuse_ms = t2.elapsed().as_secs_f64() * 1000.0;
+            let keys = |c: &[RecallCandidate]| c.iter().filter_map(|c| c.section.as_ref().map(|s| (s.doc_id.clone(), s.index))).collect::<Vec<_>>();
+            arms.push(("dense", dense_keys.iter().take(CUTOFF).cloned().collect(), dense_ms));
+            arms.push(("hybrid_rrf", keys(&rrf).into_iter().take(CUTOFF).collect(), ms + dense_ms + fuse_ms));
+            arms.push(("hybrid", keys(&guaranteed).into_iter().take(CUTOFF).collect(), ms + dense_ms + fuse_ms));
+        }
+        for (arm, keys, ms) in arms {
+            let rank = keys.iter().position(|(d, x)| *d == q.gold_doc && *x == q.gold_section).map(|r| r + 1);
+            let doc_rank = keys.iter().position(|(d, _)| *d == q.gold_doc).map(|r| r + 1);
+            let e = by_kind.entry((q.kind, arm)).or_default();
+            e.0.push(rank);
+            e.1.push(doc_rank);
+            e.2.push(ms);
+            if keys.is_empty() { e.3 += 1; }
+            if arm == "bm25" && rank != Some(1) && examples.len() < 12 {
+                examples.push(json!({"kind": q.kind, "query": q.text, "gold": format!("{}#{}", q.gold_doc, q.gold_section),
+                    "rank": rank, "top1": hits.first().map(|h| format!("{}#{} ({})", h.doc_id, h.section.index, h.title))}));
+            }
         }
     }
 
+    // `metrics` keeps its pre-R2b meaning (BM25); dense and hybrid arms are
+    // additive keys.
     let mut metrics = serde_json::Map::new();
-    for (kind, (ranks, doc_ranks, lat, empty)) in &by_kind {
-        metrics.insert(kind.to_string(), json!({
+    let mut metrics_by_arm: BTreeMap<&str, serde_json::Map<String, Value>> = BTreeMap::new();
+    for ((kind, arm), (ranks, doc_ranks, lat, empty)) in &by_kind {
+        let m = json!({
             "n": ranks.len(),
             "recall_at_1": j(recall_at_k(ranks, 1)),
             "recall_at_5": j(recall_at_k(ranks, 5)),
@@ -193,8 +264,24 @@ pub fn run(ctx: &RunContext, args: &DocsArgs) -> Result<()> {
             "doc_recall_at_1": j(recall_at_k(doc_ranks, 1)),
             "empty_results": empty,
             "latency_ms": { "mean": j(mean(lat)), "p50": j(percentile(lat, 50.0)), "p95": j(percentile(lat, 95.0)) },
-        }));
+        });
+        if *arm == "bm25" {
+            metrics.insert(kind.to_string(), m.clone());
+        }
+        metrics_by_arm.entry(arm).or_default().insert(kind.to_string(), m);
     }
+    let dense_meta = match &dense {
+        Some((embedder, index, embed_ms)) => json!({
+            "embedder": format!("shivvr {}", args.shivvr.as_deref().unwrap_or("")),
+            "space": embedder.space(),
+            "sections_embedded": index.counts().sections_embedded,
+            "sections_truncated": index.counts().truncated_sources,
+            "embed_sections_ms": j(*embed_ms),
+            "query_embed_ms_mean": j(query_embed_ms),
+            "fusion": "hybrid_rrf = RRF k=60 over bm25 + dense; hybrid = hybrid_rrf + meaning guarantee (dense top-2 at ranks 2, 4), the server default",
+        }),
+        None => json!(dense_note.clone().unwrap_or_else(|| "skipped: BENCH_SHIVVR_URL=none".into())),
+    };
     let storage = json!({
         "sections_total": total_sections,
         "sections_byte_exact": exact_ok,
@@ -226,9 +313,11 @@ pub fn run(ctx: &RunContext, args: &DocsArgs) -> Result<()> {
             "duplicates": duplicates,
         },
         "backend": { "kind": "ferricula_ingest::DocumentStore", "ranker": "lume field-aware BM25+ (SearchVariant::Plus, default params)" },
-        "model": Value::Null,
+        "model": if dense.is_some() { json!("gtr-t5-base") } else { Value::Null },
         "n": n_sampled,
         "metrics": metrics,
+        "metrics_by_arm": metrics_by_arm,
+        "dense": dense_meta,
         "storage": storage,
         "sampling": sampling,
         "paraphrase": paraphrase_meta,
@@ -245,11 +334,23 @@ pub fn run(ctx: &RunContext, args: &DocsArgs) -> Result<()> {
     if !ingest_errors.is_empty() {
         r.push_str(&format!("Ingest errors: {}\n\n", ingest_errors.join("; ")));
     }
-    r.push_str("## Retrieval\n\nGold = the single (doc_id, section index) containing the sampled sentence. Ranked list cut at 10.\n\n\
-        | query type | n | recall@1 | recall@5 | MRR@10 | doc recall@1 | empty | latency p50 / p95 ms |\n|---|---:|---:|---:|---:|---:|---:|---|\n");
-    for (kind, m) in &metrics {
-        r.push_str(&format!("| {kind} | {} | {} | {} | {} | {} | {} | {} / {} |\n", m["n"], f(&m["recall_at_1"]), f(&m["recall_at_5"]),
-            f(&m["mrr_at_10"]), f(&m["doc_recall_at_1"]), m["empty_results"], f(&m["latency_ms"]["p50"]), f(&m["latency_ms"]["p95"])));
+    r.push_str("## Retrieval\n\nGold = the single (doc_id, section index) containing the sampled sentence. Ranked list cut at 10. \
+        Arms: `bm25` (the document store), `dense` (GTR-T5 cosine over every section), `hybrid_rrf` (RRF k=60 over both), \
+        `hybrid` (hybrid_rrf + the server's meaning guarantee: dense top-2 lifted to ranks 2 and 4). Latency excludes the query embedding.\n\n\
+        | query type | arm | n | recall@1 | recall@5 | MRR@10 | doc recall@1 | empty | latency p50 / p95 ms |\n|---|---|---:|---:|---:|---:|---:|---:|---|\n");
+    let kinds: Vec<&str> = metrics.keys().map(String::as_str).collect();
+    for kind in kinds {
+        for arm in ["bm25", "dense", "hybrid_rrf", "hybrid"] {
+            let Some(m) = metrics_by_arm.get(arm).and_then(|a| a.get(kind)) else { continue };
+            r.push_str(&format!("| {kind} | {arm} | {} | {} | {} | {} | {} | {} | {} / {} |\n", m["n"], f(&m["recall_at_1"]), f(&m["recall_at_5"]),
+                f(&m["mrr_at_10"]), f(&m["doc_recall_at_1"]), m["empty_results"], f(&m["latency_ms"]["p50"]), f(&m["latency_ms"]["p95"])));
+        }
+    }
+    match &dense {
+        Some((_, index, embed_ms)) => r.push_str(&format!(
+            "\nDense: {} sections embedded through shivvr in {:.0} ms ({} cut to a prefix); query embedding {:.1} ms mean per query (batched).\n",
+            index.counts().sections_embedded, embed_ms, index.counts().truncated_sources, query_embed_ms)),
+        None => r.push_str(&format!("\n{}\n", dense_note.clone().unwrap_or_else(|| "Dense arms skipped (BENCH_SHIVVR_URL=none).".into()))),
     }
     if args.paraphrase.is_none() {
         r.push_str("\nParaphrase queries: skipped (`BENCH_PARAPHRASE_MODEL` unset).\n");
@@ -267,10 +368,28 @@ pub fn run(ctx: &RunContext, args: &DocsArgs) -> Result<()> {
             e["top1"].as_str().unwrap_or("none"), e["query"].as_str().unwrap_or("").replace('|', "\\|")));
     }
     r.push_str("\n## Caveats\n\n- Queries are drawn from the corpus itself, so verbatim recall measures lexical addressability of stored text, not question answering.\n\
-        - Partial queries are random word drops, not natural queries.\n- BM25 only; no embeddings or reranking.\n");
+        - Partial queries are random word drops, not natural queries.\n- Dense arms use GTR-T5-base (the recovered memory's space); no reranking.\n");
     let path = ctx.write_report(&r)?;
     eprintln!("report: {}", path.display());
     Ok(())
+}
+
+/// Embed every section through shivvr into a sections-only meaning index.
+fn build_dense(url: &str, sections: &[(String, u32, String)]) -> Result<(ShivvrEmbedder, MeaningIndex, f64)> {
+    let embedder = ShivvrEmbedder::new(url, "gtr-t5-base@768", Duration::from_secs(120), 32)?;
+    let mut index = MeaningIndex::new(embedder.space(), embedder.dim(), None);
+    index.set_catalog(MeaningSet::Section, sections.iter()
+        .filter(|(_, _, t)| !t.trim().is_empty())
+        .map(|(d, i, t)| CatalogItem::section(d, *i, t)).collect());
+    let pending = index.pending(&[MeaningSet::Section]);
+    let t0 = Instant::now();
+    for chunk in pending.chunks(32) {
+        let texts: Vec<&str> = chunk.iter().map(|i| i.text.as_str()).collect();
+        for (item, v) in chunk.iter().zip(embedder.embed(&texts)?) {
+            index.insert(item, v)?;
+        }
+    }
+    Ok((embedder, index, t0.elapsed().as_secs_f64() * 1000.0))
 }
 
 fn f(v: &Value) -> String {
