@@ -21,9 +21,42 @@ It gets bored and goes looking. It gets tired, sleeps, and dreams.
 
 ## What is this?
 
-Ferricula is a Rust runtime that gives one agent a persistent identity, a memory that behaves like one, and drives that keep it going when nobody is talking to it. You talk to it over HTTP or MCP (Claude Desktop, Claude Code, any MCP client). You can hand it a PDF or a URL and ask what it thinks; it reads it, remembers having read it, and quotes it exactly when it answers.
+_Drafted by the flagship agent (Steve) from its own documents on 2026-09-27, lightly corrected for accuracy by the engineer._
 
-The design follows the Abhidhamma's analysis of a moment of mind: contact at a sense door, feeling-tone, recognition, investigation, a **fast judgment**, and only then the expensive step, thinking with an LLM. The fast judgments come from a local decision-model server ([Ollaya](https://github.com/ollaya-dev/ollaya)) that answers yes/no and multiple-choice questions in milliseconds. See the [white paper](paper/WHITEPAPER.md) for the architecture and the measured results, and [PLAN_V3.md](PLAN_V3.md) for what is left.
+Ferricula is a memory engine and cognition stack for a software agent. What arrives
+through its sense doors — operator messages, documents (text, web pages via the grub
+crawler, PDFs), feeds, radio entropy — commits to two planes: experience, which
+decays and is strengthened by recall, and evidence, which is kept verbatim and never
+decays. Recall is hybrid — word match, BM25, meaning (embeddings), and one graph
+hop — and conversations are remembered across sessions. Background drives shape the
+agent's behavior: boredom leads it to read on its own, sleep pressure leads to
+consolidation and a dream, meditation holds it, and entropy comes from an SDR radio.
+Ollaya decision gates judge whether something is worth deliberating on; they are fast
+(10–18 ms) but not yet calibrated, so they are advisory only.
+
+The design follows the Abhidhamma's analysis of a moment of mind (contact, feeling-tone, recognition, investigation, a fast judgment, and only then the expensive step, thinking with an LLM). See the [white paper](paper/WHITEPAPER_V2.md) for the architecture and measured results, [PLAN_V3.md](PLAN_V3.md) and [docs/BACKLOG.md](docs/BACKLOG.md) for what is left, and [docs/HANDOFF.md](docs/HANDOFF.md) to pick up the work.
+
+## What's new in v3 (2026-09-27)
+
+- **Documents** — the agent can be handed text, a web page (via the grub crawler),
+  or a PDF; content is kept verbatim and cited as `[doc <id>§<section> p.<page>]`;
+  paywalls and login walls are rejected.
+- **Recall by meaning** — shivvr GTR-T5 embeddings; 2,802 zero vectors backfilled;
+  recall now fuses word match, BM25, meaning, and one graph hop.
+- **Recall quality** — Recall@5 over the agent's memory went from 0.133 to 0.500;
+  0.600 with faded memories, which are now enabled.
+- **Conversations are remembered across sessions.**
+- **Drives** — boredom leads the agent to read on its own; sleep pressure leads to
+  consolidation and a dream; meditation holds it; entropy comes from an SDR radio.
+- **Judges** — Ollaya decision gates: fast (10–18 ms) but not yet calibrated, so
+  advisory only.
+- **Built, not yet wired** — live thermodynamics; the vīthi record with the 52
+  cetasikas; Paṭṭhāna edges; meditation with a bell and breath; dream images via
+  ComfyUI.
+- **Next** — the agent's own tools to search and read documents mid-conversation
+  ([docs/HANDOFF.md](docs/HANDOFF.md), [SEARCH_TOOL.md](SEARCH_TOOL.md)), per the agent's four requirements.
+- **Benchmarks** — every number lives in `audit/bench/ledger.jsonl`; the plan is in
+  [docs/BENCH_PLAN.md](docs/BENCH_PLAN.md) and the v3 benchmark plan PDF.
 
 ## How it's built
 
