@@ -6,6 +6,7 @@ pub mod casting;
 pub mod clock;
 pub mod curator;
 pub mod dream;
+pub mod dream_image;
 pub mod emotion;
 pub mod entropy;
 pub mod gates;
