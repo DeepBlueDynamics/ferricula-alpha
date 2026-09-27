@@ -39,6 +39,12 @@ ollama_model = "glm-5.3:cloud"
 # curator briefings from truncating.
 ollama_reasoning_tokens = 4096
 
+# The built-in local_ollama profile assumes an 8192-token local model, and
+# the chat route counts prompt bytes as tokens against it. glm-5.3 has a
+# far larger window; declaring it lets chat carry full document evidence
+# cards (R1) and history instead of shrinking them to fit 8192.
+ollama_context_tokens = 131072
+
 initial_mode = "asleep"
 
 [schedule]

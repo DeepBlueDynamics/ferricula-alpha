@@ -36,6 +36,10 @@ pub struct RuntimeConfig {
     /// briefing) truncates. Sets `reasoning_tokens` on the built-in
     /// `local_ollama` profile. Leave unset for non-thinking models.
     pub ollama_reasoning_tokens: Option<u32>,
+    /// Real context window of the model behind `local_ollama` (the built-in
+    /// profile assumes a small 8192-token local model). The chat route sizes
+    /// its prompt, including document evidence cards, from this value.
+    pub ollama_context_tokens: Option<u32>,
     pub initial_mode: String,
     /// Generate an ephemeral briefing from scoped raw recovered memories before chat.
     /// Adds a separately budgeted model call; never writes the briefing to memory.
@@ -78,6 +82,7 @@ impl Default for RuntimeConfig {
             ollama_base_url: None,
             ollama_model: None,
             ollama_reasoning_tokens: None,
+            ollama_context_tokens: None,
             initial_mode: "asleep".into(),
             curator_enabled: false,
             schedule: ScheduleConfig::default(),
@@ -122,6 +127,7 @@ impl RuntimeConfig {
         }
         if config.ollama_base_url.is_some() || config.ollama_model.is_some()
             || config.ollama_reasoning_tokens.is_some()
+            || config.ollama_context_tokens.is_some()
         {
             let profile = config
                 .models
@@ -131,6 +137,12 @@ impl RuntimeConfig {
                 .context("Ollama overrides require the built-in local_ollama profile")?;
             if let Some(tokens) = config.ollama_reasoning_tokens {
                 profile.reasoning_tokens = tokens;
+            }
+            if let Some(tokens) = config.ollama_context_tokens {
+                if tokens < 2048 {
+                    bail!("ollama_context_tokens must be at least 2048");
+                }
+                profile.context_tokens = tokens;
             }
             if let Some(base_url) = &config.ollama_base_url {
                 profile.base_url = base_url.clone();
@@ -722,6 +734,7 @@ name = "Memory Bench"
         let steve = RuntimeConfig::load(root.join("config/examples/steve/steve.toml")).unwrap();
         let ollama = steve.models.profile("local_ollama").unwrap();
         assert_eq!(ollama.reasoning_tokens, 4096);
+        assert_eq!(ollama.context_tokens, 131_072);
         assert_eq!(steve.expected_agent_id, steve.models.identity.agent_id);
     }
 

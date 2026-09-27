@@ -158,8 +158,7 @@ impl AgentRuntime {
             }
         }
         let episode_context = bounded_candidates(&Value::Array(contextual), 2400);
-        let documents_block = self.documents_block(&turn.document_evidence);
-        let system = format!(
+        let base_system = format!(
             "{}\nYou are the software agent identified by the configured persona above, in a local operator conversation. Answer the actual question directly, usually in 2 to 5 sentences. Omit retrieved memories that do not materially help answer this question; do not introduce a catalog of memories or repeat background biography. \
             Do not claim to be a living person or to have performed actions you have not performed. \
             Preserve observations separately from possible explanations. An outlier means something unexplained in context, not necessarily statistically rare. \
@@ -172,13 +171,21 @@ impl AgentRuntime {
             Cite a candidate as [memory ID] only when its metadata supports what you say; never invent source text. \
             For episode reports, cite [episode event_id] and distinguish the attributed report from its current interpretation. Conversation history records what was said, not proof that it is true.\nRecovered metadata: {}\nEpisode candidates (whole records, omitted_count disclosed): {}\nBefore answering, check these evidence rules: an unresolved report with no supported interpretation establishes NO cause and excludes NO candidate cause. An object not named in that report is not thereby ruled out. A not_seen_in_scope result says only that the target was not seen in the named scope at that time; it cannot establish that the target was absent elsewhere, or that it did not cause an earlier event. If a later missing-object goal could fit an unexplained earlier event, offer that connection explicitly as a possibility to investigate. Do not assert the connection is true or false without evidence. State the retained observation, a possible connection, what remains unknown, and a next check outside any already inspected scope. Do not repeat an unsupported exclusion from earlier assistant messages.",
             truncate(&self.persona.raw, 1000), metadata, episode_context
-        ) + &documents_block;
+        );
         // Use UTF-8 bytes as a conservative token estimate, including room for
-        // message framing. Drop oldest history pairs rather than silently
-        // presenting partial earlier observations. The full records stay stored.
-        // Document grounding is budgeted on top so it does not evict history.
-        let history_budget = 7000 + documents_block.len();
-        while messages.len() > 1 && system.len() + messages.iter().map(|m| m.content.len() + 32).sum::<usize>() > history_budget {
+        // message framing. The budget comes from the private local chat
+        // profile's context (7000 bytes for an 8192-token profile, as before).
+        // Document cards are fitted against the current message first; then
+        // the oldest history pairs are dropped rather than silently presenting
+        // partial earlier observations. The full records stay stored.
+        let budget = self.chat_input_budget();
+        let current = messages.last().map(|m| m.content.len() + 32).unwrap_or(0);
+        let (documents_block, shown_cards) = self.fit_documents_block(
+            &turn.document_evidence, budget.saturating_sub(base_system.len() + current));
+        // The durable turn records exactly the evidence the model saw.
+        turn.document_evidence = shown_cards;
+        let system = base_system + &documents_block;
+        while messages.len() > 1 && system.len() + messages.iter().map(|m| m.content.len() + 32).sum::<usize>() > budget {
             messages.drain(..2);
         }
         let estimated = (system.len() + messages.iter().map(|m| m.content.len() + 32).sum::<usize>()) as u32;
@@ -261,6 +268,54 @@ impl AgentRuntime {
 }
 
 impl AgentRuntime {
+    /// Byte budget for system + messages on the chat route: the context of
+    /// the first private, local chat profile in the Social route, minus the
+    /// 768-token reply and a framing margin. Never below the historical 7000
+    /// bytes; capped so a huge context does not invite unbounded prompts.
+    fn chat_input_budget(&self) -> usize {
+        const OUTPUT_AND_MARGIN: u32 = 768 + 424;
+        let config = self.router.config();
+        let caps = [ModelCapability::Chat, ModelCapability::PrivateContext, ModelCapability::Local];
+        let context = config.route_for(TaskClass::Social)
+            .and_then(|route| route.steps.iter()
+                .filter_map(|step| config.profile(&step.profile_id))
+                .find(|p| !p.is_no_model() && caps.iter().all(|c| p.has_capability(*c))))
+            .map(|p| p.context_tokens)
+            .unwrap_or(8192);
+        (context.saturating_sub(OUTPUT_AND_MARGIN) as usize).clamp(7000, 48_000)
+    }
+
+    /// The largest document block that fits `budget` bytes: all cards at
+    /// full size if possible, else fewer and shorter verbatim prefixes, else
+    /// the reading list alone, else nothing. Returns the block and the cards
+    /// actually shown.
+    fn fit_documents_block(&self, cards: &Value, budget: usize) -> (String, Value) {
+        let cards = cards.as_array().cloned().unwrap_or_default();
+        for count in (0..=cards.len()).rev() {
+            for limit in [DOCUMENT_CARD_BYTES, 800, 500, 300] {
+                let shown: Vec<Value> = cards.iter().take(count).map(|card| {
+                    let mut card = card.clone();
+                    let text = card["text"].as_str().unwrap_or_default().to_string();
+                    let cut = crate::recall::truncate_bytes(&text, limit);
+                    if cut.len() < text.len() {
+                        card["truncated"] = json!(true);
+                        card["text"] = json!(cut);
+                    }
+                    card
+                }).collect();
+                let shown = Value::Array(shown);
+                let block = self.documents_block(&shown);
+                if block.len() <= budget {
+                    return (block, shown);
+                }
+                if count == 0 {
+                    break;
+                }
+            }
+        }
+        (String::new(), json!([]))
+    }
+
     /// System-context block naming what the agent has read and presenting
     /// this turn's verbatim document cards. Empty when nothing was ingested.
     fn documents_block(&self, cards: &Value) -> String {
@@ -353,6 +408,55 @@ mod tests {
         drop(turns);
         fs::remove_dir_all(dir).unwrap();
     }
+    fn doc_runtime(context_tokens: Option<u32>) -> (Arc<AgentRuntime>, PathBuf) {
+        let root = std::env::temp_dir().join(format!("ferricula-chatdocs-{}", Uuid::new_v4()));
+        let memory = root.join("memory");
+        fs::create_dir_all(&memory).unwrap();
+        fs::write(memory.join("identity.json"), r#"{"agent_id":"ferricula-agent","name":"T"}"#).unwrap();
+        let mut config = crate::config::RuntimeConfig::default();
+        config.memory_dir = memory.clone();
+        config.state_dir = root.join("state");
+        config.overlay.path = config.state_dir.join("overlay.json");
+        config.schedule.enabled = false;
+        if let Some(tokens) = context_tokens {
+            let profile = config.models.profiles.iter_mut().find(|p| p.id == "local_ollama").unwrap();
+            profile.context_tokens = tokens;
+        }
+        let inspection = crate::inspect_data_dir(&memory).unwrap();
+        (AgentRuntime::open(config, inspection).unwrap(), root)
+    }
+
+    #[test]
+    fn document_cards_fit_the_route_budget() {
+        let (runtime, root) = doc_runtime(None);
+        assert_eq!(runtime.chat_input_budget(), 7000);
+        let body = |n: usize| format!("# Part {n}\n{}\n", "memory paging tiers ".repeat(90));
+        let text = (0..3).map(body).collect::<String>();
+        runtime.ingest_blocking(ferricula_ingest::Source::Text { title: Some("Doc".into()), text }, None).unwrap();
+        let cards = Value::Array(document_cards(&runtime.search_documents("memory paging tiers", 3, None)));
+        assert_eq!(cards.as_array().unwrap().len(), 3);
+
+        let (full, shown) = runtime.fit_documents_block(&cards, 100_000);
+        assert_eq!(shown, cards);
+        assert!(full.contains("[doc "));
+        let (small, shown_small) = runtime.fit_documents_block(&cards, 2_000);
+        assert!(small.len() <= 2_000 && !small.is_empty());
+        assert!(shown_small.as_array().unwrap().len() < 3
+            || shown_small[0]["truncated"] == true);
+        for card in shown_small.as_array().unwrap() {
+            // Shrunk cards stay verbatim prefixes of the stored section.
+            let original = cards.as_array().unwrap().iter().find(|c| c["cite"] == card["cite"]).unwrap();
+            assert!(original["text"].as_str().unwrap().starts_with(card["text"].as_str().unwrap()));
+        }
+        assert_eq!(runtime.fit_documents_block(&cards, 10), (String::new(), json!([])));
+        drop(runtime);
+        let (large, root2) = doc_runtime(Some(131_072));
+        assert_eq!(large.chat_input_budget(), 48_000);
+        drop(large);
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(root2);
+    }
+
     #[test]
     fn unknown_origin_stays_unknown_and_message_cannot_set_envelope_fields() {
         let request = ChatRequest {
