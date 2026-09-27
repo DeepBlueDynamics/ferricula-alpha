@@ -22,6 +22,7 @@ pub mod model_config;
 pub mod model_transport;
 pub mod nutnews;
 pub mod nutnews_events;
+pub mod persona;
 pub mod runtime;
 pub mod sleep_cycle;
 
@@ -36,7 +37,7 @@ mod identity_tests {
         let memory = temp.join("memory");
         std::fs::create_dir_all(&memory).unwrap();
         std::fs::write(memory.join("identity.json"),
-            r#"{"agent_id":"ferricula-stevejobs","name":"Steve Jobs"}"#).unwrap();
+            r#"{"agent_id":"ferricula-agent","name":"Ferricula Agent"}"#).unwrap();
         let inspection = super::inspect_data_dir(&memory).unwrap();
         let mut config = crate::config::RuntimeConfig::default();
         config.memory_dir = memory;
@@ -44,7 +45,7 @@ mod identity_tests {
         config.expected_agent_id = "ferricula-memory-bench".into();
         config.models.identity.agent_id = config.expected_agent_id.clone();
         let state = config.state_dir.clone();
-        let result = crate::runtime::SteveRuntime::open(config, inspection);
+        let result = crate::runtime::AgentRuntime::open(config, inspection);
         assert!(matches!(result, Err(ref error) if error.to_string().contains("mounted memory identity")));
         assert!(!state.exists());
         std::fs::remove_dir_all(temp).unwrap();
@@ -58,7 +59,7 @@ struct IdentityHeader {
 }
 
 /// Read-only summary proving that a legacy Ferricula data directory can be
-/// opened by the v2 persistence layer. Opening replays the WAL in memory but
+/// opened by the Ferricula persistence layer. Opening replays the WAL in memory but
 /// does not checkpoint or otherwise modify the directory.
 #[derive(Debug, Serialize)]
 pub struct Inspection {

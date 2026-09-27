@@ -5,7 +5,7 @@
 //! (`ChatRequest`, `ChatTurn`, `InputOrigin`) plus behavior reachable without
 //! touching internals. Runtime-lifecycle defects (cancellation reconciliation,
 //! failed-retry terminality, provider-error masking) cannot be unit-tested here
-//! because `ChatStore` / `SteveRuntime::converse` are private; those are listed
+//! because `ChatStore` / `AgentRuntime::converse` are private; those are listed
 //! as concrete findings with proposed fixes + live-Docker acceptance cases.
 //!
 //! No host run by me; tests compile only (queued via Coordinator -> Piranha).

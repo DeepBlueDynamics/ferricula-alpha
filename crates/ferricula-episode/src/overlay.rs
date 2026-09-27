@@ -1,7 +1,7 @@
 //! Bounded, append-only overlay for the recovered (read-only) memory base.
 //!
 //! Implements Stage 2 of `research/original-ferricula/MEMORY_DREAM_SPEC.md`:
-//! the recovered base volume is **immutable**; every write intention Steve
+//! the recovered base volume is **immutable**; every write intention the agent
 //! forms — a new memory, a reinforcement, a lifecycle transition, a graph
 //! edge, a dream-consolidation candidate, an advocate note — is recorded as
 //! an overlay *event*. A union engine (integration, not this file) folds the
@@ -208,7 +208,7 @@ pub enum ApprovalStatus {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OverlayPayload {
-    /// A new memory Steve proposes. Its identity, once effective, is the
+    /// A new memory the agent proposes. Its identity, once effective, is the
     /// event id (`MemoryRef::Overlay`). Keystone proposals are promotion
     /// (keystones are decay-immune per spec §1C) and need approval.
     ProposeMemory {
@@ -1913,7 +1913,7 @@ mod tests {
     #[test]
     fn refuses_base_artifact_write_paths() {
         for name in BASE_ARTIFACT_NAMES {
-            let p = PathBuf::from(format!("/data/steve-memory/readonly/{name}"));
+            let p = PathBuf::from(format!("/data/agent-memory/readonly/{name}"));
             let err = assert_safe_overlay_write_path(&p).unwrap_err().to_string();
             assert!(
                 err.contains("immutable") || err.contains("base artifact"),
@@ -1926,11 +1926,11 @@ mod tests {
 
     #[test]
     fn overlay_paths_reject_base_collision() {
-        let base = PathBuf::from("/data/steve-memory/readonly");
+        let base = PathBuf::from("/data/agent-memory/readonly");
         let bad = base.join("wal.log");
         assert!(OverlayPaths::new(&base, &bad).is_err());
         let ok =
-            OverlayPaths::new(&base, PathBuf::from("/data/steve-memory/overlay/log.json")).unwrap();
+            OverlayPaths::new(&base, PathBuf::from("/data/agent-memory/overlay/log.json")).unwrap();
         assert_eq!(ok.base_root(), base.as_path());
         assert!(ok.overlay_file().ends_with("log.json"));
     }

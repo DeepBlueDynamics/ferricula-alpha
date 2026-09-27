@@ -1,0 +1,75 @@
+# Example deployment: the Steve agent.
+#
+# Shows how a concrete persona is configured on the persona-neutral engine.
+# Nothing here is compiled in; Steve is only this file plus the memory
+# volume (identity.json with agent_id "ferricula-stevejobs", and an
+# agent.toml persona like config/examples/steve/agent.toml).
+#
+# Use with compose.yaml, e.g.:
+#   cp config/examples/steve/steve.toml config/agent.toml
+#   FERRICULA_CONFIG=./config/agent.toml \
+#   FERRICULA_MEMORY_VOLUME=<your-steve-memory-volume> docker compose up -d
+#
+# Environment-variable NAMES only — never token or key values.
+
+bind = "0.0.0.0:8875"
+
+# Must match memory_dir/identity.json and [models.identity].agent_id.
+expected_agent_id = "ferricula-stevejobs"
+
+memory_dir = "/data/agent-memory"
+state_dir = "/data/agent-runtime"
+
+operator_token_env = "FERRICULA_OPERATOR_TOKEN"
+require_operator_auth = true
+
+# Steve's deliberation runs on GLM-5.3 through the host's signed-in Ollama.
+#
+# NOTE: `glm-5.3:cloud` is an Ollama `:cloud` model. Because `local_ollama`
+# is listed in private_context_profiles, private memory context is sent
+# off-box to the cloud provider behind Ollama. This is the operator's
+# accepted choice for this deployment. Remove "local_ollama" from the list
+# (or switch to a genuinely local model) to keep private memory on the host.
+private_context_profiles = ["local_ollama"]
+ollama_base_url = "http://host.docker.internal:11434/v1"
+ollama_model = "glm-5.3:cloud"
+
+# glm-5.3 is a thinking model: it spends output tokens on hidden reasoning
+# before the visible answer. 4096 tokens of headroom keeps chat replies and
+# curator briefings from truncating.
+ollama_reasoning_tokens = 4096
+
+initial_mode = "asleep"
+
+[schedule]
+enabled = true
+wakes_per_day = 4
+jitter_minutes = 45
+
+[budgets]
+max_threads_per_wake = 20
+max_autonomous_comments_per_day = 5
+max_autonomous_submissions_per_day = 1
+max_model_usd_per_day = 5.0
+
+[nutnews]
+# Read-only: scheduled wakes may observe a bounded public digest.
+enabled = true
+mcp_url = "https://news.nuts.services/mcp"
+public_url = "https://news.nuts.services"
+token_env = "NUTNEWS_TOKEN"
+handle = "steve"
+allow_writes = false
+
+[mentions]
+enabled = false
+instance = "news.nuts.services"
+agent_handle = "steve"
+
+[overlay]
+enabled = false
+path = "/data/agent-runtime/overlay/overlay.json"
+
+[models.identity]
+agent_id = "ferricula-stevejobs"
+name = "Steve Jobs"

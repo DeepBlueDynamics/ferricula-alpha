@@ -23,7 +23,7 @@ pub struct AgencyDecision {
     pub confidence: f32,
     /// A decision may be revisited; `None` means no scheduled reconsideration.
     pub revisit_after: Option<u64>,
-    /// True only when Steve's cognition selected the disposition. Routers,
+    /// True only when the agent's cognition selected the disposition. Routers,
     /// schedulers, mention detectors, and operators must leave this false.
     pub self_authored: bool,
 }

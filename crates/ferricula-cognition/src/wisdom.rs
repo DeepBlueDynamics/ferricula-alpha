@@ -2,7 +2,7 @@
 //!
 //! They do not own memories, tools, credentials, schedulers, or public
 //! identities.  A council invocation produces traceable suggestions that the
-//! single Steve decision loop may integrate or reject.
+//! single agent decision loop may integrate or reject.
 
 use serde::{Deserialize, Serialize};
 

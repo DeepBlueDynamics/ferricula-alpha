@@ -4,6 +4,7 @@ target/
 /research/original-ferricula/source/
 /research/original-ferricula/source-export.tar.gz
 /secrets/
+/config/agent.toml
 /config/steve.toml
 /.mcp.json
 /.nemesis8.toml

@@ -1,10 +1,13 @@
-//! MCP Streamable HTTP endpoint for Steve (`POST /mcp`).
+//! MCP Streamable HTTP endpoint for the agent runtime (`POST /mcp`).
 //!
 //! Protocol: MCP **2025-06-18** JSON-RPC 2.0, JSON response mode (no SSE).
 //! Advertise only this revision. Older initialize proposals receive
 //! **2025-06-18**; the client decides compatibility. Subsequent
 //! `MCP-Protocol-Version` headers other than **2025-06-18** are rejected.
-//! Tools: `steve_status`, `steve_recall` (read-only), `steve_chat` (operator chat).
+//! Tools: `ferricula_status`, `ferricula_recall` (read-only), `ferricula_chat`
+//! (operator chat). The v2 names `steve_status`/`steve_recall`/`steve_chat`
+//! are still accepted by `tools/call` as deprecated aliases for one release,
+//! but are not advertised in `tools/list`.
 //! Operator bearer auth required on `POST /mcp`. Damascus is not a launch blocker.
 //!
 //! 2025-03-26 Streamable HTTP allowed JSON-RPC **batches** on POST.
@@ -22,7 +25,7 @@ use axum::routing::post;
 use axum::{Json, Router};
 use serde_json::{Value, json};
 
-use crate::runtime::SteveRuntime;
+use crate::runtime::AgentRuntime;
 
 /// Advertised MCP protocol revision (only).
 pub const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -39,8 +42,8 @@ const MAX_QUERY_BYTES: usize = 8192;
 const MAX_CHAT_MESSAGE_BYTES: usize = 8192;
 const PROTOCOL_HEADER: &str = "mcp-protocol-version";
 
-/// Unstated router for Goldfish to merge onto `Arc<SteveRuntime>`.
-pub fn router() -> Router<Arc<SteveRuntime>> {
+/// Unstated router for Goldfish to merge onto `Arc<AgentRuntime>`.
+pub fn router() -> Router<Arc<AgentRuntime>> {
     Router::new().route(MCP_PATH, post(mcp_post).get(mcp_get).delete(mcp_delete))
 }
 
@@ -94,14 +97,14 @@ async fn mcp_delete() -> McpHttp {
 }
 
 async fn mcp_post(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
     body: String,
 ) -> McpHttp {
     handle_post(runtime, &headers, &body).await
 }
 
-async fn handle_post(runtime: Arc<SteveRuntime>, headers: &HeaderMap, body: &str) -> McpHttp {
+async fn handle_post(runtime: Arc<AgentRuntime>, headers: &HeaderMap, body: &str) -> McpHttp {
     match classify_origin(headers) {
         OriginCheck::Absent | OriginCheck::Allowed => {}
         OriginCheck::Denied | OriginCheck::Invalid => return McpHttp::ForbiddenOrigin,
@@ -180,7 +183,7 @@ enum RpcOut {
     BadRequest(Value),
 }
 
-async fn handle_rpc(runtime: Arc<SteveRuntime>, msg: &Value) -> RpcOut {
+async fn handle_rpc(runtime: Arc<AgentRuntime>, msg: &Value) -> RpcOut {
     if msg.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
         let id = msg.get("id").cloned().unwrap_or(Value::Null);
         return RpcOut::BadRequest(rpc_error(id, INVALID_REQUEST, "jsonrpc must be \"2.0\""));
@@ -224,28 +227,48 @@ async fn handle_rpc(runtime: Arc<SteveRuntime>, msg: &Value) -> RpcOut {
     }
 }
 
-fn initialize_result(runtime: &SteveRuntime, _params: &Value) -> Result<Value, Value> {
+fn initialize_result(runtime: &AgentRuntime, _params: &Value) -> Result<Value, Value> {
     Ok(json!({
         "protocolVersion": PROTOCOL_VERSION,
         "capabilities": {
             "tools": { "listChanged": false }
         },
         "serverInfo": {
-            "name": "ferricula-steve",
-            "title": "Steve Jobs",
+            "name": "ferricula",
+            "title": server_title(runtime),
             "version": env!("CARGO_PKG_VERSION"),
             "agent_id": runtime.inspection.agent_id
         },
-        "instructions": "Steve MCP. steve_status and steve_recall are read-only and require operator auth. Recall returns metadata (ids/tags/refs), not hydrated source text. steve_chat sends one operator message through POST /chat and returns reply plus conversation_id. Damascus work-broker is not mounted."
+        "instructions": format!(
+            "Ferricula MCP for {}. ferricula_status and ferricula_recall are read-only and require operator auth. Recall returns metadata (ids/tags/refs), not hydrated source text. ferricula_chat sends one operator message through POST /chat and returns reply plus conversation_id. Damascus work-broker is not mounted.",
+            server_title(runtime)
+        )
     }))
+}
+
+/// MCP server title: the loaded persona's name, or "Ferricula" when the
+/// persona is empty.
+fn server_title(runtime: &AgentRuntime) -> String {
+    let name = runtime.persona().name.trim();
+    if name.is_empty() { "Ferricula".to_string() } else { name.to_string() }
+}
+
+/// Map deprecated v2 tool names onto their v3 names.
+fn canonical_tool_name(name: &str) -> &str {
+    match name {
+        "steve_status" => "ferricula_status",
+        "steve_recall" => "ferricula_recall",
+        "steve_chat" => "ferricula_chat",
+        other => other,
+    }
 }
 
 fn tools_list() -> Value {
     json!({
         "tools": [
             {
-                "name": "steve_status",
-                "description": "Read-only Steve runtime status (identity, mode, memory counts). No memory text.",
+                "name": "ferricula_status",
+                "description": "Read-only agent runtime status (identity, mode, memory counts). No memory text.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {},
@@ -259,7 +282,7 @@ fn tools_list() -> Value {
                 }
             },
             {
-                "name": "steve_recall",
+                "name": "ferricula_recall",
                 "description": "Read-only lexical memory candidate lookup. Returns ids, scores, tags, and refs — not source bodies.",
                 "inputSchema": {
                     "type": "object",
@@ -286,8 +309,8 @@ fn tools_list() -> Value {
                 }
             },
             {
-                "name": "steve_chat",
-                "description": "Send one operator message to Steve (POST /chat). Returns the model reply and conversation_id. Does not hydrate source text.",
+                "name": "ferricula_chat",
+                "description": "Send one operator message to the agent (POST /chat). Returns the model reply and conversation_id. Does not hydrate source text.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -314,17 +337,17 @@ fn tools_list() -> Value {
     })
 }
 
-async fn tools_call(runtime: &Arc<SteveRuntime>, params: &Value) -> Result<Value, Value> {
+async fn tools_call(runtime: &Arc<AgentRuntime>, params: &Value) -> Result<Value, Value> {
     let name = params.get("name").and_then(Value::as_str).unwrap_or("");
     let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
-    match name {
-        "steve_status" => {
+    match canonical_tool_name(name) {
+        "ferricula_status" => {
             let status = runtime.status();
             let payload = serde_json::to_value(&status)
                 .map_err(|err| rpc_error(Value::Null, INTERNAL_ERROR, &err.to_string()))?;
             Ok(tool_text(&payload, false))
         }
-        "steve_recall" => {
+        "ferricula_recall" => {
             let query = arguments
                 .get("query")
                 .and_then(Value::as_str)
@@ -348,7 +371,7 @@ async fn tools_call(runtime: &Arc<SteveRuntime>, params: &Value) -> Result<Value
             let payload = json!({ "query": query, "hits": hits });
             Ok(tool_text(&payload, false))
         }
-        "steve_chat" => steve_chat(runtime, &arguments).await,
+        "ferricula_chat" => ferricula_chat(runtime, &arguments).await,
         "" => Err(rpc_error(
             Value::Null,
             INVALID_PARAMS,
@@ -362,7 +385,7 @@ async fn tools_call(runtime: &Arc<SteveRuntime>, params: &Value) -> Result<Value
     }
 }
 
-async fn steve_chat(runtime: &Arc<SteveRuntime>, arguments: &Value) -> Result<Value, Value> {
+async fn ferricula_chat(runtime: &Arc<AgentRuntime>, arguments: &Value) -> Result<Value, Value> {
     let Some(obj) = arguments.as_object() else {
         return Ok(tool_text(&json!({"error": "arguments must be an object"}), true));
     };
@@ -528,7 +551,7 @@ mod tests {
         }
     }
 
-    fn test_runtime() -> Arc<SteveRuntime> {
+    fn test_runtime() -> Arc<AgentRuntime> {
         let root = std::env::temp_dir().join(format!("ferricula-mcp-{}", Uuid::new_v4()));
         let memory = root.join("memory");
         let state = root.join("state");
@@ -536,7 +559,12 @@ mod tests {
         fs::create_dir_all(&state).unwrap();
         fs::write(
             memory.join("identity.json"),
-            r#"{"agent_id":"ferricula-stevejobs","name":"Steve Jobs"}"#,
+            r#"{"agent_id":"ferricula-agent","name":"Test Persona"}"#,
+        )
+        .unwrap();
+        fs::write(
+            memory.join("agent.toml"),
+            "name = \"Test Persona\"\nrole = \"a test fixture\"\n",
         )
         .unwrap();
         let mut config = RuntimeConfig::default();
@@ -546,10 +574,10 @@ mod tests {
         config.schedule.enabled = false;
         config.require_operator_auth = false;
         let inspection = inspect_data_dir(&memory).unwrap();
-        SteveRuntime::open(config, inspection).expect("test SteveRuntime")
+        AgentRuntime::open(config, inspection).expect("test AgentRuntime")
     }
 
-    fn post(runtime: &Arc<SteveRuntime>, origin: Option<&str>, protocol: Option<&str>, body: &str) -> McpHttp {
+    fn post(runtime: &Arc<AgentRuntime>, origin: Option<&str>, protocol: Option<&str>, body: &str) -> McpHttp {
         let mut headers = HeaderMap::new();
         if let Some(origin) = origin {
             headers.insert(header::ORIGIN, origin.parse().unwrap());
@@ -635,7 +663,9 @@ mod tests {
         );
         let init = json_body(init);
         assert_eq!(init["result"]["protocolVersion"], PROTOCOL_VERSION);
-        assert_eq!(init["result"]["serverInfo"]["agent_id"], "ferricula-stevejobs");
+        assert_eq!(init["result"]["serverInfo"]["agent_id"], "ferricula-agent");
+        assert_eq!(init["result"]["serverInfo"]["name"], "ferricula");
+        assert_eq!(init["result"]["serverInfo"]["title"], "Test Persona");
 
         let list = post(
             &runtime,
@@ -650,7 +680,7 @@ mod tests {
             .iter()
             .map(|t| t["name"].as_str().unwrap())
             .collect();
-        assert_eq!(names, ["steve_status", "steve_recall", "steve_chat"]);
+        assert_eq!(names, ["ferricula_status", "ferricula_recall", "ferricula_chat"]);
 
         let unknown = post(
             &runtime,
@@ -671,32 +701,59 @@ mod tests {
             &runtime,
             None,
             Some(PROTOCOL_VERSION),
-            r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"steve_status","arguments":{}}}"#,
+            r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"ferricula_status","arguments":{}}}"#,
         );
         let status = json_body(status);
         assert_eq!(status["result"]["isError"], false);
         let text = status["result"]["content"][0]["text"].as_str().unwrap();
         let parsed: Value = serde_json::from_str(text).unwrap();
-        assert_eq!(parsed["agent_id"], "ferricula-stevejobs");
+        assert_eq!(parsed["agent_id"], "ferricula-agent");
 
         let recall = post(
             &runtime,
             None,
             Some(PROTOCOL_VERSION),
-            r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"steve_recall","arguments":{"query":"   "}}}"#,
+            r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"ferricula_recall","arguments":{"query":"   "}}}"#,
         );
         let recall = json_body(recall);
         assert_eq!(recall["result"]["isError"], true);
     }
 
     #[test]
-    fn handler_steve_chat_rejects_bad_arguments_without_calling_the_model() {
+    fn deprecated_steve_aliases_still_dispatch() {
+        let runtime = test_runtime();
+        let status = json_body(post(
+            &runtime,
+            None,
+            Some(PROTOCOL_VERSION),
+            r#"{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"steve_status","arguments":{}}}"#,
+        ));
+        assert_eq!(status["result"]["isError"], false);
+        let recall = json_body(post(
+            &runtime,
+            None,
+            Some(PROTOCOL_VERSION),
+            r#"{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"steve_recall","arguments":{"query":"   "}}}"#,
+        ));
+        assert_eq!(recall["result"]["isError"], true);
+        let chat = json_body(post(
+            &runtime,
+            None,
+            Some(PROTOCOL_VERSION),
+            r#"{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"steve_chat","arguments":{}}}"#,
+        ));
+        let text = chat["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("message is required"));
+    }
+
+    #[test]
+    fn handler_ferricula_chat_rejects_bad_arguments_without_calling_the_model() {
         let runtime = test_runtime();
         let missing = post(
             &runtime,
             None,
             Some(PROTOCOL_VERSION),
-            r#"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"steve_chat","arguments":{}}}"#,
+            r#"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"ferricula_chat","arguments":{}}}"#,
         );
         let missing = json_body(missing);
         assert_eq!(missing["result"]["isError"], true);
@@ -707,7 +764,7 @@ mod tests {
             &runtime,
             None,
             Some(PROTOCOL_VERSION),
-            r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"steve_chat","arguments":{"message":"hello","conversation_id":"not-a-uuid"}}}"#,
+            r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"ferricula_chat","arguments":{"message":"hello","conversation_id":"not-a-uuid"}}}"#,
         );
         let bad_id = json_body(bad_id);
         assert_eq!(bad_id["result"]["isError"], true);

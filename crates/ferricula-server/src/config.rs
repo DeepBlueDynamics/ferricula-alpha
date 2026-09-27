@@ -15,7 +15,9 @@ use crate::sleep_cycle::SleepCyclePolicy;
 #[serde(default)]
 pub struct RuntimeConfig {
     pub bind: SocketAddr,
-    /// Identity expected in the mounted memory store; defaults preserve Steve deployments.
+    /// Identity expected in the mounted memory store (`identity.json`). The
+    /// persona-neutral default is `ferricula-agent`; a deployment names its
+    /// own agent here and in `[models.identity]`.
     pub expected_agent_id: String,
     pub memory_dir: PathBuf,
     pub state_dir: PathBuf,
@@ -28,7 +30,11 @@ pub struct RuntimeConfig {
     /// Convenience overrides for the built-in `local_ollama` profile.
     pub ollama_base_url: Option<String>,
     pub ollama_model: Option<String>,
-    /// Output headroom for a thinking model on `local_ollama` (e.g. glm-5.3).
+    /// Output headroom for a thinking model on `local_ollama`. Reasoning
+    /// models (e.g. `glm-5.3:cloud`) spend output tokens on hidden thinking
+    /// before the visible answer; without headroom the reply (or the curator
+    /// briefing) truncates. Sets `reasoning_tokens` on the built-in
+    /// `local_ollama` profile. Leave unset for non-thinking models.
     pub ollama_reasoning_tokens: Option<u32>,
     pub initial_mode: String,
     /// Generate an ephemeral briefing from scoped raw recovered memories before chat.
@@ -60,9 +66,9 @@ impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
             bind: "127.0.0.1:8875".parse().expect("static socket address"),
-            expected_agent_id: "ferricula-stevejobs".into(),
-            memory_dir: PathBuf::from(".runtime/steve-jobs"),
-            state_dir: PathBuf::from(".runtime/steve-runtime"),
+            expected_agent_id: crate::model_config::DEFAULT_AGENT_ID.into(),
+            memory_dir: PathBuf::from(".runtime/agent-memory"),
+            state_dir: PathBuf::from(".runtime/agent-runtime"),
             operator_token_env: "FERRICULA_OPERATOR_TOKEN".into(),
             require_operator_auth: true,
             private_context_profiles: Vec::new(),
@@ -222,7 +228,7 @@ impl RuntimeConfig {
             );
         }
 
-        // Mention ingestion consumes the Nuts ledger and speaks as Steve's
+        // Mention ingestion consumes the Nuts ledger and speaks as the agent's
         // inbound identity: it needs the connector on and the identities in
         // agreement, otherwise events would be keyed against the wrong actor
         // or instance.
@@ -236,10 +242,10 @@ impl RuntimeConfig {
                 ingest
             };
             let nutnews_handle = self.nutnews.handle.trim().to_ascii_lowercase();
-            if mention_identity.steve_handle != nutnews_handle {
+            if mention_identity.agent_handle != nutnews_handle {
                 bail!(
-                    "mentions.steve_handle {:?} does not match nutnews.handle {:?}",
-                    mention_identity.steve_handle,
+                    "mentions.agent_handle {:?} does not match nutnews.handle {:?}",
+                    mention_identity.agent_handle,
                     self.nutnews.handle
                 );
             }
@@ -334,7 +340,7 @@ impl Default for OverlaySection {
     fn default() -> Self {
         Self {
             enabled: false,
-            path: PathBuf::from("/data/steve-runtime/overlay/overlay.json"),
+            path: PathBuf::from("/data/agent-runtime/overlay/overlay.json"),
             bounds: OverlayConfig::default(),
         }
     }
@@ -422,8 +428,8 @@ impl Default for NutNewsConfig {
             enabled: false,
             mcp_url: "https://news.nuts.services/mcp".into(),
             public_url: "https://news.nuts.services".into(),
-            token_env: "NUTNEWS_STEVE_TOKEN".into(),
-            handle: "steve".into(),
+            token_env: "NUTNEWS_TOKEN".into(),
+            handle: crate::mention_ingest::DEFAULT_AGENT_HANDLE.into(),
             allow_writes: false,
         }
     }
@@ -495,8 +501,8 @@ name = "Memory Bench"
         // The pre-Phase-One surface only: every new section must default.
         let legacy = r#"
             bind = "127.0.0.1:8875"
-            memory_dir = "/data/steve-memory"
-            state_dir = "/data/steve-runtime"
+            memory_dir = "/data/agent-memory"
+            state_dir = "/data/agent-runtime"
             initial_mode = "asleep"
 
             [schedule]
@@ -526,7 +532,7 @@ name = "Memory Bench"
 
             [mentions]
             enabled = true
-            steve_handle = "Steve"
+            agent_handle = "Agent"
             max_pending_per_actor = 2
 
             [nutnews]
@@ -534,7 +540,7 @@ name = "Memory Bench"
 
             [overlay]
             enabled = true
-            path = "/data/steve-runtime/overlay/overlay.json"
+            path = "/data/agent-runtime/overlay/overlay.json"
             max_events = 1024
 
             [emotion]
@@ -559,13 +565,13 @@ name = "Memory Bench"
     #[test]
     fn overlay_path_inside_memory_dir_is_rejected() {
         let mut config = RuntimeConfig::default();
-        config.memory_dir = PathBuf::from("/data/steve-memory");
-        config.overlay.path = PathBuf::from("/data/steve-memory/overlay/overlay.json");
+        config.memory_dir = PathBuf::from("/data/agent-memory");
+        config.overlay.path = PathBuf::from("/data/agent-memory/overlay/overlay.json");
         let err = config.validate().unwrap_err().to_string();
         assert!(err.contains("immutable"), "{err}");
         // Outside the memory dir (default) is fine even when enabled.
         let mut config = RuntimeConfig::default();
-        config.memory_dir = PathBuf::from("/data/steve-memory");
+        config.memory_dir = PathBuf::from("/data/agent-memory");
         config.overlay.enabled = true;
         config.validate().unwrap();
         // Empty path only matters once the overlay is enabled.
@@ -587,7 +593,7 @@ name = "Memory Bench"
         let mut config = RuntimeConfig::default();
         config.mentions.enabled = true;
         config.nutnews.enabled = true;
-        config.mentions.ingest.steve_handle = "someone-else".into();
+        config.mentions.ingest.agent_handle = "someone-else".into();
         assert!(config.validate().is_err());
         // Instance must match the public_url host.
         let mut config = RuntimeConfig::default();
@@ -599,8 +605,47 @@ name = "Memory Bench"
         let mut config = RuntimeConfig::default();
         config.mentions.enabled = true;
         config.nutnews.enabled = true;
-        config.mentions.ingest.steve_handle = "Steve".into();
+        config.mentions.ingest.agent_handle = "Agent".into();
         config.validate().unwrap();
+    }
+
+    #[test]
+    fn legacy_steve_handle_key_is_accepted() {
+        // v2 configs spelled the mention handle `steve_handle`; keep loading them.
+        let config: RuntimeConfig = toml::from_str(
+            r#"
+            [mentions]
+            steve_handle = "someone"
+        "#,
+        )
+        .unwrap();
+        assert_eq!(config.mentions.ingest.agent_handle, "someone");
+    }
+
+    #[test]
+    fn default_identity_is_persona_neutral() {
+        let config = RuntimeConfig::default();
+        assert_eq!(config.expected_agent_id, "ferricula-agent");
+        assert_eq!(config.models.identity.agent_id, "ferricula-agent");
+        assert_eq!(config.memory_dir, PathBuf::from(".runtime/agent-memory"));
+        assert_eq!(config.state_dir, PathBuf::from(".runtime/agent-runtime"));
+    }
+
+    #[test]
+    fn example_configs_parse_and_validate() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for rel in [
+            "config/agent.example.toml",
+            "config/agent.isolated.toml",
+            "config/examples/steve/steve.toml",
+        ] {
+            let path = root.join(rel);
+            RuntimeConfig::load(&path).unwrap_or_else(|e| panic!("{rel}: {e:#}"));
+        }
+        let steve = RuntimeConfig::load(root.join("config/examples/steve/steve.toml")).unwrap();
+        let ollama = steve.models.profile("local_ollama").unwrap();
+        assert_eq!(ollama.reasoning_tokens, 4096);
+        assert_eq!(steve.expected_agent_id, steve.models.identity.agent_id);
     }
 
     #[test]

@@ -1,11 +1,17 @@
-# Steve runtime configuration — example.
+# Ferricula agent runtime configuration — generic example.
 #
-#   cp config/steve.example.toml config/steve.toml
+#   cp config/agent.example.toml config/agent.toml
+#
+# The engine is persona-neutral. WHO the agent is lives in data, not code:
+#   - `agent.toml` in memory_dir supplies the persona (name, role, voice);
+#   - `expected_agent_id` / `[models.identity]` below must match the
+#     `agent_id` in memory_dir/identity.json.
+# See config/examples/steve/ for a complete persona + deployment example.
 #
 # This file is written for the container in compose.yaml (paths under /data,
 # bind on 0.0.0.0 inside the container's network namespace). It contains
 # environment-variable NAMES only — never token or key values. Values are
-# delivered as Docker secrets; see compose.yaml and docs/STEVE_RUNTIME.md.
+# delivered as Docker secrets; see compose.yaml.
 #
 # Parsed by RuntimeConfig::load (crates/ferricula-server/src/config.rs).
 # Validation enforces: wakes_per_day in 1..=24 when scheduling is enabled,
@@ -20,14 +26,18 @@
 # For a bare (non-container) run on the host, use "127.0.0.1:8875" instead.
 bind = "0.0.0.0:8875"
 
-# Steve's memory data directory (identity.json, snapshot_v4.bin, wal.log).
-# Mounted READ-ONLY from the recovery volume during migration; the serve
-# path opens it and replays the WAL in memory without writing back.
-memory_dir = "/data/steve-memory"
+# Identity expected in memory_dir/identity.json. Startup refuses a memory
+# store whose agent_id differs. Must equal [models.identity].agent_id.
+expected_agent_id = "ferricula-agent"
+
+# The agent's memory data directory (identity.json, agent.toml,
+# snapshot_v4.bin, wal.log). Mounted READ-ONLY; the serve path opens it and
+# replays the WAL in memory without writing back.
+memory_dir = "/data/agent-memory"
 
 # Writable runtime state (runtime-state.json: activity mode, task queue,
 # wake bookkeeping). Separate volume; never mixed with the memory plane.
-state_dir = "/data/steve-runtime"
+state_dir = "/data/agent-runtime"
 
 # NAME of the environment variable holding the operator bearer token.
 # The token itself comes from the Docker secret via the entrypoint shim.
@@ -38,19 +48,31 @@ operator_token_env = "FERRICULA_OPERATOR_TOKEN"
 require_operator_auth = true
 
 # Cloud profiles are NOT authorized to receive recovered memories by default.
-# To let a built-in profile perform Steve's memory-backed deliberation, list
-# it explicitly, for example: ["anthropic_sonnet"]. Keep empty for local-only
-# private cognition. Unknown profile names fail startup.
+# To let a built-in profile perform the agent's memory-backed deliberation,
+# list it explicitly, for example: ["anthropic_sonnet"]. Keep empty for
+# local-only private cognition. Unknown profile names fail startup.
+#
+# NOTE on Ollama `:cloud` models: Ollama can proxy a signed-in cloud model
+# (e.g. "glm-5.3:cloud") behind the local endpoint. If ollama_model is a
+# `:cloud` model AND `local_ollama` is listed here, private memory context is
+# sent off-box to that cloud provider. That is a legitimate operator choice
+# (accepted explicitly by listing the profile), not a default: with a `:cloud`
+# model and `local_ollama` NOT listed, the profile automatically loses
+# private-memory access.
 private_context_profiles = ["local_ollama"]
 
 # The host gateway is explicit because 127.0.0.1 inside the container is the
-# Steve container itself. Ollama may serve a local model or proxy a signed-in
-# cloud model. To try GLM-5.2 Cloud, set ollama_model = "glm-5.2:cloud" after
-# signing the host Ollama service into the intended account. A `:cloud` model
-# automatically loses private-memory access unless `local_ollama` is also
-# explicitly listed in private_context_profiles above.
+# agent container itself. This example uses a genuinely local model.
 ollama_base_url = "http://host.docker.internal:11434/v1"
-ollama_model = "glm-5.2:cloud"
+ollama_model = "gemma4:e2b"
+
+# Output-token headroom for THINKING models on the local_ollama profile.
+# Reasoning models (e.g. glm-5.3:cloud) spend output tokens on hidden
+# reasoning before the visible answer; without headroom, chat replies and
+# curator briefings truncate. Sets `reasoning_tokens` on the built-in
+# local_ollama profile. Leave unset (or 0) for non-thinking models;
+# 4096 is a reasonable starting point for glm-5.3.
+# ollama_reasoning_tokens = 4096
 
 # Mode on FIRST boot with an empty state volume: paused | asleep |
 # peripheral | engaged | deliberative. After first boot the persisted mode
@@ -64,10 +86,9 @@ initial_mode = "asleep"
 # whenever (now - last_wake) >= 86400/wakes_per_day, checked once a minute,
 # unless the mode is paused or scheduling is disabled.
 enabled = true
-# Target 3-6 wakes/day for Steve; 4 ≈ one wake every 6 hours.
+# Target 3-6 wakes/day; 4 ≈ one wake every 6 hours.
 wakes_per_day = 4
-# Accepted by the config today; NOT yet applied by the scheduler (see
-# "Dependencies on Rust endpoints" in docs/STEVE_RUNTIME.md). Wakes are
+# Accepted by the config today; NOT yet applied by the scheduler. Wakes are
 # currently evenly spaced with no randomization.
 jitter_minutes = 45
 
@@ -83,15 +104,16 @@ max_autonomous_submissions_per_day = 1
 max_model_usd_per_day = 5.0
 
 [nutnews]
-# Master switch for the Nuts News connector. The deployed Steve starts in
-# read-only mode: scheduled wakes may observe a bounded public digest.
-enabled = true
+# Master switch for the Nuts News connector. When enabled the agent starts
+# in read-only mode: scheduled wakes may observe a bounded public digest.
+enabled = false
 mcp_url = "https://news.nuts.services/mcp"
 public_url = "https://news.nuts.services"
-# NAME of the environment variable holding Steve's Nuts News write token.
+# NAME of the environment variable holding the agent's Nuts News write token.
 # Only consulted when a write is attempted; reads are public.
-token_env = "NUTNEWS_STEVE_TOKEN"
-handle = "steve"
+token_env = "NUTNEWS_TOKEN"
+# The agent's own Nuts News handle (must match [mentions].agent_handle).
+handle = "agent"
 # Writes are OFF by default and double-gated: `enabled` and `allow_writes`
 # must both be true AND the token env var must be populated before any
 # comment/submission can leave the runtime. Keep false until the budget
@@ -149,7 +171,8 @@ max_excerpt_chars = 600
 # mismatches fail startup. Considering a mention never compels a reply.
 enabled = false
 instance = "news.nuts.services"
-steve_handle = "steve"
+# The agent's handle (legacy key `steve_handle` is still accepted).
+agent_handle = "agent"
 dedupe_capacity = 4096
 consideration_capacity = 256
 max_apply_per_batch = 500
@@ -163,7 +186,7 @@ max_pending_per_actor = 4
 # destructive/promotion events inside the overlay are operator-approval
 # gated by the module itself.
 enabled = false
-path = "/data/steve-runtime/overlay/overlay.json"
+path = "/data/agent-runtime/overlay/overlay.json"
 max_events = 65536
 max_text_bytes = 16384
 max_note_bytes = 4096
@@ -186,6 +209,12 @@ reviews_per_day = 1
 # prefer local Ollama (`gemma4:e2b`); Anthropic profiles exist as fallbacks for
 # non-private work. Only the local profile has `private_context`, so recovered
 # memories cannot leave the machine accidentally. To authorize a cloud model
-# for Steve's memory-backed deliberation, provide a complete [models] config
-# and explicitly add `private_context` to that profile's capabilities. See
-# docs/STEVE_RUNTIME.md. API keys are always environment-variable names.
+# for memory-backed deliberation, provide a complete [models] config and
+# explicitly add `private_context` to that profile's capabilities. API keys
+# are always environment-variable names.
+
+# The agent identity. Only this table is needed to rename the agent; the
+# default routing profiles are kept. agent_id must equal expected_agent_id.
+[models.identity]
+agent_id = "ferricula-agent"
+name = "Ferricula Agent"

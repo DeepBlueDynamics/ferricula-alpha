@@ -26,13 +26,13 @@ async fn main() -> Result<()> {
             let config = RuntimeConfig::load(path)?;
             let inspection = inspect_data_dir(&config.memory_dir)?;
             let bind = config.bind;
-            let runtime = ferricula_server::runtime::SteveRuntime::open(config, inspection)?;
+            let runtime = ferricula_server::runtime::AgentRuntime::open(config, inspection)?;
             tokio::spawn(runtime.clone().run_worker());
             tokio::spawn(runtime.clone().run_scheduler());
             let listener = tokio::net::TcpListener::bind(bind)
                 .await
                 .with_context(|| format!("failed to bind {bind}"))?;
-            eprintln!("Steve runtime listening on http://{bind}");
+            eprintln!("Ferricula agent runtime listening on http://{bind}");
             axum::serve(listener, api::router(runtime)).await?;
         }
         Some("inspect") => {

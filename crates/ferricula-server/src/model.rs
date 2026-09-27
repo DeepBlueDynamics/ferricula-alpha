@@ -1,4 +1,4 @@
-//! Pluggable inference router for the single Steve identity.
+//! Pluggable inference router for the single agent identity.
 //!
 //! Selection is offline and deterministic: ordered provider fallback, capability
 //! and context filtering, per-route daily dollar budgets, concurrency metadata,
@@ -415,7 +415,7 @@ fn utc_day(unix_secs: u64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-/// Offline model router bound to one Steve configuration.
+/// Offline model router bound to one agent configuration.
 pub struct ModelRouter {
     config: ModelRoutingConfig,
     ledger: UsageLedger,
@@ -435,7 +435,7 @@ impl ModelRouter {
     }
 
     pub fn with_defaults() -> Result<Self> {
-        Self::new(ModelRoutingConfig::steve_safe_defaults())
+        Self::new(ModelRoutingConfig::safe_defaults())
     }
 
     pub fn config(&self) -> &ModelRoutingConfig {
@@ -792,10 +792,10 @@ mod tests {
     }
 
     #[test]
-    fn single_steve_identity() {
+    fn single_agent_identity() {
         let router = ModelRouter::with_defaults().unwrap();
-        assert_eq!(router.identity_name(), "Steve Jobs");
-        assert_eq!(router.config().identity.agent_id, "ferricula-stevejobs");
+        assert_eq!(router.identity_name(), crate::model_config::DEFAULT_AGENT_NAME);
+        assert_eq!(router.config().identity.agent_id, crate::model_config::DEFAULT_AGENT_ID);
     }
 
     #[test]
@@ -1026,7 +1026,7 @@ mod tests {
 
     #[test]
     fn broken_config_rejected_on_construct() {
-        let mut config = ModelRoutingConfig::steve_safe_defaults();
+        let mut config = ModelRoutingConfig::safe_defaults();
         config.routes.push(TaskRoute {
             task_class: TaskClass::Scan,
             steps: vec![RouteStep {

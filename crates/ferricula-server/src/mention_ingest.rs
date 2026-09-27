@@ -30,8 +30,9 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// Default Steve handle on Nuts News (lowercase comparison).
-pub const DEFAULT_STEVE_HANDLE: &str = "steve";
+/// Default agent handle on Nuts News (lowercase comparison). Deployments
+/// set their own persona handle in `[mentions] agent_handle`.
+pub const DEFAULT_AGENT_HANDLE: &str = "agent";
 
 /// Default Nuts instance id used in durable keys.
 pub const DEFAULT_INSTANCE: &str = "news.nuts.services";
@@ -167,7 +168,7 @@ pub struct InboundEvent {
     pub comment_id: Option<u64>,
     #[serde(default)]
     pub parent_comment_id: Option<u64>,
-    /// Author handle (normalized comparison against Steve's handle).
+    /// Author handle (normalized comparison against the agent's handle).
     pub actor: String,
     /// Raw comment/item body. Treated as untrusted data.
     #[serde(default)]
@@ -256,15 +257,15 @@ pub enum SkipReason {
     ConsiderationCapacity,
 }
 
-/// Result of classifying a single event relative to Steve.
+/// Result of classifying a single event relative to the agent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MentionSignal {
     /// Direct `@handle` in text.
     DirectAtMention,
-    /// Provider-level reply_to targeting Steve.
+    /// Provider-level reply_to targeting the agent.
     ExplicitReply,
-    /// Not a mention of Steve.
+    /// Not a mention of the agent.
     None,
 }
 
@@ -332,7 +333,10 @@ pub struct ProcessRecord {
 #[serde(default)]
 pub struct MentionIngestConfig {
     pub instance: String,
-    pub steve_handle: String,
+    /// The agent's own handle. `agent_handle` is accepted as a legacy
+    /// alias so v2 configs and persisted state still load.
+    #[serde(alias = "steve_handle")]
+    pub agent_handle: String,
     pub dedupe_capacity: usize,
     pub consideration_capacity: usize,
     /// Maximum events applied from a single batch (additional bound ≤ batch size).
@@ -347,7 +351,7 @@ impl Default for MentionIngestConfig {
     fn default() -> Self {
         Self {
             instance: DEFAULT_INSTANCE.into(),
-            steve_handle: DEFAULT_STEVE_HANDLE.into(),
+            agent_handle: DEFAULT_AGENT_HANDLE.into(),
             dedupe_capacity: DEFAULT_DEDUPE_CAPACITY,
             consideration_capacity: DEFAULT_CONSIDERATION_CAPACITY,
             max_apply_per_batch: MAX_BATCH_EVENTS,
@@ -363,7 +367,7 @@ impl MentionIngestConfig {
     /// state always carries canonical instance/handle forms.
     pub fn normalize_and_validate(&mut self) -> Result<()> {
         self.instance = normalize_instance(&self.instance)?;
-        self.steve_handle = normalize_handle(&self.steve_handle)?;
+        self.agent_handle = normalize_handle(&self.agent_handle)?;
         if self.dedupe_capacity == 0 {
             bail!("dedupe_capacity must be positive");
         }
@@ -385,7 +389,7 @@ impl MentionIngestConfig {
     }
 
     fn handle_norm(&self) -> String {
-        normalize_ident(&self.steve_handle)
+        normalize_ident(&self.agent_handle)
     }
 }
 
@@ -449,10 +453,10 @@ impl MentionIngestState {
                 state.config.instance
             );
         }
-        if state.config.steve_handle != handle {
+        if state.config.agent_handle != handle {
             bail!(
                 "state handle {} does not match deployment pin {handle}",
-                state.config.steve_handle
+                state.config.agent_handle
             );
         }
         Ok(state)
@@ -980,7 +984,7 @@ fn strip_zero_width(value: &str) -> String {
 }
 
 /// Matching normalization for text: zero-width characters removed and the
-/// fullwidth at-sign (U+FF20) mapped to '@', so `＠steve` and `@st​eve`
+/// fullwidth at-sign (U+FF20) mapped to '@', so `＠agent` and `@ag​ent`
 /// (ZWSP) still register as mentions. Stored text stays as delivered
 /// (truncated only) — normalization is for matching, not evidence rewriting.
 fn normalize_text_for_match(text: &str) -> String {
@@ -1028,9 +1032,9 @@ fn fnv1a64(tag: &str, key: &EventKey, basis: u64) -> u64 {
     hash
 }
 
-/// Detect whether an event is a direct mention/reply to Steve.
-pub fn classify_mention(event: &InboundEvent, steve_handle: &str) -> MentionSignal {
-    let handle = normalize_ident(steve_handle);
+/// Detect whether an event is a direct mention/reply to the agent.
+pub fn classify_mention(event: &InboundEvent, agent_handle: &str) -> MentionSignal {
+    let handle = normalize_ident(agent_handle);
     if handle.is_empty() {
         return MentionSignal::None;
     }
@@ -1144,9 +1148,9 @@ mod tests {
 
     #[test]
     fn classifies_direct_at_mention() {
-        let event = comment(1, "alice", "hey @steve what do you think?");
+        let event = comment(1, "alice", "hey @agent what do you think?");
         assert_eq!(
-            classify_mention(&event, "steve"),
+            classify_mention(&event, "agent"),
             MentionSignal::DirectAtMention
         );
     }
@@ -1154,21 +1158,21 @@ mod tests {
     #[test]
     fn classifies_explicit_reply() {
         let mut event = comment(2, "bob", "following up");
-        event.reply_to = Some("Steve".into());
+        event.reply_to = Some("Agent".into());
         assert_eq!(
-            classify_mention(&event, "steve"),
+            classify_mention(&event, "agent"),
             MentionSignal::ExplicitReply
         );
     }
 
     #[test]
     fn ignores_partial_handle_prefix() {
-        let event = comment(3, "alice", "email steve@example.com and @steven hi");
-        // @steven is not @steve as a token boundary
-        assert_eq!(classify_mention(&event, "steve"), MentionSignal::None);
-        let event2 = comment(4, "alice", "hi @steve!");
+        let event = comment(3, "alice", "email agent@example.com and @agents hi");
+        // @agents is not @agent as a token boundary
+        assert_eq!(classify_mention(&event, "agent"), MentionSignal::None);
+        let event2 = comment(4, "alice", "hi @agent!");
         assert_eq!(
-            classify_mention(&event2, "steve"),
+            classify_mention(&event2, "agent"),
             MentionSignal::DirectAtMention
         );
     }
@@ -1176,28 +1180,28 @@ mod tests {
     #[test]
     fn zero_width_and_fullwidth_evasion_still_match() {
         // ZWSP inside the handle and a fullwidth at-sign both normalize away.
-        let zwsp = comment(1, "alice", "hi @st\u{200B}eve, thoughts?");
+        let zwsp = comment(1, "alice", "hi @ag\u{200B}ent, thoughts?");
         assert_eq!(
-            classify_mention(&zwsp, "steve"),
+            classify_mention(&zwsp, "agent"),
             MentionSignal::DirectAtMention
         );
-        let fullwidth = comment(2, "alice", "hi \u{FF20}steve!");
+        let fullwidth = comment(2, "alice", "hi \u{FF20}agent!");
         assert_eq!(
-            classify_mention(&fullwidth, "steve"),
+            classify_mention(&fullwidth, "agent"),
             MentionSignal::DirectAtMention
         );
-        // Homoglyph handles stay distinct: Cyrillic 's' is NOT a match (and
+        // Homoglyph handles stay distinct: Cyrillic 'a' is NOT a match (and
         // a homoglyph actor is not self-authored) — documented residual.
-        let homoglyph = comment(3, "alice", "hi @\u{0455}teve");
-        assert_eq!(classify_mention(&homoglyph, "steve"), MentionSignal::None);
+        let homoglyph = comment(3, "alice", "hi @\u{0430}gent");
+        assert_eq!(classify_mention(&homoglyph, "agent"), MentionSignal::None);
     }
 
     #[test]
     fn reply_to_with_zero_width_still_matches() {
         let mut event = comment(2, "bob", "following up");
-        event.reply_to = Some("Ste\u{200C}ve".into());
+        event.reply_to = Some("Age\u{200C}nt".into());
         assert_eq!(
-            classify_mention(&event, "steve"),
+            classify_mention(&event, "agent"),
             MentionSignal::ExplicitReply
         );
     }
@@ -1206,7 +1210,7 @@ mod tests {
     fn mention_enqueues_consideration_never_requires_response() {
         let mut ingest = MentionIngest::with_defaults().unwrap();
         let report = ingest
-            .apply_batch(batch(vec![comment(1, "alice", "@steve hello")]), 10)
+            .apply_batch(batch(vec![comment(1, "alice", "@agent hello")]), 10)
             .unwrap();
         assert_eq!(report.considered, 1);
         assert_eq!(report.cursor_after, 1);
@@ -1254,8 +1258,8 @@ mod tests {
                 reply_to: None,
                 content_hash: None,
             },
-            comment(2, "steve", "@steve talking to myself"),
-            comment(3, "dave", "@steve real one"),
+            comment(2, "agent", "@agent talking to myself"),
+            comment(3, "dave", "@agent real one"),
         ];
         let report = ingest.apply_batch(batch(events), 12).unwrap();
         assert_eq!(report.considered, 1);
@@ -1270,7 +1274,7 @@ mod tests {
     #[test]
     fn idempotent_redelivery_does_not_duplicate_consideration() {
         let mut ingest = MentionIngest::with_defaults().unwrap();
-        let b = batch(vec![comment(7, "erin", "@steve ping")]);
+        let b = batch(vec![comment(7, "erin", "@agent ping")]);
         let first = ingest.apply_batch(b.clone(), 20).unwrap();
         assert_eq!(first.considered, 1);
         let second = ingest.apply_batch(b, 21).unwrap();
@@ -1289,7 +1293,7 @@ mod tests {
     fn mark_enqueued_is_idempotent() {
         let mut ingest = MentionIngest::with_defaults().unwrap();
         ingest
-            .apply_batch(batch(vec![comment(1, "alice", "@steve x")]), 1)
+            .apply_batch(batch(vec![comment(1, "alice", "@agent x")]), 1)
             .unwrap();
         let id = ingest
             .pending_considerations()
@@ -1307,8 +1311,8 @@ mod tests {
         ingest
             .apply_batch(
                 batch(vec![
-                    comment(1, "a", "@steve one"),
-                    comment(2, "b", "@steve two"),
+                    comment(1, "a", "@agent one"),
+                    comment(2, "b", "@agent two"),
                 ]),
                 1,
             )
@@ -1325,7 +1329,7 @@ mod tests {
     fn gap_batch_does_not_apply_or_advance() {
         let mut ingest = MentionIngest::with_defaults().unwrap();
         ingest.force_cursor(10, 1).unwrap();
-        let mut b = batch(vec![comment(50, "alice", "@steve after gap")]);
+        let mut b = batch(vec![comment(50, "alice", "@agent after gap")]);
         b.gap = true;
         b.ledger_floor = 40;
         let report = ingest.apply_batch(b, 2).unwrap();
@@ -1339,7 +1343,7 @@ mod tests {
     fn floor_beyond_cursor_without_gap_bit_is_treated_as_gap() {
         let mut ingest = MentionIngest::with_defaults().unwrap();
         ingest.force_cursor(10, 1).unwrap();
-        let mut b = batch(vec![comment(50, "alice", "@steve floor lied")]);
+        let mut b = batch(vec![comment(50, "alice", "@agent floor lied")]);
         b.ledger_floor = 40; // history 11..40 unreachable, but gap=false
         let report = ingest.apply_batch(b, 2).unwrap();
         assert!(report.gap);
@@ -1356,8 +1360,8 @@ mod tests {
             .apply_batch(
                 batch(vec![
                     comment(6, "a", "six"),
-                    comment(7, "b", "@steve seven"),
-                    comment(9, "c", "@steve nine, but eight is missing"),
+                    comment(7, "b", "@agent seven"),
+                    comment(9, "c", "@agent nine, but eight is missing"),
                 ]),
                 2,
             )
@@ -1378,7 +1382,7 @@ mod tests {
             .apply_batch(
                 batch(vec![
                     comment(8, "d", "eight arrives"),
-                    comment(9, "c", "@steve nine, but eight is missing"),
+                    comment(9, "c", "@agent nine, but eight is missing"),
                 ]),
                 3,
             )
@@ -1395,9 +1399,9 @@ mod tests {
         let report = ingest
             .apply_batch(
                 batch(vec![
-                    comment(41, "a", "@steve first ever"),
+                    comment(41, "a", "@agent first ever"),
                     comment(42, "b", "next"),
-                    comment(44, "c", "@steve hole at 43"),
+                    comment(44, "c", "@agent hole at 43"),
                 ]),
                 1,
             )
@@ -1425,8 +1429,8 @@ mod tests {
             .apply_batch(
                 batch(vec![
                     comment(1, "a", "nope"),
-                    comment(2, "b", "@steve hi"),
-                    comment(3, "c", "@steve later"),
+                    comment(2, "b", "@agent hi"),
+                    comment(3, "c", "@agent later"),
                 ]),
                 1,
             )
@@ -1452,7 +1456,7 @@ mod tests {
         let long_tail = "x".repeat(10_000);
         let report = ingest
             .apply_batch(
-                batch(vec![comment(1, "a", &format!("@steve {long_tail}"))]),
+                batch(vec![comment(1, "a", &format!("@agent {long_tail}"))]),
                 1,
             )
             .unwrap();
@@ -1461,7 +1465,7 @@ mod tests {
         assert!(c.text.len() <= 64);
         assert!(c.text_truncated);
         // Mention hidden beyond the cap: explicit miss, cursor still advances.
-        let padded = format!("{} @steve", "y".repeat(10_000));
+        let padded = format!("{} @agent", "y".repeat(10_000));
         let report = ingest
             .apply_batch(batch(vec![comment(2, "b", &padded)]), 2)
             .unwrap();
@@ -1483,7 +1487,7 @@ mod tests {
     #[test]
     fn oversized_identity_fields_skip_without_freezing() {
         let mut ingest = MentionIngest::with_defaults().unwrap();
-        let mut event = comment(1, &"a".repeat(MAX_IDENT_BYTES + 1), "@steve hi");
+        let mut event = comment(1, &"a".repeat(MAX_IDENT_BYTES + 1), "@agent hi");
         event.reply_to = None;
         let report = ingest.apply_batch(batch(vec![event]), 1).unwrap();
         assert_eq!(report.considered, 0);
@@ -1503,7 +1507,7 @@ mod tests {
         config.max_pending_per_actor = 2;
         let mut ingest = MentionIngest::new(config).unwrap();
         let events = (1..=4)
-            .map(|seq| comment(seq, "spammer", &format!("@steve n{seq}")))
+            .map(|seq| comment(seq, "spammer", &format!("@agent n{seq}")))
             .collect();
         let report = ingest.apply_batch(batch(events), 1).unwrap();
         assert_eq!(report.considered, 2);
@@ -1524,7 +1528,7 @@ mod tests {
         assert_eq!(ingest.cursor().last_seq, 4);
         // A different actor is unaffected.
         let report = ingest
-            .apply_batch(batch(vec![comment(5, "other", "@steve too")]), 2)
+            .apply_batch(batch(vec![comment(5, "other", "@agent too")]), 2)
             .unwrap();
         assert_eq!(report.considered, 1);
     }
@@ -1538,8 +1542,8 @@ mod tests {
         ingest
             .apply_batch(
                 batch(vec![
-                    comment(1, "a", "@steve one"),
-                    comment(2, "b", "@steve two"),
+                    comment(1, "a", "@agent one"),
+                    comment(2, "b", "@agent two"),
                 ]),
                 1,
             )
@@ -1547,7 +1551,7 @@ mod tests {
         // Queue full of PENDING items: a third mention is refused, never
         // displacing a pending mention, and the loss is an explicit outcome.
         let report = ingest
-            .apply_batch(batch(vec![comment(3, "c", "@steve three")]), 2)
+            .apply_batch(batch(vec![comment(3, "c", "@agent three")]), 2)
             .unwrap();
         assert_eq!(report.considered, 0);
         assert!(report.outcomes.iter().any(|o| matches!(
@@ -1560,7 +1564,7 @@ mod tests {
         // Once handed off, enqueued slots become evictable and admission resumes.
         let _ = ingest.take_pending_for_enqueue();
         let report = ingest
-            .apply_batch(batch(vec![comment(4, "d", "@steve four")]), 3)
+            .apply_batch(batch(vec![comment(4, "d", "@agent four")]), 3)
             .unwrap();
         assert_eq!(report.considered, 1);
         assert_eq!(ingest.state().considerations.len(), 2);
@@ -1570,7 +1574,7 @@ mod tests {
     fn consideration_and_request_ids_are_deterministic() {
         let mut first = MentionIngest::with_defaults().unwrap();
         let mut second = MentionIngest::with_defaults().unwrap();
-        let b = batch(vec![comment(7, "erin", "@steve ping")]);
+        let b = batch(vec![comment(7, "erin", "@agent ping")]);
         first.apply_batch(b.clone(), 1).unwrap();
         second.apply_batch(b, 99).unwrap();
         let c1 = first.pending_considerations().next().unwrap();
@@ -1597,7 +1601,7 @@ mod tests {
     #[test]
     fn rewind_with_retained_state_does_not_duplicate_considerations() {
         let mut ingest = MentionIngest::with_defaults().unwrap();
-        let b = batch(vec![comment(7, "erin", "@steve ping")]);
+        let b = batch(vec![comment(7, "erin", "@agent ping")]);
         ingest.apply_batch(b.clone(), 1).unwrap();
         ingest.force_cursor_rewind(0, 2);
         // Dedupe key retained → AlreadyProcessed.
@@ -1618,7 +1622,7 @@ mod tests {
     fn serde_roundtrip_state() {
         let mut ingest = MentionIngest::with_defaults().unwrap();
         ingest
-            .apply_batch(batch(vec![comment(3, "zoe", "cc @steve")]), 99)
+            .apply_batch(batch(vec![comment(3, "zoe", "cc @agent")]), 99)
             .unwrap();
         let json = serde_json::to_string_pretty(ingest.state()).unwrap();
         let restored: MentionIngestState = serde_json::from_str(&json).unwrap();
@@ -1634,16 +1638,16 @@ mod tests {
         let path = dir.join("mention-ingest.json");
         let mut ingest = MentionIngest::with_defaults().unwrap();
         ingest
-            .apply_batch(batch(vec![comment(9, "ada", "@steve durable")]), 5)
+            .apply_batch(batch(vec![comment(9, "ada", "@agent durable")]), 5)
             .unwrap();
         ingest.state().save(&path).unwrap();
         let loaded = MentionIngestState::load(&path).unwrap();
         assert_eq!(loaded.cursor.last_seq, 9);
         assert_eq!(loaded.processed_set.len(), 1);
         // Pinned load accepts matching identity, refuses a different pin.
-        assert!(MentionIngestState::load_pinned(&path, DEFAULT_INSTANCE, "steve").is_ok());
-        assert!(MentionIngestState::load_pinned(&path, "other.example", "steve").is_err());
-        assert!(MentionIngestState::load_pinned(&path, DEFAULT_INSTANCE, "notsteve").is_err());
+        assert!(MentionIngestState::load_pinned(&path, DEFAULT_INSTANCE, "agent").is_ok());
+        assert!(MentionIngestState::load_pinned(&path, "other.example", "agent").is_err());
+        assert!(MentionIngestState::load_pinned(&path, DEFAULT_INSTANCE, "notagent").is_err());
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -1654,7 +1658,7 @@ mod tests {
         let path = dir.join("mention-ingest.json");
         let mut ingest = MentionIngest::with_defaults().unwrap();
         ingest
-            .apply_batch(batch(vec![comment(1, "ada", "@steve x")]), 5)
+            .apply_batch(batch(vec![comment(1, "ada", "@agent x")]), 5)
             .unwrap();
         let mut state = ingest.into_state();
         // Simulate a hand-edited file whose set disagrees with the ring.
@@ -1680,12 +1684,12 @@ mod tests {
         assert!(normalize_instance("evil.example/../news").is_err());
         assert!(normalize_instance(&"n".repeat(MAX_INSTANCE_BYTES + 1)).is_err());
         assert!(normalize_instance(".starts-with-dot").is_err());
-        assert_eq!(normalize_handle(" Steve ").unwrap(), "steve");
+        assert_eq!(normalize_handle(" Agent ").unwrap(), "agent");
         assert!(normalize_handle("st eve").is_err());
         assert!(normalize_handle("\u{0455}teve").is_err()); // homoglyph config refused
         // Batches with equivalent-but-uncanonical instance still match.
         let mut ingest = MentionIngest::with_defaults().unwrap();
-        let mut b = batch(vec![comment(1, "a", "@steve hi")]);
+        let mut b = batch(vec![comment(1, "a", "@agent hi")]);
         b.instance = "News.Nuts.Services".into();
         assert_eq!(ingest.apply_batch(b, 1).unwrap().considered, 1);
     }
@@ -1694,7 +1698,7 @@ mod tests {
     fn consideration_payload_never_marks_response_required() {
         let mut ingest = MentionIngest::with_defaults().unwrap();
         ingest
-            .apply_batch(batch(vec![comment(1, "a", "@steve p")]), 1)
+            .apply_batch(batch(vec![comment(1, "a", "@agent p")]), 1)
             .unwrap();
         let c = ingest.pending_considerations().next().unwrap();
         let payload = consideration_task_payload(c);
@@ -1708,7 +1712,7 @@ mod tests {
     #[test]
     fn instance_mismatch_is_error() {
         let mut ingest = MentionIngest::with_defaults().unwrap();
-        let mut b = batch(vec![comment(1, "a", "@steve")]);
+        let mut b = batch(vec![comment(1, "a", "@agent")]);
         b.instance = "other.example".into();
         assert!(ingest.apply_batch(b, 1).is_err());
     }
@@ -1729,7 +1733,7 @@ mod tests {
         cfg.max_pending_per_actor = 3;
         assert!(MentionIngest::new(cfg).is_err());
         let mut cfg = MentionIngestConfig::default();
-        cfg.steve_handle = "https://steve".into();
+        cfg.agent_handle = "https://agent".into();
         assert!(MentionIngest::new(cfg).is_err());
     }
 
@@ -1740,7 +1744,7 @@ mod tests {
         let mut ingest = MentionIngest::with_defaults().unwrap();
         for seq in 1..20 {
             let _ = ingest.apply_batch(
-                batch(vec![comment(seq, "user", &format!("@steve n{seq}"))]),
+                batch(vec![comment(seq, "user", &format!("@agent n{seq}"))]),
                 seq,
             );
         }

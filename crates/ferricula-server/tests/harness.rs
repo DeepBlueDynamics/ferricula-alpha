@@ -4,7 +4,7 @@ use ferricula_server::model_config::{ModelCapability, ModelRoutingConfig, RouteS
 use serde_json::json;
 
 fn router() -> ModelRouter {
-    let mut config = ModelRoutingConfig::steve_safe_defaults();
+    let mut config = ModelRoutingConfig::safe_defaults();
     for (id, model, class) in [
         ("generator", "small-llm", TaskClass::Summarize),
         ("judge", "small-decision", TaskClass::Scan),

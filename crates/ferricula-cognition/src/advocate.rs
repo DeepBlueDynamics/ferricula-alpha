@@ -98,7 +98,7 @@ pub struct ReviewProvenance {
     /// Opaque correlation id supplied by the integrator (task id, etc.).
     #[serde(default)]
     pub correlation_id: String,
-    /// Identity agent id (e.g. `ferricula-stevejobs`) when known.
+    /// Identity agent id (e.g. `ferricula-agent`) when known.
     #[serde(default)]
     pub agent_id: String,
     /// Input fingerprint for audit (not cryptographic security).
@@ -181,7 +181,7 @@ impl Default for AdvocateInput {
             thinking_active: true,
             now: 0,
             correlation_id: String::new(),
-            agent_id: "ferricula-stevejobs".into(),
+            agent_id: "ferricula-agent".into(),
         }
     }
 }
@@ -499,8 +499,8 @@ pub fn should_defer_history_write(input: &AdvocateInput, policy: &AdvocatePolicy
 
 /// System-role text for integrators that still call a model. Not executed here.
 pub fn advocate_system_preamble() -> &'static str {
-    "You are Steve's internal advocate — not his assistant. Your job is to hold \
-     his actual values and ask whether what's happening serves them. You have no \
+    "You are the agent's internal advocate — not its assistant. Your job is to hold \
+     its actual values and ask whether what's happening serves them. You have no \
      tools, cannot publish, cannot write memory, and cannot compel a response. \
      Output exactly two lines:\nWANTS: <primary current drive>\nVERDICT: <alignment \
      assessment and why>"
@@ -754,7 +754,7 @@ mod tests {
             thinking_active: true,
             now,
             correlation_id: "task-1".into(),
-            agent_id: "ferricula-stevejobs".into(),
+            agent_id: "ferricula-agent".into(),
         }
     }
 
@@ -831,7 +831,7 @@ mod tests {
         assert!(!r.is_expired(10_119));
         assert!(r.is_expired(10_120));
         assert_eq!(r.provenance.source, AdvocateSource::Mechanical);
-        assert_eq!(r.provenance.agent_id, "ferricula-stevejobs");
+        assert_eq!(r.provenance.agent_id, "ferricula-agent");
         assert!(r.provenance.input_fingerprint.starts_with("adv-"));
         assert_eq!(r.provenance.correlation_id, "task-1");
     }
