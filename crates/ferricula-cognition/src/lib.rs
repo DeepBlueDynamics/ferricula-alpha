@@ -14,6 +14,7 @@ pub mod karmic;
 pub mod life;
 pub mod outcome;
 pub mod pali;
+pub mod patthana;
 pub mod planner;
 pub mod sati;
 pub mod vithi;
