@@ -156,9 +156,9 @@ Every route except `GET /` and `GET /health` needs `Authorization: Bearer <opera
 | Document ingest (text, URL via grub, PDF), verbatim citations, hybrid recall | ✅ |
 | MCP over HTTP and stdio | ✅ |
 | Ollaya gate backends; calibration harness | ✅ built · ⚠️ not calibrated, advisory only |
-| Drives (boredom → curiosity, sleep pressure → sleep → dream → wake) | ✅ core in `ferricula-cognition::life` · ⏳ wiring into the runtime |
-| Non-destructive consolidation (bhāvanā) in the sleep cycle | ✅ core · ⏳ wiring |
-| Dense (embedding) recall in the server | ⏳ embeddings are pluggable, default is lexical + BM25 |
+| Drives (boredom → curiosity via the web, sleep pressure → sleep → dream → wake), `[life]`, `/life`, `ferricula_life` | ✅ live-soaked on a recovered memory ([audit/life](audit/life/soak-2026-09-27.md)) · ⏳ 72-hour soak |
+| Non-destructive consolidation (bhāvanā) in the sleep cycle | ◐ runs on a scratch copy; clusters and karmic log persist, nothing written back yet |
+| Dense (embedding) recall through the gates | ☐ planned: [docs/EMBEDDINGS_PLAN.md](docs/EMBEDDINGS_PLAN.md) |
 | Chinese / Pāli tokenization | ❌ ASCII-folded today |
 | LongMemEval / LoCoMo end-to-end | ⏳ harness skeleton |
 
