@@ -212,14 +212,21 @@ impl AgentRuntime {
         status
     }
 
-    /// Startup probe task: runs once if the backend is configured with
-    /// `probe = true`. The runtime serves requests meanwhile (`pending`).
+    /// Startup task: runs the space probe once if the backend is configured
+    /// with `probe = true` (the runtime serves requests meanwhile:
+    /// `pending`), then starts the meaning backfill when dense features are
+    /// allowed and `[embeddings] backfill = true`.
     pub async fn run_embeddings_probe(self: Arc<Self>) {
-        if self.config.embeddings.backend == EmbeddingBackend::None || !self.embeddings.probe_enabled() {
+        if self.config.embeddings.backend == EmbeddingBackend::None {
             return;
         }
-        let runtime = self.clone();
-        let _ = tokio::task::spawn_blocking(move || runtime.probe_embeddings()).await;
+        if self.embeddings.probe_enabled() {
+            let runtime = self.clone();
+            let _ = tokio::task::spawn_blocking(move || runtime.probe_embeddings()).await;
+        }
+        if self.config.embeddings.backfill && self.embedder().is_some() {
+            self.spawn_meaning_backfill("startup");
+        }
     }
 }
 

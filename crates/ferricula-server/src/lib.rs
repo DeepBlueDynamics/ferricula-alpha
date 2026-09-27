@@ -13,6 +13,7 @@ pub mod evidence_card;
 pub mod autonomy;
 pub mod config;
 pub mod feeds;
+pub mod meaning;
 pub mod memory;
 pub use ferricula_episode::memory_overlay;
 pub use ferricula_episode;

@@ -658,6 +658,10 @@ impl AgentRuntime {
                 .collect();
             pool.extend(self.memory.sample(draw.value, 20).iter().map(|hit| trace_of("m", hit.id, &hit.tags)));
             entry["entropy_source"] = json!(draw.source.as_str());
+            // With meaning: prefer outliers (memories far from their nearest
+            // neighbors), then let the entropy draw pick among them.
+            let (pool, selection) = self.curiosity_outliers(pool).await;
+            entry["seed_selection"] = selection;
             match choose_curiosity(&[], &pool, draw.value) {
                 Some(seed) => {
                     let CuriositySeed::Memory { trace } = &seed else { unreachable!("no open threads passed") };
@@ -749,7 +753,10 @@ impl AgentRuntime {
                     tags.insert("doc_ids".to_string(), doc_ids.join(","));
                     tags.insert("model".to_string(), call.model.clone());
                     match self.experience().remember("thinking", call.text.trim(), tags, None, 0.5) {
-                        Ok(id) => entry["reflection_id"] = json!(id),
+                        Ok(id) => {
+                            entry["reflection_id"] = json!(id);
+                            self.meaning_after_write().await;
+                        }
                         Err(error) => errors.push(format!("store reflection: {error:#}")),
                     }
                     entry["reflection"] = json!(call.text.trim());
@@ -853,7 +860,13 @@ impl AgentRuntime {
         let mut older: Vec<Trace> = rows.iter()
             .filter(|(row, record)| not_dream(row) && record.created_at + 86_400 < t)
             .map(|(row, _)| trace_of("x", row.id, &row.tags)).collect();
-        older.extend(self.memory.sample(draw.value.rotate_left(29), 12).iter().map(|h| trace_of("m", h.id, &h.tags)));
+        let dense = self.embedder().is_some();
+        older.extend(self.memory.sample(draw.value.rotate_left(29), if dense { 40 } else { 12 }).iter()
+            .filter(|h| !h.tags.get("text").is_some_and(|t| crate::meaning::is_dream_image(t)))
+            .map(|h| trace_of("m", h.id, &h.tags)));
+        // With meaning: "distant" is drawn from memories far from today's
+        // residue (low cosine to its centroid), not just older ones.
+        let (older, distant_selection) = if dense { self.far_from_residue(&today, older) } else { (older, json!("entropy")) };
         let unresolved: Vec<Trace> = {
             let episodes = self.episodes.lock().expect("episode writer poisoned");
             let projection = episodes.projection();
@@ -873,6 +886,7 @@ impl AgentRuntime {
             "seed": proposal.seed.to_string(),
             "trace_ids": trace_ids,
             "residue": proposal.residue.len(), "distant": proposal.distant.len(), "unresolved": proposal.unresolved.len(),
+            "distant_selection": distant_selection,
         });
         match self.life_model("dream", self.persona.identity_line(), prompt, 700, 0.9).await {
             Ok(call) => {
@@ -886,8 +900,15 @@ impl AgentRuntime {
                     tags.insert("question".to_string(), q.clone());
                 }
                 match self.experience().remember("dream", &text, tags, None, 0.3) {
-                    Ok(id) => entry["memory_id"] = json!(id),
+                    Ok(id) => {
+                        entry["memory_id"] = json!(id);
+                        self.meaning_after_write().await;
+                    }
                     Err(error) => entry["error"] = json!(format!("store dream: {error:#}")),
+                }
+                // Report only: how much of the dream is built from its traces.
+                if let Some(grounding) = self.dream_grounding(&text, &proposal).await {
+                    entry["grounding"] = grounding;
                 }
                 entry["text"] = json!(text);
                 entry["question"] = json!(question);
@@ -901,6 +922,104 @@ impl AgentRuntime {
                 (self.life_journal(entry), None)
             }
         }
+    }
+}
+
+impl AgentRuntime {
+    /// The meaning key of a trace id (`m:<id>` recovered, `x:<id>` experience).
+    fn trace_key(trace: &Trace) -> Option<crate::meaning::MeaningKey> {
+        let (prefix, id) = trace.id.split_once(':')?;
+        let id: u32 = id.parse().ok()?;
+        match prefix {
+            "m" => Some(crate::meaning::MeaningKey::Recovered(id)),
+            "x" => Some(crate::meaning::MeaningKey::Experience(id)),
+            _ => None,
+        }
+    }
+
+    /// Curiosity pool narrowed to its outliers: traces ranked by
+    /// neighborhood density (mean cosine to their 5 nearest memories),
+    /// lowest first; the lowest quarter (at least 3) is kept. Unchanged
+    /// without an embedder or with fewer than 3 embedded traces.
+    pub(super) async fn curiosity_outliers(self: &Arc<Self>, pool: Vec<Trace>) -> (Vec<Trace>, Value) {
+        if self.embedder().is_none() {
+            return (pool, json!({ "method": "entropy" }));
+        }
+        let runtime = self.clone();
+        let scored = tokio::task::spawn_blocking(move || {
+            let mut scored: Vec<(Trace, f64)> = pool.iter()
+                .filter_map(|t| Some((t.clone(), runtime.meaning_density(&Self::trace_key(t)?)?)))
+                .collect();
+            scored.sort_by(|a, b| a.1.total_cmp(&b.1));
+            (pool, scored)
+        }).await;
+        let Ok((pool, scored)) = scored else { return (Vec::new(), json!({ "method": "entropy", "error": "density worker failed" })) };
+        if scored.len() < 3 {
+            return (pool, json!({ "method": "entropy", "note": "fewer than 3 embedded traces" }));
+        }
+        let keep = (scored.len() / 4).max(3);
+        let kept: Vec<(Trace, f64)> = scored.into_iter().take(keep).collect();
+        let selection = json!({
+            "method": "outlier",
+            "pool": pool.len(),
+            "kept": kept.len(),
+            "density": kept.iter().map(|(t, d)| json!({ "id": t.id, "density": (d * 1e4).round() / 1e4 })).collect::<Vec<_>>(),
+        });
+        (kept.into_iter().map(|(t, _)| t).collect(), selection)
+    }
+
+    /// Dream "distant" pool: the third of `older` farthest from the
+    /// centroid of today's residue (at least 3). Unchanged when the residue
+    /// or too few candidates have vectors.
+    fn far_from_residue(&self, today: &[Trace], older: Vec<Trace>) -> (Vec<Trace>, Value) {
+        let mut residue: Vec<&Trace> = today.iter().collect();
+        residue.sort_by(|a, b| b.intensity.total_cmp(&a.intensity));
+        residue.truncate(5);
+        let vectors: Vec<Arc<Vec<f32>>> = residue.iter()
+            .filter_map(|t| self.meaning_vector(&Self::trace_key(t)?)).collect();
+        let Some(centroid) = crate::meaning::mean_unit(vectors.iter().map(|v| v.as_slice())) else {
+            return (older, json!({ "method": "entropy", "note": "no residue vectors" }));
+        };
+        let candidates: Vec<(Trace, Arc<Vec<f32>>)> = older.iter()
+            .filter_map(|t| Some((t.clone(), self.meaning_vector(&Self::trace_key(t)?)?))).collect();
+        if candidates.len() < 3 {
+            return (older, json!({ "method": "entropy", "note": "fewer than 3 embedded older traces" }));
+        }
+        let keep = (candidates.len() / 3).max(3);
+        let far = crate::meaning::farthest_from(&centroid, &candidates, keep);
+        let selection = json!({
+            "method": "far_from_residue",
+            "candidates": candidates.len(),
+            "kept": far.len(),
+            "max_cosine_kept": far.last().map(|(_, c)| (c * 1e4).round() / 1e4),
+        });
+        (far.into_iter().map(|(t, _)| t).collect(), selection)
+    }
+
+    /// Fraction of dream sentences whose best cosine to any supplied trace
+    /// is >= 0.35 (report only). None without an embedder.
+    async fn dream_grounding(self: &Arc<Self>, text: &str, proposal: &ferricula_cognition::life::DreamProposal) -> Option<Value> {
+        const THRESHOLD: f64 = 0.35;
+        self.embedder()?;
+        let sentences = crate::meaning::sentences(text);
+        let traces: Vec<String> = proposal.residue.iter().chain(&proposal.distant).chain(&proposal.unresolved)
+            .map(|t| t.text.clone()).filter(|t| !t.trim().is_empty()).collect();
+        if sentences.is_empty() || traces.is_empty() {
+            return Some(json!({ "fraction": null, "sentences": sentences.len(), "traces": traces.len(), "threshold": THRESHOLD }));
+        }
+        let runtime = self.clone();
+        let all: Vec<String> = sentences.iter().cloned().chain(traces.iter().cloned()).collect();
+        let vectors = tokio::task::spawn_blocking(move || runtime.embed_texts(&all)).await.ok()??;
+        let (s, t) = vectors.split_at(sentences.len());
+        let (fraction, best) = crate::meaning::grounding(s, t, THRESHOLD);
+        Some(json!({
+            "fraction": (fraction * 1e4).round() / 1e4,
+            "sentences": sentences.len(),
+            "grounded": best.iter().filter(|b| **b >= THRESHOLD).count(),
+            "traces": traces.len(),
+            "threshold": THRESHOLD,
+            "best_cosines": best.iter().map(|b| (b * 1e3).round() / 1e3).collect::<Vec<_>>(),
+        }))
     }
 }
 
@@ -920,10 +1039,14 @@ fn trace_of(prefix: &str, id: u32, tags: &std::collections::BTreeMap<String, Str
     Trace { id: format!("{prefix}:{id}"), text: crate::recall::truncate_bytes(&text, 800).to_string(), valence, intensity }
 }
 
-/// Novelty of an operator message: 1 − the best normalized recall score
-/// over recovered and experience memories (dreams excluded); 0.5 when
-/// nothing was recalled (unknown).
+/// Novelty of an operator message. With an embedder (santīraṇa): 1 − the
+/// max cosine of the message over experience + recovered memories (dreams
+/// excluded). Otherwise: 1 − the best normalized lexical recall score; 0.5
+/// when nothing was recalled (unknown).
 pub(super) fn operator_novelty(recall: &crate::recall::HybridRecall) -> f32 {
+    if let Some(novelty) = recall.dense_novelty.filter(|n| n.is_finite()) {
+        return novelty.clamp(0.0, 1.0);
+    }
     let best = recall.hits.iter().chain(&recall.experience_hits)
         .filter(|h| h.tags.get("channel").is_none_or(|c| c != "dream"))
         .map(|h| h.score)
@@ -1233,7 +1356,7 @@ mod tests {
         let rows = f.runtime.experience().rows();
         let reading = rows.iter().find(|(r, _)| r.tags["channel"] == "reading").unwrap();
         assert_eq!(reading.0.tags["note"], "curiosity: Jony Ive OpenAI device");
-        let thinking = rows.iter().find(|(r, _)| r.tags["channel"] == "thinking").unwrap();
+        let thinking = rows.iter().find(|(r, _)| r.tags["channel"] == "thinking" && r.tags.get("source").is_some_and(|s| s == "curiosity")).unwrap();
         assert_eq!(thinking.0.tags["doc_ids"].split(',').count(), 2);
         let status = f.runtime.life_status(10);
         assert_eq!(status["phase"], "resting");

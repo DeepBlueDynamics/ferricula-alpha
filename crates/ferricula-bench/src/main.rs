@@ -1,4 +1,4 @@
-//! `ferricula-bench gates|docs|longmem [--limit N] [--seed S] [--out audit/bench]`
+//! `ferricula-bench gates|docs|longmem|recall [--limit N] [--seed S] [--out audit/bench]`
 //!
 //! Every run appends JSON-lines rows to `<out>/ledger.jsonl` and writes a
 //! markdown report `<out>/<suite>-<date>.md`.
@@ -8,14 +8,16 @@ mod gates;
 mod ledger;
 mod longmem;
 mod metrics;
+mod recall;
 
 use std::path::PathBuf;
 
 use anyhow::{Result, bail};
 
-const USAGE: &str = "usage: ferricula-bench gates|docs|longmem [--limit N] [--seed S] [--out DIR]
+const USAGE: &str = "usage: ferricula-bench gates|docs|longmem|recall [--limit N] [--seed S] [--out DIR]
   gates:   [--datasets research/gates/datasets] [--url http://127.0.0.1:11435] [--model laya] [--timeout-ms 30000] [--only SUBSTR]
-  docs:    [--corpus research] (--limit = sampled sentences, default 200; env FERRICULA_BENCH_PDFS, BENCH_PARAPHRASE_MODEL, OLLAMA_URL)
+  docs:    [--corpus research] (--limit = sampled sentences, default 200; env FERRICULA_BENCH_PDFS, BENCH_PARAPHRASE_MODEL, OLLAMA_URL, BENCH_SHIVVR_URL (default http://127.0.0.1:8085; \"none\" skips dense))
+  recall:  --memory <copy of a recovered memory dir> [--queries research/bench/steve-recall-queries.json] (env BENCH_SHIVVR_URL)
   longmem: [--dataset data/longmemeval/longmemeval_s.json] [--full-server] (env LONGMEMEVAL_PATH, BENCH_ANSWER_MODEL, OLLAMA_URL, FERRICULA_URL)";
 
 fn main() -> Result<()> {
@@ -42,6 +44,7 @@ fn main() -> Result<()> {
     let out = PathBuf::from(get("out").unwrap_or_else(|| "audit/bench".into()));
     let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
     let ollama = env("OLLAMA_URL").unwrap_or_else(|| "http://127.0.0.1:11434/v1".into());
+    let shivvr = env("BENCH_SHIVVR_URL").unwrap_or_else(|| "http://127.0.0.1:8085".into());
 
     match suite.as_str() {
         "gates" => {
@@ -63,6 +66,20 @@ fn main() -> Result<()> {
                 n: limit.unwrap_or(200),
                 drop_frac: 0.4,
                 paraphrase: env("BENCH_PARAPHRASE_MODEL").map(|m| (ollama.clone(), m)),
+                shivvr: (shivvr != "none").then(|| shivvr.clone()),
+            })
+        }
+        "recall" => {
+            let ctx = ledger::RunContext::new("recall", &out, seed);
+            let Some(memory_dir) = get("memory").or_else(|| env("FERRICULA_BENCH_MEMORY")) else {
+                bail!("recall needs --memory <copy of a recovered memory dir>\n{USAGE}");
+            };
+            recall::run(&ctx, &recall::RecallArgs {
+                memory_dir: PathBuf::from(memory_dir),
+                queries: PathBuf::from(get("queries").unwrap_or_else(|| "research/bench/steve-recall-queries.json".into())),
+                shivvr_url: shivvr.clone(),
+                lexical_weight: get("lexical-weight").map(|v| v.parse()).transpose()?.unwrap_or(ferricula_server::config::RecallConfig::default().lexical_weight),
+                dense_guarantee: get("dense-guarantee").map(|v| v.parse()).transpose()?.unwrap_or(ferricula_server::config::RecallConfig::default().dense_guarantee),
             })
         }
         "longmem" => {

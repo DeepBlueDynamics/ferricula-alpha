@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use ferricula_core::memory::Provenance;
-use ferricula_core::{DurableEngine, LifecycleState, MemoryRecord, MemoryRef, Row};
+use ferricula_core::{DurableEngine, EdgeKind, LifecycleState, MemoryRecord, MemoryRef, Row};
 use serde::Serialize;
 
 /// Read access to the recovery copy. Experience commits remain serialized by
@@ -54,8 +54,67 @@ impl MemoryRuntime {
     /// available before an embedding service is configured. Dense/hybrid
     /// ranking can refine these candidates later.
     pub fn recall_candidates(&self, query: &str, limit: usize) -> Vec<MemoryHit> {
+        self.recall_candidates_with(query, limit, false)
+    }
+
+    /// Lexical recall; `include_faded` also admits Forgiven/Archived rows
+    /// whose text is still present (`[recall] include_faded_recovered`).
+    pub fn recall_candidates_with(&self, query: &str, limit: usize, include_faded: bool) -> Vec<MemoryHit> {
         let engine = self.engine.lock().expect("memory engine poisoned");
-        lexical_hits(&engine, query, limit)
+        lexical_hits_with(&engine, query, limit, include_faded)
+    }
+
+    /// Every recovered row that carries text, for the meaning index:
+    /// `(id, text, lifecycle, stored vector if non-zero)`. Read-only.
+    pub fn meaning_catalog(&self) -> Vec<RecoveredText> {
+        let engine = self.engine.lock().expect("memory engine poisoned");
+        let mut out: Vec<RecoveredText> = engine
+            .engine()
+            .rows_iter()
+            .filter_map(|row| {
+                let text = row.tags.get("text")?;
+                if text.trim().is_empty() {
+                    return None;
+                }
+                let state = engine.memory_store().get(row.id)?.state;
+                let stored = row.vector.iter().any(|x| *x != 0.0).then(|| row.vector.clone());
+                Some(RecoveredText { id: row.id, text: text.clone(), state, stored })
+            })
+            .collect();
+        out.sort_by_key(|r| r.id);
+        out
+    }
+
+    /// Hits for specific ids (dense and graph candidates), in the given
+    /// order, each scored with the paired score. Rows without text or with
+    /// a lifecycle excluded by `include_faded` are skipped.
+    pub fn hits_for(&self, ids: &[(u32, f32)], include_faded: bool) -> Vec<MemoryHit> {
+        let engine = self.engine.lock().expect("memory engine poisoned");
+        ids.iter()
+            .filter_map(|(id, score)| {
+                let row = engine.engine().get(*id)?;
+                let record = engine.memory_store().get(*id)?;
+                if !state_admitted(record.state, include_faded) {
+                    return None;
+                }
+                Some(MemoryHit {
+                    id: *id,
+                    score: *score,
+                    state: record.state.into(),
+                    fidelity: record.fidelity,
+                    importance: record.importance,
+                    keystone: record.keystone,
+                    tags: row.tags.clone(),
+                    refs: row.refs.clone(),
+                })
+            })
+            .collect()
+    }
+
+    /// One-hop graph neighbors of a recovered memory (recovered graph).
+    pub fn neighbors(&self, id: u32) -> Vec<u32> {
+        let engine = self.engine.lock().expect("memory engine poisoned");
+        engine.graph().neighbors(id).iter().collect()
     }
 
     /// Every id present in the recovered base (rows or records).
@@ -156,6 +215,28 @@ fn max_id(engine: &DurableEngine) -> Option<u32> {
 /// The lexical scorer shared by the recovered base and the experience store,
 /// so candidates from both planes are ranked on the same scale.
 pub fn lexical_hits(engine: &DurableEngine, query: &str, limit: usize) -> Vec<MemoryHit> {
+    lexical_hits_with(engine, query, limit, false)
+}
+
+/// A recovered row's text for the meaning index.
+#[derive(Debug, Clone)]
+pub struct RecoveredText {
+    pub id: u32,
+    pub text: String,
+    pub state: LifecycleState,
+    /// The row's stored vector when it is non-zero (v1 wrote all-zero
+    /// placeholders for rows it never embedded).
+    pub stored: Option<Vec<f32>>,
+}
+
+/// Whether a lifecycle state may reach ranking. Released (Forgiven or
+/// Archived) text is excluded unless faded recall is explicitly enabled.
+pub fn state_admitted(state: LifecycleState, include_faded: bool) -> bool {
+    state == LifecycleState::Active || include_faded
+}
+
+/// [`lexical_hits`] with the faded-memory policy made explicit.
+pub fn lexical_hits_with(engine: &DurableEngine, query: &str, limit: usize, include_faded: bool) -> Vec<MemoryHit> {
     let tokens = tokens(query);
     if tokens.is_empty() || limit == 0 {
         return Vec::new();
@@ -165,9 +246,10 @@ pub fn lexical_hits(engine: &DurableEngine, query: &str, limit: usize) -> Vec<Me
         let Some(record) = engine.memory_store().get(row.id) else {
             continue;
         };
-        // Deliberate release excludes plaintext before any ranking or model call.
-        // Low-priority Active memories remain eligible; decay is not deletion.
-        if record.state != LifecycleState::Active {
+        // Deliberate release excludes plaintext before any ranking or model call
+        // (unless faded recall is explicitly configured). Low-priority Active
+        // memories remain eligible; decay is not deletion.
+        if !state_admitted(record.state, include_faded) {
             continue;
         }
         let haystack = row
@@ -263,6 +345,33 @@ impl ExperienceInner {
     }
 }
 
+/// Characters of the operator's message kept in a `hearing` row.
+pub const TURN_HEARD_CHARS: usize = 1500;
+/// Characters of the agent's reply kept in the `thinking` row.
+pub const TURN_SAID_CHARS: usize = 600;
+
+/// A completed operator chat turn to remember.
+#[derive(Debug, Clone)]
+pub struct TurnEvent {
+    pub conversation_id: uuid::Uuid,
+    pub request_id: uuid::Uuid,
+    /// Who spoke (config `operator_name`).
+    pub speaker: String,
+    pub heard: String,
+    pub said: String,
+}
+
+/// At most `max` characters, with an ellipsis when cut.
+pub fn bounded_chars(text: &str, max: usize) -> String {
+    let text = text.trim();
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let mut out: String = text.chars().take(max).collect();
+    out.push('\u{2026}');
+    out
+}
+
 /// A reading experience to record for an ingested document.
 #[derive(Debug, Clone)]
 pub struct ReadingEvent {
@@ -274,6 +383,9 @@ pub struct ReadingEvent {
     pub sections: u32,
     pub excerpt: String,
     pub note: Option<String>,
+    /// An earlier document whose mean section vector is >= 0.97 cosine
+    /// with this one's: `(doc_id, cosine)`. Recorded, never blocking.
+    pub near_duplicate_of: Option<(String, f64)>,
 }
 
 impl ExperienceStore {
@@ -297,6 +409,28 @@ impl ExperienceStore {
     pub fn recall_candidates(&self, query: &str, limit: usize) -> Vec<MemoryHit> {
         let inner = self.inner.lock().expect("experience store poisoned");
         lexical_hits(&inner.engine, query, limit)
+    }
+
+    /// Hits for specific experience ids (dense candidates), in order,
+    /// scored with the paired score. Non-Active rows are skipped.
+    pub fn hits_for(&self, ids: &[(u32, f32)]) -> Vec<MemoryHit> {
+        let inner = self.inner.lock().expect("experience store poisoned");
+        ids.iter()
+            .filter_map(|(id, score)| {
+                let row = inner.engine.engine().get(*id)?;
+                let record = inner.engine.memory_store().get(*id)?;
+                (record.state == LifecycleState::Active).then(|| MemoryHit {
+                    id: *id,
+                    score: *score,
+                    state: record.state.into(),
+                    fidelity: record.fidelity,
+                    importance: record.importance,
+                    keystone: record.keystone,
+                    tags: row.tags.clone(),
+                    refs: row.refs.clone(),
+                })
+            })
+            .collect()
     }
 
     pub fn len(&self) -> usize {
@@ -366,6 +500,69 @@ impl ExperienceStore {
         Ok(id)
     }
 
+    /// Record one completed operator chat turn as two experience rows:
+    /// `hearing` ("<speaker> said: ...") and `thinking` ("I said: ..."),
+    /// tagged with the conversation, request and turn index. The hearing row
+    /// follows the previous turn's last row in the same conversation and the
+    /// reply follows the hearing row, each by a causal `paccaya:anantara`
+    /// (proximity) edge. Returns `(hearing_id, said_id)`.
+    pub fn remember_turn(&self, turn: &TurnEvent) -> Result<(u32, u32)> {
+        let mut inner = self.inner.lock().expect("experience store poisoned");
+        let conversation = turn.conversation_id.to_string();
+        let request = turn.request_id.to_string();
+        let mut previous: Option<(u32, u32)> = None; // (turn index, last row id)
+        for row in inner.engine.engine().rows_iter() {
+            if row.tags.get("conversation_id") != Some(&conversation) {
+                continue;
+            }
+            if row.tags.get("request_id") == Some(&request) {
+                bail!("turn {request} is already remembered");
+            }
+            let index: u32 = row.tags.get("turn").and_then(|t| t.parse().ok()).unwrap_or(0);
+            if previous.is_none_or(|(i, id)| (index, row.id) > (i, id)) {
+                previous = Some((index, row.id));
+            }
+        }
+        let index = previous.map_or(0, |(i, _)| i + 1);
+        let base = |role: &str| {
+            let mut tags = BTreeMap::new();
+            tags.insert("source".to_string(), "conversation".to_string());
+            tags.insert("role".to_string(), role.to_string());
+            tags.insert("conversation_id".to_string(), conversation.clone());
+            tags.insert("request_id".to_string(), request.clone());
+            tags.insert("turn".to_string(), index.to_string());
+            tags
+        };
+        let heard_id = inner.reserve_id()?;
+        let mut tags = base("operator");
+        tags.insert("channel".to_string(), "hearing".to_string());
+        tags.insert(
+            "text".to_string(),
+            format!("{} said: {}", turn.speaker, bounded_chars(&turn.heard, TURN_HEARD_CHARS)),
+        );
+        let mut record = MemoryRecord::new(heard_id);
+        record.importance = 0.6;
+        record.provenance = Provenance::Ingested;
+        inner.engine.remember(Row { id: heard_id, tags, vector: Vec::new(), refs: None }, record)?;
+
+        let said_id = inner.reserve_id()?;
+        let mut tags = base("agent");
+        tags.insert("channel".to_string(), "thinking".to_string());
+        tags.insert("text".to_string(), format!("I said: {}", bounded_chars(&turn.said, TURN_SAID_CHARS)));
+        let mut record = MemoryRecord::new(said_id);
+        record.importance = 0.4;
+        record.provenance = Provenance::Ingested;
+        inner.engine.remember(Row { id: said_id, tags, vector: Vec::new(), refs: None }, record)?;
+
+        let anantara = ferricula_cognition::patthana::LinkEvent::NextTurn.condition().label();
+        if let Some((_, prev)) = previous {
+            inner.engine.connect(prev, heard_id, anantara.clone(), 1.0, EdgeKind::Causal)?;
+        }
+        inner.engine.connect(heard_id, said_id, anantara, 1.0, EdgeKind::Causal)?;
+        inner.engine.checkpoint()?;
+        Ok((heard_id, said_id))
+    }
+
     /// Record "I read X" as one durable experience memory; returns its id.
     /// The WAL entry is appended and the store checkpointed before return.
     pub fn remember_reading(&self, event: &ReadingEvent) -> Result<u32> {
@@ -385,6 +582,10 @@ impl ExperienceStore {
         tags.insert("title".to_string(), event.title.clone());
         if let Some(note) = event.note.as_ref().filter(|n| !n.trim().is_empty()) {
             tags.insert("note".to_string(), note.clone());
+        }
+        if let Some((doc, cosine)) = &event.near_duplicate_of {
+            tags.insert("near_duplicate_of".to_string(), doc.clone());
+            tags.insert("near_duplicate_cosine".to_string(), format!("{cosine:.4}"));
         }
         let is_web = event.origin.starts_with("http://") || event.origin.starts_with("https://");
         let refs = MemoryRef {
@@ -531,6 +732,7 @@ mod tests {
             doc_id: "abc".into(), title: "Paper".into(), origin: "https://x.org/p.pdf".into(),
             source_kind: "url".into(), pages: 2, sections: 3, excerpt: "hello world".into(),
             note: Some("for the memory discussion".into()),
+            near_duplicate_of: None,
         };
         let first = {
             let store = ExperienceStore::open(&dir, HashSet::from([77, EXPERIENCE_ID_BASE + 1])).unwrap();
@@ -551,6 +753,37 @@ mod tests {
             .unwrap();
         // BASE + 1 belongs to the recovered base, so it is skipped.
         assert_eq!(second, first + 2);
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn chat_turns_become_linked_recallable_rows() {
+        let dir = std::env::current_dir().unwrap().join("target")
+            .join(format!("turns-{}", uuid::Uuid::new_v4()));
+        let store = ExperienceStore::open(&dir, HashSet::new()).unwrap();
+        let conv = uuid::Uuid::new_v4();
+        let turn = |heard: &str, said: &str| TurnEvent {
+            conversation_id: conv, request_id: uuid::Uuid::new_v4(), speaker: "Kord".into(),
+            heard: heard.into(), said: said.into(),
+        };
+        let first = turn("I always name my iPhones Steve.", "That's flattering.");
+        let (h1, s1) = store.remember_turn(&first).unwrap();
+        assert!(store.remember_turn(&first).is_err(), "a turn is remembered once");
+        let (h2, s2) = store.remember_turn(&turn("And my iPads?", &"x".repeat(900))).unwrap();
+        let rows: std::collections::HashMap<u32, Row> = store.rows().into_iter().map(|(r, _)| (r.id, r)).collect();
+        assert_eq!(rows[&h1].tags["text"], "Kord said: I always name my iPhones Steve.");
+        assert_eq!(rows[&h1].tags["channel"], "hearing");
+        assert_eq!(rows[&s1].tags["channel"], "thinking");
+        assert_eq!(rows[&h2].tags["turn"], "1");
+        assert_eq!(rows[&s2].tags["text"].chars().count(), "I said: ".len() + TURN_SAID_CHARS + 1);
+        let edges = store.edges();
+        let has = |a: u32, b: u32| edges.iter().any(|e| e.from == a && e.to == b && e.label == "paccaya:anantara");
+        assert!(has(h1, s1) && has(s1, h2) && has(h2, s2));
+        assert_eq!(edges.len(), 3);
+        // A later conversation finds it lexically.
+        let hits = store.recall_candidates("what do I name my phones", 5);
+        assert_eq!(hits[0].id, h1);
         drop(store);
         std::fs::remove_dir_all(dir).unwrap();
     }

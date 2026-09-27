@@ -71,6 +71,8 @@ pub fn router(runtime: Arc<AgentRuntime>) -> Router {
         .route("/models/status", get(model_status))
         // R2b: re-run the embedding space probe (operator).
         .route("/embeddings/probe", post(embeddings_probe))
+        .route("/meaning", get(meaning_status))
+        .route("/meaning/backfill", post(meaning_backfill))
         // R3 life: drives, journal, dreams; forced urges for testing.
         .route("/life", get(life_status))
         .route("/life/meditate", post(life_meditate))
@@ -568,7 +570,7 @@ async fn recall(
     let limit = request.limit.clamp(1, MAX_STATUS_LIST);
     // `hits` keeps its pre-R1 meaning (recovered-base lexical hits); the
     // experience, section, and fused lists are additive fields.
-    let recall = runtime.hybrid_recall(&request.query, limit);
+    let recall = runtime.hybrid_recall_async(&request.query, limit).await;
     Ok(Json(serde_json::to_value(recall).map_err(internal)?))
 }
 
@@ -638,6 +640,34 @@ async fn embeddings_probe(
         .await
         .map_err(internal)?;
     Ok(Json(status))
+}
+
+/// `GET /meaning` — meaning index coverage and backfill progress.
+async fn meaning_status(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+) -> ApiResult<crate::runtime::MeaningStatus> {
+    require_operator(&runtime, &headers)?;
+    Ok(Json(runtime.meaning_status()))
+}
+
+/// `POST /meaning/backfill` — start a background backfill (embed every
+/// memory, experience row and section without a vector). 202 with
+/// `started = false` when one is already running; 409 when the embedder is
+/// not usable.
+async fn meaning_backfill(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    require_operator(&runtime, &headers)?;
+    if runtime.embedder().is_none() {
+        return Err(conflict(format!(
+            "embedder not usable (embeddings state {:?})",
+            runtime.embeddings_status().state
+        )));
+    }
+    let started = runtime.spawn_meaning_backfill("operator");
+    Ok((StatusCode::ACCEPTED, Json(json!({ "started": started, "meaning": runtime.meaning_status() }))))
 }
 
 async fn model_status(
@@ -881,6 +911,12 @@ mod tests {
                 probe_ids: Vec::new(),
                 detail: None,
                 checked_at: None,
+            },
+            meaning: crate::runtime::MeaningStatus {
+                enabled: false,
+                counts: Default::default(),
+                backfill: Default::default(),
+                notes: Vec::new(),
             },
         }
     }

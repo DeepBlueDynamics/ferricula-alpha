@@ -17,6 +17,9 @@ bind = "0.0.0.0:8875"
 # Must match memory_dir/identity.json and [models.identity].agent_id.
 expected_agent_id = "ferricula-stevejobs"
 
+# How Steve names the operator in conversation memories ("Kord said: ...").
+operator_name = "Kord"
+
 memory_dir = "/data/agent-memory"
 state_dir = "/data/agent-runtime"
 
@@ -117,3 +120,24 @@ space = "gtr-t5-base@768"
 batch = 32
 timeout_secs = 30
 probe = true
+# After a passing probe, embed everything without a vector in the background
+# (2,805 of Steve's 3,362 recovered rows carry all-zero placeholder vectors).
+# Sidecar vectors live under state_dir/meaning/; the memory volume stays
+# read-only. Progress: /status -> meaning; POST /meaning/backfill re-runs it;
+# offline: `ferricula-server embed-backfill --config <file>`.
+backfill = true
+
+[recall]
+# Waking recall (chat, /memory/recall, MCP): lexical + BM25 + dense + one
+# graph hop, fused by RRF. 1,925 of Steve's 3,362 recovered memories are
+# Archived and 28 Forgiven by v1 decay; v3 treats those as released and never
+# ranks them unless this is on. Operator decision.
+include_faded_recovered = false
+dense_k = 24
+graph_seeds = 3
+graph_weight = 0.5
+lexical_weight = 0.5
+dense_guarantee = 2
+# Each completed chat turn becomes two experience rows (hearing / thinking)
+# so later conversations remember what was said.
+remember_turns = true

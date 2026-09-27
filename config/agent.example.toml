@@ -263,6 +263,21 @@ url = "http://127.0.0.1:8085"
 space = "gtr-t5-base@768"
 batch = 32
 timeout_secs = 30
+# (probe = true by default.) After a passing probe, embed every memory,
+# experience row and document section without a vector, in the background
+# (sidecars under state_dir/meaning/; /status -> meaning shows progress).
+backfill = true
+
+[recall]
+# Waking recall. With an embedder: lexical + BM25 + dense + one graph hop,
+# fused by RRF; without: lexical + BM25 only.
+include_faded_recovered = false  # rank Forgiven/Archived recovered text too
+dense_k = 24
+graph_seeds = 3
+graph_weight = 0.5
+lexical_weight = 0.5             # lexical memory arms while dense is present
+dense_guarantee = 2              # best dense hits kept at fused ranks 2, 4
+remember_turns = true            # chat turns become recallable experience
 probe = true
 
 # Model routing defaults are supplied by ModelRoutingConfig when no [models]

@@ -17,6 +17,7 @@ async fn main() -> Result<()> {
             println!("usage: ferricula-server inspect <data-dir> [--json]");
             println!("       ferricula-server serve --config <runtime.toml>");
             println!("       ferricula-server init <memory-dir> --agent-id <id> --name <name> [--role <role>]");
+            println!("       ferricula-server embed-backfill --config <runtime.toml>");
         }
         Some("serve") => {
             let Some(flag) = args.next() else {
@@ -41,6 +42,45 @@ async fn main() -> Result<()> {
                 .with_context(|| format!("failed to bind {bind}"))?;
             eprintln!("Ferricula agent runtime listening on http://{bind}");
             axum::serve(listener, api::router(runtime)).await?;
+        }
+        Some("embed-backfill") => {
+            let (Some(flag), Some(path)) = (args.next(), args.next()) else {
+                bail!("usage: ferricula-server embed-backfill --config <runtime.toml>");
+            };
+            if flag != "--config" {
+                bail!("expected --config, got {flag:?}");
+            }
+            // Offline: do not run while a server uses the same state_dir.
+            let config = RuntimeConfig::load(path)?;
+            let inspection = inspect_data_dir(&config.memory_dir)?;
+            let runtime = ferricula_server::runtime::AgentRuntime::open(config, inspection)?;
+            let probe = if runtime.config.embeddings.probe {
+                runtime.probe_embeddings()
+            } else {
+                runtime.embeddings_status()
+            };
+            if runtime.embedder().is_none() {
+                bail!("embedder not usable: {:?} {}", probe.state, probe.detail.unwrap_or_default());
+            }
+            let before = runtime.meaning_status().counts;
+            eprintln!(
+                "meaning before: recovered {}/{} (stored {}), experience {}/{}, sections {}/{}, pending {}",
+                before.recovered_embedded, before.recovered_total, before.recovered_stored,
+                before.experience_embedded, before.experience_total,
+                before.sections_embedded, before.sections_total, before.pending
+            );
+            let started = std::time::Instant::now();
+            let mut last = std::time::Instant::now();
+            let counts = runtime.meaning_backfill_blocking("cli", &mut |c| {
+                if last.elapsed().as_secs() >= 2 {
+                    eprintln!("  ... pending {} (recovered {}/{})", c.pending, c.recovered_embedded, c.recovered_total);
+                    last = std::time::Instant::now();
+                }
+            })?;
+            println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                "meaning": counts,
+                "elapsed_ms": started.elapsed().as_millis() as u64,
+            }))?);
         }
         Some("inspect") => {
             let Some(data_dir) = args.next() else {
