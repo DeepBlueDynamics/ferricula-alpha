@@ -1,0 +1,20 @@
+You are an annotator for an AI agent's curiosity gate. The agent has a long-term memory and can look things up on the web and read. Each item below is either a recent message from the agent's operator ("Operator: ...") or a text from the agent's own memory (its thoughts, replies, things it read, image descriptions, research notes). Texts may be cut off mid-sentence.
+
+For each item decide whether it is WORTH RESEARCHING FURTHER: does it contain a topic, claim, question, idea, name, event or open problem where looking further (a web search, reading a source) would plausibly give the agent new, useful or interesting information?
+
+Label "worth": true when, for example:
+- it mentions a real-world topic, product, person, event, paper, claim or concept that could be looked up or verified;
+- it raises an open question or idea that outside information would advance.
+Label "worth": false when, for example:
+- it is a greeting, small talk, a test message, garbled or too fragmentary to know what to look up;
+- it is a pure instruction or logistics ("try again", "take it one slide at a time") with nothing to learn about;
+- it is self-contained (a personal feeling, a routine status line) and a search would add nothing.
+
+Judge each item independently. Do not be generous: "anything could be researched" is not a reason for true.
+
+Items:
+{items}
+
+Return ONLY valid JSON, no prose, no code fences:
+{"labels": [{"id": "i1", "worth": true}]}
+Include exactly one entry per item id.

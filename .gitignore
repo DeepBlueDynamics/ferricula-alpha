@@ -4,6 +4,7 @@ target/
 /research/original-ferricula/source/
 /research/original-ferricula/source-export.tar.gz
 /secrets/
+/config/agent.toml
 /config/steve.toml
 /.mcp.json
 /.nemesis8.toml
@@ -18,3 +19,13 @@ target/
 *.sqlite
 *.sqlite3
 *.sqlite-*
+
+# Research PDFs are not redistributed; see research/REFERENCES.md
+research/**/*.pdf
+
+# Claude Code local state and agent worktrees
+.claude/
+
+# Python bytecode
+__pycache__/
+*.pyc

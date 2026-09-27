@@ -1,0 +1,30 @@
+{"id":"vzhc0001","text":"部署复败，主顾震怒。","valence":"dukkha","intensity":3,"source":"parallel ven0001, classical register","gloss":"The deploy failed again and the client is furious."}
+{"id":"vzhc0002","text":"用户复函曰：此正吾所欲，感铭无已。","valence":"sukha","intensity":3,"source":"parallel ven0002, classical register","gloss":"The user wrote back: this is exactly what I needed, thank you so much."}
+{"id":"vzhc0003","text":"例会自周二九时半改至九时三刻。","valence":"adukkhamasukha","intensity":0,"source":"parallel ven0003, classical register","gloss":"Daily standup moved from 9:30 to 9:45 on Tuesdays."}
+{"id":"vzhc0004","text":"恢复之卷尽失，三阅月之日志俱亡。","valence":"dukkha","intensity":4,"source":"parallel ven0004, classical register","gloss":"We lost the entire recovery volume. Three months of journal entries are gone."}
+{"id":"vzhc0005","text":"班机先至二十分，行囊首现于传送带。","valence":"sukha","intensity":2,"source":"parallel ven0005, classical register","gloss":"The flight landed twenty minutes early and my bag was first on the belt."}
+{"id":"vzhc0006","text":"已删之文，接口依制返四〇四。","valence":"adukkhamasukha","intensity":1,"source":"parallel ven0006, classical register","gloss":"The API returns 404 for deleted documents by design."}
+{"id":"vzhc0007","text":"导师曰：君之设计稿乃本岁所见最明澈者。","valence":"sukha","intensity":3,"source":"parallel ven0007, classical register","gloss":"My mentor said my design doc was the clearest she had read this year."}
+{"id":"vzhc0008","text":"演示崩于四十投资者之前，无人能复启之。","valence":"dukkha","intensity":4,"source":"parallel ven0008, classical register","gloss":"The demo crashed in front of forty investors and nobody could restart it."}
+{"id":"vzhc0009","text":"与故友啜咖啡，谈三时如弹指。","valence":"sukha","intensity":3,"source":"parallel ven0009, classical register","gloss":"Coffee with an old friend; we talked for three hours and it felt like minutes."}
+{"id":"vzhc0010","text":"三月之发票已于二十八日偿付。","valence":"adukkhamasukha","intensity":0,"source":"parallel ven0010, classical register","gloss":"The invoice for March was paid on the 28th."}
+{"id":"vzhc0011","text":"登台前一小时，彼等以函取消吾之演讲。","valence":"dukkha","intensity":3,"source":"parallel ven0011, classical register","gloss":"They cancelled my talk an hour before I went on stage, by email."}
+{"id":"vzhc0012","text":"追竞态二日，构建复绿。","valence":"sukha","intensity":3,"source":"parallel ven0012, classical register","gloss":"The build is green again after two days of chasing the race condition."}
+{"id":"vzhc0013","text":"会议纪要：议程一至四已议，下次会于周四。","valence":"adukkhamasukha","intensity":0,"source":"parallel ven0013, classical register","gloss":"Meeting notes: agenda items 1-4 covered; next sync Thursday."}
+{"id":"vzhc0014","text":"手机坠入港湾，旅中诸照尽没于水。","valence":"dukkha","intensity":4,"source":"parallel ven0014, classical register","gloss":"I dropped my phone in the harbour. Every photo of the trip is underwater."}
+{"id":"vzhc0015","text":"实习生今日首献其补丁，未经改而径过审。","valence":"sukha","intensity":2,"source":"parallel ven0015, classical register","gloss":"The intern shipped her first patch today and it passed review untouched."}
+{"id":"vzhc0016","text":"","valence":"adukkhamasukha","intensity":0,"source":"parallel ven0016, classical register","gloss":"boundary: empty input"}
+{"id":"vzhc0017","text":"季报载营收四百二十万，同比增八分。","valence":"adukkhamasukha","intensity":1,"source":"parallel ven0017, classical register","gloss":"The quarterly report lists revenue of 4.2M, up 8% year over year."}
+{"id":"vzhc0018","text":"吾弟手术顺遂，医云康复当速。","valence":"sukha","intensity":4,"source":"parallel ven0018, classical register","gloss":"My brother's surgery went perfectly; the doctor said recovery will be fast."}
+{"id":"vzhc0019","text":"房东将售此宅，吾仅余两月搬迁。","valence":"dukkha","intensity":3,"source":"parallel ven0019, classical register","gloss":"The landlord is selling the flat. I have two months to move."}
+{"id":"vzhc0020","text":"日光穿牖，测试运行，一无所焚。","valence":"sukha","intensity":1,"source":"parallel ven0020, classical register","gloss":"Sunlight through the window while the tests ran. Nothing was on fire."}
+{"id":"vzhc0021","text":"Schema v12 增 retention_days 字段，默认三十。","valence":"adukkhamasukha","intensity":0,"source":"parallel ven0021, classical register","gloss":"Schema v12 adds the retention_days column, default 30."}
+{"id":"vzhc0022","text":"客户以诉讼相胁，复函中并抄送其律师。","valence":"dukkha","intensity":4,"source":"parallel ven0022, classical register","gloss":"The customer threatened legal action and CC'd their lawyer on the reply."}
+{"id":"vzhc0023","text":"得此瑕疵，一旗反置，修复仅二行。","valence":"sukha","intensity":2,"source":"parallel ven0023, classical register","gloss":"Found the bug. One inverted flag. The fix is two lines."}
+{"id":"vzhc0024","text":"团队午膳之单：炒河粉三、绿咖喱一、炒饭一。","valence":"adukkhamasukha","intensity":0,"source":"parallel ven0024, classical register","gloss":"Team lunch order: three pad thai, one green curry, one fried rice."}
+{"id":"vzhc0025","text":"本周所书皆须重作，上游之规已改。","valence":"dukkha","intensity":3,"source":"parallel ven0025, classical register","gloss":"Everything I wrote this week has to be redone; the spec changed upstream."}
+{"id":"vzhc0026","text":"童稚今日植番茄于园中。","valence":"sukha","intensity":2,"source":"parallel ven0026, classical register","gloss":"The children planted tomatoes in the garden today."}
+{"id":"vzhc0027","text":"备份于寅时三刻二分告成，四十一吉，无差报。","valence":"adukkhamasukha","intensity":1,"source":"parallel ven0027, classical register","gloss":"Backup completed at 03:12, 41 GB, no errors reported."}
+{"id":"vzhc0028","text":"人事确认裁员，全组周五前尽去。","valence":"dukkha","intensity":4,"source":"parallel ven0028, classical register","gloss":"HR confirmed the layoffs. My whole team is gone by Friday."}
+{"id":"vzhc0029","text":"资助获批，两年之资，无所附带。","valence":"sukha","intensity":4,"source":"parallel ven0029, classical register","gloss":"The grant was approved. Two years of funding, no conditions."}
+{"id":"vzhc0030","text":"图书馆逾期还书，日取费二分半。","valence":"adukkhamasukha","intensity":0,"source":"parallel ven0030, classical register","gloss":"The library charges 0.25 per day for late returns."}

@@ -1,4 +1,4 @@
-//! Declarative model-routing configuration for the single Steve identity.
+//! Declarative model-routing configuration for the single agent identity.
 //!
 //! Profiles and routes are pure data: API material is referenced only by
 //! environment-variable *name*, never as inline secrets. Validation rejects
@@ -13,26 +13,33 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-/// Canonical Steve identity for this runtime. One agent, many replaceable
-/// providers underneath.
+/// Default agent id when no config names one. The persona itself (name,
+/// role, voice) is configuration and data, never compiled in.
+pub const DEFAULT_AGENT_ID: &str = "ferricula-agent";
+/// Neutral display name used when no persona supplies one.
+pub const DEFAULT_AGENT_NAME: &str = "Ferricula Agent";
+
+/// Canonical agent identity for this runtime. One agent, many replaceable
+/// providers underneath. Deployments set this in `[models.identity]`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SteveIdentity {
+pub struct AgentIdentity {
     pub agent_id: String,
     pub name: String,
 }
 
-impl SteveIdentity {
-    pub fn steve_jobs() -> Self {
+impl AgentIdentity {
+    /// Persona-neutral defaults (`ferricula-agent` / "Ferricula Agent").
+    pub fn from_defaults() -> Self {
         Self {
-            agent_id: "ferricula-stevejobs".into(),
-            name: "Steve Jobs".into(),
+            agent_id: DEFAULT_AGENT_ID.into(),
+            name: DEFAULT_AGENT_NAME.into(),
         }
     }
 }
 
-impl Default for SteveIdentity {
+impl Default for AgentIdentity {
     fn default() -> Self {
-        Self::steve_jobs()
+        Self::from_defaults()
     }
 }
 
@@ -188,6 +195,10 @@ pub struct ModelProfile {
     /// Environment variable holding the API key. Empty for local/none providers.
     #[serde(default)]
     pub api_key_env: String,
+    /// Extra output tokens a thinking model spends before visible content.
+    /// Added to every request's `max_tokens` so reasoning cannot starve the answer.
+    #[serde(default)]
+    pub reasoning_tokens: u32,
 }
 
 impl ModelProfile {
@@ -221,19 +232,19 @@ pub struct TaskRoute {
     pub steps: Vec<RouteStep>,
 }
 
-/// Complete routing configuration for the single Steve identity.
+/// Complete routing configuration for the single agent identity.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ModelRoutingConfig {
     #[serde(default)]
-    pub identity: SteveIdentity,
+    pub identity: AgentIdentity,
     pub profiles: Vec<ModelProfile>,
     pub routes: Vec<TaskRoute>,
 }
 
 impl Default for ModelRoutingConfig {
     fn default() -> Self {
-        Self::steve_safe_defaults()
+        Self::safe_defaults()
     }
 }
 
@@ -241,9 +252,9 @@ impl ModelRoutingConfig {
     /// Safe defaults: local Ollama for ordinary work, optional Anthropic
     /// escalation for deliberate/code, and a deterministic no-model route for
     /// mechanical tasks.
-    pub fn steve_safe_defaults() -> Self {
+    pub fn safe_defaults() -> Self {
         Self {
-            identity: SteveIdentity::steve_jobs(),
+            identity: AgentIdentity::from_defaults(),
             profiles: vec![
                 ModelProfile {
                     id: "no_model".into(),
@@ -256,6 +267,7 @@ impl ModelRoutingConfig {
                     max_concurrency: 1024,
                     timeout_ms: 1,
                     api_key_env: String::new(),
+                    reasoning_tokens: 0,
                 },
                 ModelProfile {
                     id: "local_ollama".into(),
@@ -273,6 +285,7 @@ impl ModelRoutingConfig {
                     max_concurrency: 2,
                     timeout_ms: 120_000,
                     api_key_env: String::new(),
+                    reasoning_tokens: 0,
                 },
                 ModelProfile {
                     id: "anthropic_haiku".into(),
@@ -293,6 +306,7 @@ impl ModelRoutingConfig {
                     max_concurrency: 4,
                     timeout_ms: 90_000,
                     api_key_env: "ANTHROPIC_API_KEY".into(),
+                    reasoning_tokens: 0,
                 },
                 ModelProfile {
                     id: "anthropic_sonnet".into(),
@@ -314,6 +328,7 @@ impl ModelRoutingConfig {
                     max_concurrency: 2,
                     timeout_ms: 120_000,
                     api_key_env: "ANTHROPIC_API_KEY".into(),
+                    reasoning_tokens: 0,
                 },
             ],
             routes: vec![
@@ -636,10 +651,10 @@ mod tests {
 
     #[test]
     fn defaults_validate_and_cover_all_task_classes() {
-        let config = ModelRoutingConfig::steve_safe_defaults();
+        let config = ModelRoutingConfig::safe_defaults();
         config.validate().unwrap();
-        assert_eq!(config.identity.agent_id, "ferricula-stevejobs");
-        assert_eq!(config.identity.name, "Steve Jobs");
+        assert_eq!(config.identity.agent_id, DEFAULT_AGENT_ID);
+        assert_eq!(config.identity.name, DEFAULT_AGENT_NAME);
         for class in TaskClass::ALL {
             assert!(
                 config.route_for(class).is_some(),
@@ -651,21 +666,21 @@ mod tests {
 
     #[test]
     fn rejects_inline_api_key_material() {
-        let mut config = ModelRoutingConfig::steve_safe_defaults();
+        let mut config = ModelRoutingConfig::safe_defaults();
         config.profiles[2].api_key_env = "sk-ant-secret-value-not-an-env".into();
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn rejects_ahp_token_as_env_name() {
-        let mut config = ModelRoutingConfig::steve_safe_defaults();
+        let mut config = ModelRoutingConfig::safe_defaults();
         config.profiles[2].api_key_env = "ahp_not_a_variable".into();
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn rejects_dangling_route_profile() {
-        let mut config = ModelRoutingConfig::steve_safe_defaults();
+        let mut config = ModelRoutingConfig::safe_defaults();
         config.routes[0].steps[0].profile_id = "does_not_exist".into();
         let err = config.validate().unwrap_err().to_string();
         assert!(err.contains("unknown profile"), "{err}");
@@ -673,14 +688,14 @@ mod tests {
 
     #[test]
     fn rejects_empty_route_steps() {
-        let mut config = ModelRoutingConfig::steve_safe_defaults();
+        let mut config = ModelRoutingConfig::safe_defaults();
         config.routes[0].steps.clear();
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn rejects_duplicate_profile_ids() {
-        let mut config = ModelRoutingConfig::steve_safe_defaults();
+        let mut config = ModelRoutingConfig::safe_defaults();
         let dup = config.profiles[0].clone();
         config.profiles.push(dup);
         assert!(config.validate().is_err());
@@ -688,7 +703,7 @@ mod tests {
 
     #[test]
     fn rejects_negative_budget() {
-        let mut config = ModelRoutingConfig::steve_safe_defaults();
+        let mut config = ModelRoutingConfig::safe_defaults();
         config.routes[3].steps[1].daily_budget_usd = -1.0;
         assert!(config.validate().is_err());
     }
@@ -714,7 +729,7 @@ mod tests {
 
     #[test]
     fn serde_roundtrip_json() {
-        let config = ModelRoutingConfig::steve_safe_defaults();
+        let config = ModelRoutingConfig::safe_defaults();
         let json = serde_json::to_string_pretty(&config).unwrap();
         let back: ModelRoutingConfig = serde_json::from_str(&json).unwrap();
         back.validate().unwrap();

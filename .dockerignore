@@ -8,3 +8,11 @@
 !THIRD_PARTY_NOTICES.md
 !crates
 crates/**/target
+# Committed, secret-free example configs only: the builder's server tests
+# parse them. Local config/agent.toml and config/steve.toml stay excluded.
+!config/agent.example.toml
+!config/agent.isolated.toml
+!config/examples/steve/agent.toml
+!config/examples/steve/steve.toml
+# Dream-image workflow templates compiled into the server (comfy.rs include_str!).
+!config/comfyui/*.api.json

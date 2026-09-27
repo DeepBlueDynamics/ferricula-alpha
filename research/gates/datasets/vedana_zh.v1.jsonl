@@ -1,0 +1,30 @@
+{"id":"vzh0001","text":"部署又失败了，客户非常愤怒。","valence":"dukkha","intensity":3,"source":"parallel ven0001","gloss":"The deploy failed again and the client is furious."}
+{"id":"vzh0002","text":"用户回复说：这正是我需要的，太感谢你了。","valence":"sukha","intensity":3,"source":"parallel ven0002","gloss":"The user wrote back: this is exactly what I needed, thank you so much."}
+{"id":"vzh0003","text":"每日站会从周二的九点半改到九点四十五。","valence":"adukkhamasukha","intensity":0,"source":"parallel ven0003","gloss":"Daily standup moved from 9:30 to 9:45 on Tuesdays."}
+{"id":"vzh0004","text":"我们丢失了整个恢复卷，三个月的日志记录都没了。","valence":"dukkha","intensity":4,"source":"parallel ven0004","gloss":"We lost the entire recovery volume. Three months of journal entries are gone."}
+{"id":"vzh0005","text":"航班提前二十分钟降落，我的行李第一个出现在传送带上。","valence":"sukha","intensity":2,"source":"parallel ven0005","gloss":"The flight landed twenty minutes early and my bag was first on the belt."}
+{"id":"vzh0006","text":"按设计，API 对已删除的文档返回 404。","valence":"adukkhamasukha","intensity":1,"source":"parallel ven0006","gloss":"The API returns 404 for deleted documents by design."}
+{"id":"vzh0007","text":"导师说我的设计文档是她今年读过最清晰的。","valence":"sukha","intensity":3,"source":"parallel ven0007","gloss":"My mentor said my design doc was the clearest she had read this year."}
+{"id":"vzh0008","text":"演示在四十位投资人面前崩溃了，没人能重新启动它。","valence":"dukkha","intensity":4,"source":"parallel ven0008","gloss":"The demo crashed in front of forty investors and nobody could restart it."}
+{"id":"vzh0009","text":"和一位老朋友喝咖啡，聊了三个小时，感觉像几分钟。","valence":"sukha","intensity":3,"source":"parallel ven0009","gloss":"Coffee with an old friend; we talked for three hours and it felt like minutes."}
+{"id":"vzh0010","text":"三月的发票于二十八日支付。","valence":"adukkhamasukha","intensity":0,"source":"parallel ven0010","gloss":"The invoice for March was paid on the 28th."}
+{"id":"vzh0011","text":"在我上台前一小时，他们通过邮件取消了我的演讲。","valence":"dukkha","intensity":3,"source":"parallel ven0011","gloss":"They cancelled my talk an hour before I went on stage, by email."}
+{"id":"vzh0012","text":"追了两天竞态条件之后，构建终于又绿了。","valence":"sukha","intensity":3,"source":"parallel ven0012","gloss":"The build is green again after two days of chasing the race condition."}
+{"id":"vzh0013","text":"会议纪要：议程第 1 至 4 项已覆盖；下次同步在周四。","valence":"adukkhamasukha","intensity":0,"source":"parallel ven0013","gloss":"Meeting notes: agenda items 1-4 covered; next sync Thursday."}
+{"id":"vzh0014","text":"我把手机掉进了港湾，这次旅行的所有照片都在水下了。","valence":"dukkha","intensity":4,"source":"parallel ven0014","gloss":"I dropped my phone in the harbour. Every photo of the trip is underwater."}
+{"id":"vzh0015","text":"实习生今天提交了她的第一个补丁，未经修改就通过了评审。","valence":"sukha","intensity":2,"source":"parallel ven0015","gloss":"The intern shipped her first patch today and it passed review untouched."}
+{"id":"vzh0016","text":"","valence":"adukkhamasukha","intensity":0,"source":"parallel ven0016","gloss":"boundary: empty input"}
+{"id":"vzh0017","text":"季度报告显示营收 420 万，同比增长 8%。","valence":"adukkhamasukha","intensity":1,"source":"parallel ven0017","gloss":"The quarterly report lists revenue of 4.2M, up 8% year over year."}
+{"id":"vzh0018","text":"我兄弟的手术非常顺利，医生说恢复会很快。","valence":"sukha","intensity":4,"source":"parallel ven0018","gloss":"My brother's surgery went perfectly; the doctor said recovery will be fast."}
+{"id":"vzh0019","text":"房东要卖掉这套公寓，我还有两个月时间搬家。","valence":"dukkha","intensity":3,"source":"parallel ven0019","gloss":"The landlord is selling the flat. I have two months to move."}
+{"id":"vzh0020","text":"测试运行时阳光透过窗户，一切安然无恙。","valence":"sukha","intensity":1,"source":"parallel ven0020","gloss":"Sunlight through the window while the tests ran. Nothing was on fire."}
+{"id":"vzh0021","text":"Schema v12 新增 retention_days 字段，默认值为 30。","valence":"adukkhamasukha","intensity":0,"source":"parallel ven0021","gloss":"Schema v12 adds the retention_days column, default 30."}
+{"id":"vzh0022","text":"客户威胁要采取法律行动，并在回复中抄送了他的律师。","valence":"dukkha","intensity":4,"source":"parallel ven0022","gloss":"The customer threatened legal action and CC'd their lawyer on the reply."}
+{"id":"vzh0023","text":"找到 bug 了，一个反置的标志位，修复只需两行。","valence":"sukha","intensity":2,"source":"parallel ven0023","gloss":"Found the bug. One inverted flag. The fix is two lines."}
+{"id":"vzh0024","text":"团队午餐订单：三份泰式炒河粉、一份绿咖喱、一份炒饭。","valence":"adukkhamasukha","intensity":0,"source":"parallel ven0024","gloss":"Team lunch order: three pad thai, one green curry, one fried rice."}
+{"id":"vzh0025","text":"这周我写的所有东西都得重做，上游的规格改了。","valence":"dukkha","intensity":3,"source":"parallel ven0025","gloss":"Everything I wrote this week has to be redone; the spec changed upstream."}
+{"id":"vzh0026","text":"孩子们今天在花园里种了西红柿。","valence":"sukha","intensity":2,"source":"parallel ven0026","gloss":"The children planted tomatoes in the garden today."}
+{"id":"vzh0027","text":"备份于凌晨三点十二分完成，41 GB，无错误报告。","valence":"adukkhamasukha","intensity":1,"source":"parallel ven0027","gloss":"Backup completed at 03:12, 41 GB, no errors reported."}
+{"id":"vzh0028","text":"人力资源确认了裁员，我的整个团队周五前都会离开。","valence":"dukkha","intensity":4,"source":"parallel ven0028","gloss":"HR confirmed the layoffs. My whole team is gone by Friday."}
+{"id":"vzh0029","text":"资助获批了，两年资金，无条件。","valence":"sukha","intensity":4,"source":"parallel ven0029","gloss":"The grant was approved. Two years of funding, no conditions."}
+{"id":"vzh0030","text":"图书馆对逾期归还每天收费 0.25。","valence":"adukkhamasukha","intensity":0,"source":"parallel ven0030","gloss":"The library charges 0.25 per day for late returns."}

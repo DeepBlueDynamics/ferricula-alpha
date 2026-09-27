@@ -1,6 +1,6 @@
 # Architectural Blueprint for an Artificial Mind Grounded in Abhidharma and Yogācāra Cognitive Science
 
-**Location:** `/workspace/memory/ferricula/research/07_ABHIDHARMA_ARTIFICIAL_MIND_ARCHITECTURE.md`  
+**Location:** `research/07_ABHIDHARMA_ARTIFICIAL_MIND_ARCHITECTURE.md`  
 **Date:** 2026-09-19  
 **Platform:** Deep Blue Dynamics / Ferricula & Lume  
 **Author:** Antigravity (Research / Crusade Spicy Meatball / Difficult Stork)  

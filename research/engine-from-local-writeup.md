@@ -1,6 +1,6 @@
 # Ferricula Engine Analysis: Local Writeup Synthesis
 
-**Source Document**: [`ferricula/research/gemini_paper.txt`](file:///workspace/memory/ferricula/research/gemini_paper.txt)  
+**Source Document**: [`ferricula/research/gemini_paper.txt`](gemini_paper.txt)  
 **Context**: Research run synthesis for engine architecture, decay mathematics, persistence/WAL mechanics, dream metabolic cycles, and multi-agent Arena empirical results.  
 **Scope**: Core storage and runtime physics only. (Archetype state machines and Wisdom King designs are intentionally excluded per research directives).
 

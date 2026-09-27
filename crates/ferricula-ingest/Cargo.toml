@@ -1,0 +1,18 @@
+[package]
+name = "ferricula-ingest"
+version.workspace = true
+edition = "2024"
+license-file.workspace = true
+description = "Document sense door: extract text/URL/PDF sources into verbatim, addressable sections and search them"
+
+[dependencies]
+ferricula-search = { path = "../ferricula-search" }
+anyhow = "1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+ureq = { version = "2.12", features = ["json"] }
+pdf-extract = "0.7"
+
+[dev-dependencies]
+tempfile = "3"
+lopdf = "0.34"

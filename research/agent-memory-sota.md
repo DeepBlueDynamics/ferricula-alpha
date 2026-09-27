@@ -1,6 +1,6 @@
 # SOTA Agent Memory Architectures: Mem0, Letta (MemGPT), and Zep (Graphiti)
 
-**Location:** `/workspace/memory/research/agent-memory-sota.md`  
+**Location:** `research/agent-memory-sota.md`  
 **Date:** 2026-09-19  
 **Author:** Antigravity (Research / Crusade Spicy Meatball / Difficult Stork)  
 **Status:** Verified research briefing from primary arXiv preprints, documentation, and benchmark runs.

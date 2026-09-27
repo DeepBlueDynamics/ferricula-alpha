@@ -1,0 +1,296 @@
+# Ferricula agent runtime configuration — generic example.
+#
+#   cp config/agent.example.toml config/agent.toml
+#
+# The engine is persona-neutral. WHO the agent is lives in data, not code:
+#   - `agent.toml` in memory_dir supplies the persona (name, role, voice);
+#   - `expected_agent_id` / `[models.identity]` below must match the
+#     `agent_id` in memory_dir/identity.json.
+# See config/examples/steve/ for a complete persona + deployment example.
+#
+# This file is written for the container in compose.yaml (paths under /data,
+# bind on 0.0.0.0 inside the container's network namespace). It contains
+# environment-variable NAMES only — never token or key values. Values are
+# delivered as Docker secrets; see compose.yaml.
+#
+# Parsed by RuntimeConfig::load (crates/ferricula-server/src/config.rs).
+# Validation enforces: wakes_per_day in 1..=24 when scheduling is enabled,
+# operator auth required when binding beyond loopback, and token_env fields
+# must be variable names (anything containing '=' or looking like a token
+# is rejected at startup).
+
+# Bind address inside the container. 0.0.0.0 is required so the port mapping
+# can reach the process; compose publishes it on the HOST loopback only
+# (127.0.0.1:8875). Because this is a non-loopback bind, config validation
+# requires require_operator_auth = true.
+# For a bare (non-container) run on the host, use "127.0.0.1:8875" instead.
+bind = "0.0.0.0:8875"
+
+# Identity expected in memory_dir/identity.json. Startup refuses a memory
+# store whose agent_id differs. Must equal [models.identity].agent_id.
+expected_agent_id = "ferricula-agent"
+
+# The agent's memory data directory (identity.json, agent.toml,
+# snapshot_v4.bin, wal.log). Mounted READ-ONLY; the serve path opens it and
+# replays the WAL in memory without writing back.
+memory_dir = "/data/agent-memory"
+
+# Writable runtime state (runtime-state.json: activity mode, task queue,
+# wake bookkeeping). Separate volume; never mixed with the memory plane.
+state_dir = "/data/agent-runtime"
+
+# NAME of the environment variable holding the operator bearer token.
+# The token itself comes from the Docker secret via the entrypoint shim.
+operator_token_env = "FERRICULA_OPERATOR_TOKEN"
+
+# Every endpoint except GET /health requires `Authorization: Bearer <token>`.
+# Must stay true while bind is non-loopback (enforced at startup).
+require_operator_auth = true
+
+# Cloud profiles are NOT authorized to receive recovered memories by default.
+# To let a built-in profile perform the agent's memory-backed deliberation,
+# list it explicitly, for example: ["anthropic_sonnet"]. Keep empty for
+# local-only private cognition. Unknown profile names fail startup.
+#
+# NOTE on Ollama `:cloud` models: Ollama can proxy a signed-in cloud model
+# (e.g. "glm-5.3:cloud") behind the local endpoint. If ollama_model is a
+# `:cloud` model AND `local_ollama` is listed here, private memory context is
+# sent off-box to that cloud provider. That is a legitimate operator choice
+# (accepted explicitly by listing the profile), not a default: with a `:cloud`
+# model and `local_ollama` NOT listed, the profile automatically loses
+# private-memory access.
+private_context_profiles = ["local_ollama"]
+
+# The host gateway is explicit because 127.0.0.1 inside the container is the
+# agent container itself. This example uses a genuinely local model.
+ollama_base_url = "http://host.docker.internal:11434/v1"
+ollama_model = "gemma4:e2b"
+
+# Output-token headroom for THINKING models on the local_ollama profile.
+# Reasoning models (e.g. glm-5.3:cloud) spend output tokens on hidden
+# reasoning before the visible answer; without headroom, chat replies and
+# curator briefings truncate. Sets `reasoning_tokens` on the built-in
+# local_ollama profile. Leave unset (or 0) for non-thinking models;
+# 4096 is a reasonable starting point for glm-5.3.
+# ollama_reasoning_tokens = 4096
+
+# Mode on FIRST boot with an empty state volume: paused | asleep |
+# peripheral | engaged | deliberative. After first boot the persisted mode
+# in runtime-state.json wins across restarts. "asleep" means: no active
+# engagement, but scheduled wakes fire and queued tasks execute. Use
+# "paused" for a hard stop (nothing runs until an operator resumes).
+initial_mode = "asleep"
+
+[schedule]
+# Autonomous wake schedule. The scheduler enqueues a scheduled_wake task
+# whenever (now - last_wake) >= 86400/wakes_per_day, checked once a minute,
+# unless the mode is paused or scheduling is disabled.
+enabled = true
+# Target 3-6 wakes/day; 4 ≈ one wake every 6 hours.
+wakes_per_day = 4
+# Accepted by the config today; NOT yet applied by the scheduler. Wakes are
+# currently evenly spaced with no randomization.
+jitter_minutes = 45
+
+[budgets]
+# Max feed threads fetched per wake — enforced today (caps the Nuts News
+# `newest` call).
+max_threads_per_wake = 20
+# Declared ceilings for autonomous activity. NOT yet enforced in code — the
+# current runtime performs no autonomous writes and no model calls, so these
+# are forward guards that MUST be enforced before those paths are wired.
+max_autonomous_comments_per_day = 5
+max_autonomous_submissions_per_day = 1
+max_model_usd_per_day = 5.0
+
+[nutnews]
+# Master switch for the Nuts News connector. When enabled the agent starts
+# in read-only mode: scheduled wakes may observe a bounded public digest.
+enabled = false
+mcp_url = "https://news.nuts.services/mcp"
+public_url = "https://news.nuts.services"
+# NAME of the environment variable holding the agent's Nuts News write token.
+# Only consulted when a write is attempted; reads are public.
+token_env = "NUTNEWS_TOKEN"
+# The agent's own Nuts News handle (must match [mentions].agent_handle).
+handle = "agent"
+# Writes are OFF by default and double-gated: `enabled` and `allow_writes`
+# must both be true AND the token env var must be populated before any
+# comment/submission can leave the runtime. Keep false until the budget
+# enforcement noted above exists.
+allow_writes = false
+
+# ---------------------------------------------------------------------------
+# Phase One sections. Every table below is optional and serde-defaulted:
+# deleting any of them (or this whole block) leaves a valid, safe config.
+# Defaults are the OFF/read-only position; each switch is an operator choice.
+# ---------------------------------------------------------------------------
+
+[autonomy]
+# Event-driven autonomy machine (think-loop successor). OFF by default:
+# the plain scheduler/worker keeps running either way. When enabled, work
+# happens under bounded leases and never compels a response or a write.
+enabled = false
+# Cadence and gate knobs (module defaults shown; all optional).
+tick_secs = 45
+quiet_secs = 30
+idle_resume_secs = 90
+lease_secs = 120
+lease_steps = 8
+# Budget pressure in 0..=1 at/above which model work is refused. The ledger
+# is also re-checked at execution time, not just at lease grant.
+budget_gate = 0.9
+dream_idle_secs = 90
+# Quiet period always defers autonomous wakes; there is no random override.
+honor_quiet_period = true
+
+[sleep_cycle]
+# Sleep/dream planning. Enabled is safe: planning is pure, read-only, and
+# private by default — proposals carry hard call/token/USD ceilings and
+# never mutate memory ("read_only"; "propose_for_approval" only ever emits
+# operator-gated suggestions).
+enabled = true
+cycles_per_day = 4
+jitter_secs = 2700
+proposal_ttl_secs = 3600
+max_proposals_per_cycle = 3
+mutation = "read_only"
+
+[sleep_cycle.privacy]
+# Recovered memory content stays local unless BOTH this is true AND a model
+# profile is explicitly trusted with private_context (see the [models] note
+# below). Validation refuses sharing with redaction off.
+share_private_memory = false
+redact_excerpts = true
+max_excerpt_chars = 600
+
+[mentions]
+# Nuts mention ingestion (inbound only: cursor, dedupe, considerations).
+# OFF by default. Requires nutnews.enabled, and the identity fields below
+# must agree with [nutnews] (handle) and the public_url host (instance) —
+# mismatches fail startup. Considering a mention never compels a reply.
+enabled = false
+instance = "news.nuts.services"
+# The agent's handle (legacy key `steve_handle` is still accepted).
+agent_handle = "agent"
+dedupe_capacity = 4096
+consideration_capacity = 256
+max_apply_per_batch = 500
+max_text_bytes = 16384
+max_pending_per_actor = 4
+
+[overlay]
+# Append-only overlay for the recovered memory base (MEMORY_DREAM_SPEC
+# Stage 2). OFF by default. The recovered base is immutable regardless:
+# the overlay path MUST live outside memory_dir (enforced at startup), and
+# destructive/promotion events inside the overlay are operator-approval
+# gated by the module itself.
+enabled = false
+path = "/data/agent-runtime/overlay/overlay.json"
+max_events = 65536
+max_text_bytes = 16384
+max_note_bytes = 4096
+max_tags = 16
+max_dream_members = 64
+
+[emotion]
+# Emotion/somatic state surface (Phase Two). Enable-only for now.
+enabled = false
+
+[advocate]
+# Values-alignment reviews (Phase Three). Advisory only; verdicts write to
+# the overlay (never the semantic index), so enabling this requires
+# overlay.enabled = true — validation enforces it.
+enabled = false
+reviews_per_day = 1
+
+[documents]
+# Document sense door: POST /documents and the ferricula_ingest MCP tool.
+# Verbatim sections go to state_dir/documents, the "I read X" memory to the
+# writable experience store at state_dir/experience; memory_dir is never
+# written. grub (http://host.docker.internal:6792 from a container) renders
+# web pages; PDF URLs are fetched directly.
+enabled = true
+grub_base_url = "http://127.0.0.1:6792"
+max_bytes = 33554432
+allow_url = true
+
+[life]
+# Drives (R3): when nobody is talking, boredom rises and the agent follows
+# its curiosity (open threads from recent conversation first, then a memory
+# drawn by entropy): it searches through grub, reads (ingests) a few pages
+# and writes a short reflection. Work and waking time build sleep pressure;
+# sleep runs non-destructive consolidation and a dream (stored on the
+# `dream` channel, never used as evidence). The operator always wakes it.
+# Paused mode stops all of it. Journal and drives: state_dir/life/.
+enabled = false
+tick_secs = 60
+# Drive knobs (flattened; defaults shown).
+boredom_per_min = 0.0333
+boredom_threshold = 1.0
+novelty_relief = 0.8
+sleep_per_awake_min = 0.00104
+sleep_per_1k_tokens = 0.01
+sleep_threshold = 1.0
+sleep_recovery_per_min = 0.00278
+rested_below = 0.1
+max_curiosity_per_day = 12
+curiosity_cooldown_min = 20
+dream_on_sleep = true
+wake_on_dream_question = false
+# Entropy for curiosity and dreams: the SDR radio when reachable, OS RNG
+# otherwise; the source is recorded on every draw.
+# radio_url = "https://sdrrand.nuts.services"
+# Ollaya decision sidecar: advisory "worth researching?" gate.
+ollaya_url = "http://host.docker.internal:11435"
+ollaya_model = "laya"
+# Search page rendered through grub ([documents] grub_base_url).
+search_url_template = "https://html.duckduckgo.com/html/?q={q}"
+max_pages_per_curiosity = 2
+# Life's own daily model-call cap (the global max_model_usd_per_day applies too).
+max_model_calls_per_day = 40
+
+[embeddings]
+# Text embeddings (R2b). "none" keeps dense features off; "shivvr" calls
+# POST {url}/embed (from a container: http://host.docker.internal:8085).
+# `space` must be the space the mounted memory's vectors were made in; with
+# probe = true the runtime re-embeds up to three short recovered memories at
+# startup (and on POST /embeddings/probe) and requires cosine > 0.999 with
+# their stored vectors. /status -> embeddings shows backend, space, state
+# (disabled | pending | ok | unverified | degraded | mismatch) and cosines.
+backend = "none"
+url = "http://127.0.0.1:8085"
+space = "gtr-t5-base@768"
+batch = 32
+timeout_secs = 30
+# (probe = true by default.) After a passing probe, embed every memory,
+# experience row and document section without a vector, in the background
+# (sidecars under state_dir/meaning/; /status -> meaning shows progress).
+backfill = true
+
+[recall]
+# Waking recall. With an embedder: lexical + BM25 + dense + one graph hop,
+# fused by RRF; without: lexical + BM25 only.
+include_faded_recovered = false  # rank Forgiven/Archived recovered text too
+dense_k = 24
+graph_seeds = 3
+graph_weight = 0.5
+lexical_weight = 0.5             # lexical memory arms while dense is present
+dense_guarantee = 2              # best dense hits kept at fused ranks 2, 4
+remember_turns = true            # chat turns become recallable experience
+probe = true
+
+# Model routing defaults are supplied by ModelRoutingConfig when no [models]
+# table is present: mechanical work uses no model; scan/social/deliberation
+# prefer local Ollama (`gemma4:e2b`); Anthropic profiles exist as fallbacks for
+# non-private work. Only the local profile has `private_context`, so recovered
+# memories cannot leave the machine accidentally. To authorize a cloud model
+# for memory-backed deliberation, provide a complete [models] config and
+# explicitly add `private_context` to that profile's capabilities. API keys
+# are always environment-variable names.
+
+# The agent identity. Only this table is needed to rename the agent; the
+# default routing profiles are kept. agent_id must equal expected_agent_id.
+[models.identity]
+agent_id = "ferricula-agent"
+name = "Ferricula Agent"

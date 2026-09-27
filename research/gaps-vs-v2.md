@@ -1,9 +1,9 @@
 # Research gaps versus ferricula_v2
 
-Author: Architect / Appalling Goldfish (n8-olive-vole). Inspection date: 2026-09-19.
+Author: Architect / Appalling Goldfish. Inspection date: 2026-09-19.
 Scope: research notes only; no crate changes, experiments, builds, or archetype designs.
 
-**Source status: provisional pending the two local PDF reads.** Read `RESEARCH_RUN.md`, the v2 source files cited below, `ferricula_v2/PLAN.md`, and the relevant research portions of the v1 roadmap. The two PDFs named in the run exist in `ferricula/research/`, but their full contents have not yet been read: available nuts_read accepts UTF-8 text, and the session prohibits shell file reads. Read-only PDF-extraction permission or Coordinator-provided text is pending. The run's PDF extract is secondhand evidence, not a substitute for reading either PDF. Primary web sources were checked independently and are linked below.
+**Source status: provisional pending the two local PDF reads.** Read `RESEARCH_RUN.md`, the v2 source files cited below, `PLAN.md`, and the relevant research portions of the v1 roadmap. The two PDFs named in the run exist in `ferricula/research/`, but their full contents have not yet been read: available nuts_read accepts UTF-8 text, and the session prohibits shell file reads. Read-only PDF-extraction permission or Coordinator-provided text is pending. The run's PDF extract is secondhand evidence, not a substitute for reading either PDF. Primary web sources were checked independently and are linked below.
 
 ## Assessment
 
@@ -13,7 +13,7 @@ Scope: research notes only; no crate changes, experiments, builds, or archetype 
 
 ## What exists in the inspected checkout
 
-Paths in this section are relative to `ferricula_v2/crates/`.
+Paths in this section are relative to `crates/`.
 
 | Verified source evidence | What this covers | Limit |
 |---|---|---|

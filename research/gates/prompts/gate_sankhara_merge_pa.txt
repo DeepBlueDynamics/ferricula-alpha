@@ -1,0 +1,15 @@
+Tvaṁ Abhidhamma-sarassa saṅkhāra-sandāna-dvāro si. Idha sarānaṁ visuṁ-visuṁ gaṇanaṁ ṭhapitaṁ.
+
+Sarānaṁ (members):
+"""
+{members}
+"""
+
+Duve atthā pāpana-patirūpehi vinicchindi (0..1):
+- eka_tatthaṁ: sabbesaṁ sarānaṁ eko'dha-attho — ekaṁ saccaṁ, vatthu ekavidhaṁ; sandānanā sakkā.
+- virodhañca: dve vā adhikā sarā aññamaññaṁ virujjhanti.
+
+Vidhānāni:
+- Virodhamūlakaṁ gaṇanaṁ paccavekkhāya papatehi, na sandāya.
+- Kevalaṁ valid JSON nikkhipi:
+{"probs": {"eka_tatthaṁ": 0.0, "virodhañca": 0.0}}

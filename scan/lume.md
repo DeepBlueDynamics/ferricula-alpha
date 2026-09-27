@@ -5,20 +5,20 @@ Lume is a high-performance, FST-backed tagger and BM25 hybrid search engine. It 
 
 ## 2. Crate & Module Layout
 Lume is configured as a single binary crate with a rich library module design:
-*   [lib.rs](file:///workspace/DeepBlueDynamics/lume/src/lib.rs): Core library module. Houses `Tagger`, `Entry`, `Token`, and tokenizer/ASCII folding helpers.
-*   [main.rs](file:///workspace/DeepBlueDynamics/lume/src/main.rs): Command Line Interface (CLI) entrypoint. Implements command parsing and dispatch.
-*   [bm25.rs](file:///workspace/DeepBlueDynamics/lume/src/bm25.rs): Field-aware BM25 engine (`Bm25Index`), `Section` parsing, and parameters (`Bm25Params`).
-*   [spelling.rs](file:///workspace/DeepBlueDynamics/lume/src/spelling.rs): Trigram spell checker (`SpellIndex`) using roaring bitmaps.
-*   [semantic_mesh.rs](file:///workspace/DeepBlueDynamics/lume/src/semantic_mesh.rs): Implements `EntityGraph` (nodes and similarity/relatedness edges) and a trigram `MarkovChain` generator.
-*   [hybrid.rs](file:///workspace/DeepBlueDynamics/lume/src/hybrid.rs): Handles dense embedding requests, semantic session caching, and blending lexical + semantic + SKG scores.
-*   [agent.rs](file:///workspace/DeepBlueDynamics/lume/src/agent.rs): Implements the autonomous Q&A agent loop and the MCP server.
-*   [graph_search.rs](file:///workspace/DeepBlueDynamics/lume/src/graph_search.rs): Walks the entity co-occurrence graph to compute search-time query boosts and recall expansions.
-*   [fast_retrieval.rs](file:///workspace/DeepBlueDynamics/lume/src/fast_retrieval.rs): Custom zero-dependency roaring bitmap implementation (`MiniRoaring`) and Gödel-style signature filters (`PrimeFilter`).
-*   [regex.rs](file:///workspace/DeepBlueDynamics/lume/src/regex.rs): NFA pattern compiler for tagger dictionary regex entries.
-*   [inversion.rs](file:///workspace/DeepBlueDynamics/lume/src/inversion.rs): Vector-to-text inversion helpers.
-*   [stream.rs](file:///workspace/DeepBlueDynamics/lume/src/stream.rs): Real-time streaming match candidates.
-*   [answer.rs](file:///workspace/DeepBlueDynamics/lume/src/answer.rs): Structured synthesis answers.
-*   [crawl.rs](file:///workspace/DeepBlueDynamics/lume/src/crawl.rs): Web page crawler.
+*   lib.rs (upstream `lume/src/lib.rs`): Core library module. Houses `Tagger`, `Entry`, `Token`, and tokenizer/ASCII folding helpers.
+*   main.rs (upstream `lume/src/main.rs`): Command Line Interface (CLI) entrypoint. Implements command parsing and dispatch.
+*   bm25.rs (upstream `lume/src/bm25.rs`): Field-aware BM25 engine (`Bm25Index`), `Section` parsing, and parameters (`Bm25Params`).
+*   spelling.rs (upstream `lume/src/spelling.rs`): Trigram spell checker (`SpellIndex`) using roaring bitmaps.
+*   semantic_mesh.rs (upstream `lume/src/semantic_mesh.rs`): Implements `EntityGraph` (nodes and similarity/relatedness edges) and a trigram `MarkovChain` generator.
+*   hybrid.rs (upstream `lume/src/hybrid.rs`): Handles dense embedding requests, semantic session caching, and blending lexical + semantic + SKG scores.
+*   agent.rs (upstream `lume/src/agent.rs`): Implements the autonomous Q&A agent loop and the MCP server.
+*   graph_search.rs (upstream `lume/src/graph_search.rs`): Walks the entity co-occurrence graph to compute search-time query boosts and recall expansions.
+*   fast_retrieval.rs (upstream `lume/src/fast_retrieval.rs`): Custom zero-dependency roaring bitmap implementation (`MiniRoaring`) and Gödel-style signature filters (`PrimeFilter`).
+*   regex.rs (upstream `lume/src/regex.rs`): NFA pattern compiler for tagger dictionary regex entries.
+*   inversion.rs (upstream `lume/src/inversion.rs`): Vector-to-text inversion helpers.
+*   stream.rs (upstream `lume/src/stream.rs`): Real-time streaming match candidates.
+*   answer.rs (upstream `lume/src/answer.rs`): Structured synthesis answers.
+*   crawl.rs (upstream `lume/src/crawl.rs`): Web page crawler.
 
 ## 3. Key Data Structures & Serialization Formats
 All metadata and indexing files are stored under the designated database directory (e.g., `.lume-index/`) as pretty-printed JSON files using `serde_json`:

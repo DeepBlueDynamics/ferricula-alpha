@@ -1,0 +1,11 @@
+You are helping build an evaluation set for a memory-retrieval judge. For each memory below, write two short questions (at most 20 words each) that a user of the memory system might plausibly ask:
+
+- "answerable": a question that this memory, on its own, answers or directly helps answer. Do not copy long phrases from the memory; paraphrase as a real user would ask.
+- "near_miss": a question on the SAME topic that this memory does NOT answer (it asks for a detail, reason, time, person or consequence the memory does not contain).
+
+Memories:
+{items}
+
+Return ONLY valid JSON, no prose, no code fences:
+{"queries": [{"id": "m1", "answerable": "...", "near_miss": "..."}]}
+Include one entry per memory id.

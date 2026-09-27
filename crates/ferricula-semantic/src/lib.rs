@@ -38,3 +38,8 @@ pub mod embedder;
 pub mod inverter;
 pub mod openai;
 pub mod similarity;
+pub mod image_embed;
+pub mod text_embed;
+
+pub use image_embed::{ImageEmbedder, ShivvrImageEmbedder};
+pub use text_embed::{NoEmbedder, ShivvrEmbedder, TextEmbedder};

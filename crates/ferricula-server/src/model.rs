@@ -1,4 +1,4 @@
-//! Pluggable inference router for the single Steve identity.
+//! Pluggable inference router for the single agent identity.
 //!
 //! Selection is offline and deterministic: ordered provider fallback, capability
 //! and context filtering, per-route daily dollar budgets, concurrency metadata,
@@ -131,6 +131,8 @@ pub struct RouteDecision {
     pub timeout_ms: u64,
     pub max_concurrency: u32,
     pub api_key_env: String,
+    /// Output headroom for thinking models, copied from the profile.
+    pub reasoning_tokens: u32,
     pub base_url: String,
     pub no_model: bool,
     pub step_index: usize,
@@ -413,7 +415,7 @@ fn utc_day(unix_secs: u64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-/// Offline model router bound to one Steve configuration.
+/// Offline model router bound to one agent configuration.
 pub struct ModelRouter {
     config: ModelRoutingConfig,
     ledger: UsageLedger,
@@ -433,7 +435,7 @@ impl ModelRouter {
     }
 
     pub fn with_defaults() -> Result<Self> {
-        Self::new(ModelRoutingConfig::steve_safe_defaults())
+        Self::new(ModelRoutingConfig::safe_defaults())
     }
 
     pub fn config(&self) -> &ModelRoutingConfig {
@@ -502,6 +504,7 @@ impl ModelRouter {
                 timeout_ms: profile.timeout_ms,
                 max_concurrency: profile.max_concurrency,
                 api_key_env: profile.api_key_env.clone(),
+                reasoning_tokens: profile.reasoning_tokens,
                 base_url: profile.base_url.clone(),
                 no_model: profile.is_no_model(),
                 step_index,
@@ -520,6 +523,7 @@ impl ModelRouter {
             timeout_ms: 1,
             max_concurrency: 1024,
             api_key_env: String::new(),
+            reasoning_tokens: 0,
             base_url: String::new(),
             no_model: true,
             step_index: 0,
@@ -626,7 +630,8 @@ impl ModelRouter {
                     body: OpenAiChatRequest {
                         model: decision.model.clone(),
                         messages,
-                        max_tokens: request.max_tokens,
+                        max_tokens: request.max_tokens
+                            .map(|t| t.saturating_add(decision.reasoning_tokens)),
                         temperature: request.temperature,
                     },
                 })
@@ -651,7 +656,8 @@ impl ModelRouter {
                     timeout_ms: decision.timeout_ms,
                     body: AnthropicMessagesRequest {
                         model: decision.model.clone(),
-                        max_tokens: request.max_tokens.unwrap_or(1024),
+                        max_tokens: request.max_tokens.unwrap_or(1024)
+                            .saturating_add(decision.reasoning_tokens),
                         system: if request.system.trim().is_empty() {
                             None
                         } else {
@@ -764,6 +770,7 @@ impl ModelRouter {
             timeout_ms: 1,
             max_concurrency: 1024,
             api_key_env: String::new(),
+            reasoning_tokens: 0,
             base_url: String::new(),
             no_model: true,
             step_index: 0,
@@ -785,10 +792,10 @@ mod tests {
     }
 
     #[test]
-    fn single_steve_identity() {
+    fn single_agent_identity() {
         let router = ModelRouter::with_defaults().unwrap();
-        assert_eq!(router.identity_name(), "Steve Jobs");
-        assert_eq!(router.config().identity.agent_id, "ferricula-stevejobs");
+        assert_eq!(router.identity_name(), crate::model_config::DEFAULT_AGENT_NAME);
+        assert_eq!(router.config().identity.agent_id, crate::model_config::DEFAULT_AGENT_ID);
     }
 
     #[test]
@@ -1019,7 +1026,7 @@ mod tests {
 
     #[test]
     fn broken_config_rejected_on_construct() {
-        let mut config = ModelRoutingConfig::steve_safe_defaults();
+        let mut config = ModelRoutingConfig::safe_defaults();
         config.routes.push(TaskRoute {
             task_class: TaskClass::Scan,
             steps: vec![RouteStep {

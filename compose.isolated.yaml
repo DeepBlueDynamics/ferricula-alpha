@@ -1,26 +1,29 @@
-# Isolated Steve test stack. Standalone — do not merge with compose.yaml
-# (merge would keep production steve-v2-runtime).
+# Isolated agent test stack. Standalone — do not merge with compose.yaml
+# (a merge would keep the production runtime volume).
 #
-# After the in-flight Piranha build of ferricula-v2-steve:2.0.0-alpha.0 finishes:
-#   cd ferricula_v2
-#   docker compose -f compose.isolated.yaml -p ferricula-v2-steve-test config -q
-#   docker compose -f compose.isolated.yaml -p ferricula-v2-steve-test up -d --no-build
+#   docker compose -f compose.isolated.yaml -p ferricula-test config -q
+#   docker compose -f compose.isolated.yaml -p ferricula-test up -d --no-build
 # API: 127.0.0.1:18875
-# Do not run this while a host docker compose build is still running.
+#
+# Environment (all optional, with defaults):
+#   FERRICULA_ISOLATED_CONFIG  host path of the config
+#                              (default ./config/agent.isolated.toml)
+#   FERRICULA_MEMORY_VOLUME    EXISTING memory volume, mounted read-only
+#                              (default ferricula-memory)
+#   FERRICULA_IMAGE            image tag (default ferricula:3.0.0-alpha.0)
 
-name: ferricula-v2-steve-test
+name: ferricula-test
 
 services:
-  steve:
-    image: ferricula-v2-steve:2.0.0-alpha.0
-    container_name: steve-jobs-v2-test
+  agent:
+    image: ${FERRICULA_IMAGE:-ferricula:3.0.0-alpha.0}
+    container_name: ferricula-agent-test
     labels:
-      - "ferricula.identity=steve"
       - "ferricula.mcp_port=18875"
       - "ferricula.mcp_path=/mcp"
       - "ferricula.token_env=FERRICULA_OPERATOR_TOKEN"
-      - "ferricula.bridge=scripts/steve_mcp_bridge.py"
-    command: ["serve", "--config", "/app/config/steve.toml"]
+      - "ferricula.bridge=scripts/ferricula_mcp_bridge.py"
+    command: ["serve", "--config", "/app/config/agent.toml"]
     init: true
     restart: "no"
     stop_grace_period: 30s
@@ -33,9 +36,9 @@ services:
     secrets:
       - ferricula_operator_token
     volumes:
-      - ./config/steve.isolated.toml:/app/config/steve.toml:ro
-      - steve-memory:/data/steve-memory:ro
-      - steve-runtime-test:/data/steve-runtime
+      - ${FERRICULA_ISOLATED_CONFIG:-./config/agent.isolated.toml}:/app/config/agent.toml:ro
+      - ferricula-memory:/data/agent-memory:ro
+      - ferricula-runtime-test:/data/agent-runtime
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
@@ -58,8 +61,8 @@ secrets:
     file: ./secrets/ferricula_operator_token
 
 volumes:
-  steve-memory:
+  ferricula-memory:
     external: true
-    name: steve-jobs-data-recovery-20260713
-  steve-runtime-test:
-    name: steve-v2-runtime-test
+    name: ${FERRICULA_MEMORY_VOLUME:-ferricula-memory}
+  ferricula-runtime-test:
+    name: ferricula-runtime-test

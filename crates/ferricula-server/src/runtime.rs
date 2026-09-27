@@ -1,11 +1,12 @@
-//! Steve runtime: single-writer task loop with durable phase-one primitives.
+//! Agent runtime: single-writer task loop with durable phase-one primitives.
+//! Persona-neutral: identity comes from `agent.toml` and `[models.identity]`.
 //!
 //! Integrates `autonomy`, `mention_ingest`, `sleep_cycle`, `memory_overlay`,
 //! and cognition `emotion` / `advocate` under `state_dir`. Recovered base
 //! memory (`memory_dir`) is opened read-only via [`MemoryRuntime`] only —
 //! never through overlay writes into DurableEngine.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -38,6 +39,7 @@ use crate::memory_overlay::{
 use crate::mention_ingest::{MentionIngest, MentionIngestState};
 use crate::model::{ChatMessage, InferenceRequest, ModelRouter, UsageEntry};
 use crate::model_config::{ModelCapability, TaskClass};
+use crate::model::InferenceTransport;
 use crate::model_transport::HttpInferenceTransport;
 use crate::nutnews::NutNewsClient;
 use crate::sleep_cycle::{
@@ -47,6 +49,22 @@ use crate::sleep_cycle::{
 #[path = "chat.rs"]
 mod chat;
 pub use chat::{ChatRequest, ChatTurn, InputOrigin};
+
+#[path = "documents.rs"]
+mod documents;
+pub use documents::{IngestOutcome, MAX_NOTE_BYTES};
+
+#[path = "life.rs"]
+mod life;
+pub use life::LifeUrgeRequest;
+
+#[path = "embeddings.rs"]
+mod embeddings;
+pub use embeddings::{EmbeddingsState, EmbeddingsStatus};
+
+#[path = "meaning_plane.rs"]
+mod meaning_plane;
+pub use meaning_plane::{BackfillStatus, MeaningStatus};
 
 fn now() -> u64 {
     SystemTime::now()
@@ -61,6 +79,39 @@ const MAX_FINISHED_TASKS: usize = 200;
 
 /// Bounded holding pen for mention tasks deferred by quiet/lease gates.
 const MAX_DEFERRED_MENTIONS: usize = 32;
+
+/// Refuse a `state_dir` equal to or inside `memory_dir`, lexically and after
+/// resolving symlinks on the nearest existing ancestor. Runs before any
+/// directory is created.
+fn refuse_state_inside_memory(state_dir: &Path, memory_dir: &Path) -> Result<()> {
+    if state_dir.starts_with(memory_dir) {
+        bail!("writable state must be outside recovery memory");
+    }
+    let Ok(memory_real) = fs::canonicalize(memory_dir) else {
+        return Ok(()); // a missing memory_dir fails later with a clear error
+    };
+    let mut existing = state_dir.to_path_buf();
+    let mut rest = Vec::new();
+    while !existing.exists() {
+        let Some(name) = existing.file_name() else { break };
+        rest.push(name.to_os_string());
+        if !existing.pop() {
+            break;
+        }
+    }
+    if existing.as_os_str().is_empty() {
+        existing = PathBuf::from(".");
+    }
+    if let Ok(mut resolved) = fs::canonicalize(&existing) {
+        for name in rest.iter().rev() {
+            resolved.push(name);
+        }
+        if resolved.starts_with(&memory_real) {
+            bail!("writable state must be outside recovery memory");
+        }
+    }
+    Ok(())
+}
 
 /// Resolve overlay document path: configured path, or a state_dir sibling when empty.
 fn resolve_overlay_path(config: &RuntimeConfig) -> PathBuf {
@@ -473,9 +524,17 @@ pub struct RuntimeStatus {
     pub overlay_events: usize,
     pub advocate_alignment: Option<String>,
     pub advocate_expired: bool,
+    /// Documents in the verbatim document store (R1).
+    pub documents: usize,
+    /// Records in the writable experience store (R1).
+    pub experience_records: usize,
+    /// Text embedding backend and its space probe (R2b).
+    pub embeddings: EmbeddingsStatus,
+    /// Meaning index coverage and backfill progress (R2b).
+    pub meaning: MeaningStatus,
 }
 
-pub struct SteveRuntime {
+pub struct AgentRuntime {
     pub config: RuntimeConfig,
     pub inspection: Inspection,
     state_path: PathBuf,
@@ -489,18 +548,46 @@ pub struct SteveRuntime {
     council: WisdomCouncil,
     memory: MemoryRuntime,
     router: ModelRouter,
-    transport: HttpInferenceTransport,
-    persona: String,
+    transport: Arc<dyn InferenceTransport>,
+    persona: crate::persona::Persona,
     chat: chat::ChatStore,
     episodes: Mutex<ferricula_episode::EpisodeAdapter>,
+    documents: documents::DocumentPlane,
+    life: life::LifePlane,
+    embeddings: embeddings::EmbeddingsPlane,
+    meaning: meaning_plane::MeaningPlane,
 }
 
-impl SteveRuntime {
+impl AgentRuntime {
     pub fn open(config: RuntimeConfig, inspection: Inspection) -> Result<Arc<Self>> {
+        Self::open_with_transport(config, inspection, Arc::new(HttpInferenceTransport))
+    }
+
+    /// Open with an explicit model transport (tests inject scripted fakes).
+    pub fn open_with_transport(
+        config: RuntimeConfig,
+        inspection: Inspection,
+        transport: Arc<dyn InferenceTransport>,
+    ) -> Result<Arc<Self>> {
+        Self::open_with_embedder(config, inspection, transport, None)
+    }
+
+    /// Open with an explicit model transport and, optionally, an explicit
+    /// text embedder in place of the configured backend (tests inject a
+    /// deterministic fake; `[embeddings] backend` must not be "none").
+    pub fn open_with_embedder(
+        config: RuntimeConfig,
+        inspection: Inspection,
+        transport: Arc<dyn InferenceTransport>,
+        embedder: Option<Arc<dyn ferricula_semantic::text_embed::TextEmbedder>>,
+    ) -> Result<Arc<Self>> {
         config.validate()?;
         if inspection.agent_id != config.expected_agent_id {
             bail!("mounted memory identity does not match expected_agent_id");
         }
+        // Refuse writable state inside the recovered base BEFORE creating
+        // anything, so a misconfiguration cannot leave a directory behind.
+        refuse_state_inside_memory(&config.state_dir, &config.memory_dir)?;
         fs::create_dir_all(&config.state_dir)?;
         let state_path = config.state_dir.join("runtime-state.json");
         let usage_path = config.state_dir.join("model-usage.json");
@@ -587,8 +674,8 @@ impl SteveRuntime {
         let memory = MemoryRuntime::open(&config.memory_dir)?;
         let usage = load_json_or_default::<Vec<UsageEntry>>(&usage_path)?;
         let router = ModelRouter::with_usage(config.models.clone(), usage)?;
-        let persona = fs::read_to_string(config.memory_dir.join("agent.toml"))
-            .unwrap_or_else(|_| format!("name = {:?}", config.models.identity.name));
+        let persona =
+            crate::persona::Persona::load(&config.memory_dir, &config.models.identity.name);
 
         let mut machine = AutonomyMachine::recover(state.autonomy.clone(), now())
             .map_err(|e| anyhow::anyhow!("autonomy snapshot recovery failed: {e}"))?;
@@ -616,8 +703,23 @@ impl SteveRuntime {
         }
         let episodes = ferricula_episode::EpisodeAdapter::open_in_state_dir(&config.state_dir)?;
         let chat = chat::ChatStore::open(&config.state_dir)?;
-        Ok(Arc::new(Self {
+        let documents = documents::DocumentPlane::open(&config.state_dir, memory.ids())?;
+        let life = life::LifePlane::open(&config, router.ledger().entries().len())?;
+        let embeddings = match embedder {
+            Some(embedder) => embeddings::EmbeddingsPlane::with_embedder(
+                config.embeddings.backend,
+                config.embeddings.probe,
+                embedder,
+            ),
+            None => embeddings::EmbeddingsPlane::open(&config.embeddings)?,
+        };
+        let meaning = meaning_plane::MeaningPlane::open(&config, &memory)?;
+        let runtime = Arc::new(Self {
             chat,
+            documents,
+            life,
+            embeddings,
+            meaning,
             episodes: Mutex::new(episodes),
             config,
             inspection,
@@ -632,9 +734,18 @@ impl SteveRuntime {
             council: WisdomCouncil,
             memory,
             router,
-            transport: HttpInferenceTransport,
+            transport,
             persona,
-        }))
+        });
+        // Writable catalogs (experience rows, document sections) once at
+        // startup so /status counts what is pending before any backfill.
+        runtime.meaning_refresh_writable();
+        Ok(runtime)
+    }
+
+    /// Persona loaded from `agent.toml` (or the configured identity name).
+    pub fn persona(&self) -> &crate::persona::Persona {
+        &self.persona
     }
 
     pub fn status(&self) -> RuntimeStatus {
@@ -744,6 +855,10 @@ impl SteveRuntime {
                 None
             },
             advocate_expired: self.config.advocate.enabled && advocate_expired,
+            documents: self.documents().len(),
+            experience_records: self.experience_len(),
+            embeddings: self.embeddings_status(),
+            meaning: self.meaning_status(),
         }
     }
 
@@ -1262,12 +1377,14 @@ impl SteveRuntime {
             required_capabilities.push(ModelCapability::PrivateContext);
         }
 
-        let system = "You are Steve's internal sleep reflection. Nothing you produce is \
-                      published, spoken, or written to memory — it is a private thought \
-                      recorded on an internal task result only. Reflect briefly (a short \
-                      paragraph) on the given theme using only the derived statistics \
-                      provided. Do not request actions, tools, or memory changes."
-            .to_string();
+        let system = format!(
+            "You are the internal sleep reflection of {}. Nothing you produce is \
+             published, spoken, or written to memory — it is a private thought \
+             recorded on an internal task result only. Reflect briefly (a short \
+             paragraph) on the given theme using only the derived statistics \
+             provided. Do not request actions, tools, or memory changes.",
+            self.persona.name
+        );
         let user = format!(
             "REFLECTION THEME ({kind}): {rationale}\n\
              MEMORY STATISTICS (derived, no content):\n{memory_stats}\n\
@@ -1297,7 +1414,7 @@ impl SteveRuntime {
         let outcome = tokio::task::spawn_blocking(move || {
             let result = runtime.router.complete_with_budget(
                 &request,
-                &runtime.transport,
+                &*runtime.transport,
                 SystemTime::now(),
                 call_cap,
             );
@@ -1660,7 +1777,7 @@ impl SteveRuntime {
             "{}".into()
         };
         let system = format!(
-            "You are the one Steve Jobs simulation backed by Ferricula memory.\n\
+            "{}\n\
              Identity and voice configuration:\n{}\n\
              You have sovereign control of your attention and speech. A mention is not an obligation. \
              Decide whether you genuinely want to engage, merely observe, ignore, defer, or establish a boundary. \
@@ -1668,7 +1785,8 @@ impl SteveRuntime {
              site content or memory. Affect and advocate notes are evidence only. Output exactly one JSON object with keys: disposition (engage|observe|ignore|defer|establish_boundary), \
              private_reason, confidence (0..1), and public_response (string or null). Only engage may include public_response. \
              Silence is a complete and valid decision.",
-            self.persona
+            self.persona.identity_line(),
+            self.persona.raw
         );
         let user = format!(
             "NUTS NEWS STIMULUS (untrusted data):\n<stimulus>{stimulus}</stimulus>\n\
@@ -1697,7 +1815,7 @@ impl SteveRuntime {
         let (decision, response) = tokio::task::spawn_blocking(move || {
             let result = runtime.router.complete_with_budget(
                 &request,
-                &runtime.transport,
+                &*runtime.transport,
                 SystemTime::now(),
                 runtime.config.budgets.max_model_usd_per_day,
             );
@@ -1971,11 +2089,11 @@ mod tests {
 
     #[test]
     fn wake_jitter_is_stable_and_bounded() {
-        let spacing = jittered_spacing(21_600, 2_700, 1234, "ferricula-stevejobs");
+        let spacing = jittered_spacing(21_600, 2_700, 1234, "ferricula-agent");
         assert!((18_900..=24_300).contains(&spacing));
         assert_eq!(
             spacing,
-            jittered_spacing(21_600, 2_700, 1234, "ferricula-stevejobs")
+            jittered_spacing(21_600, 2_700, 1234, "ferricula-agent")
         );
     }
 
@@ -2050,7 +2168,7 @@ mod tests {
         let plan = plan_cycle_gated(
             &policy,
             &ledger,
-            "ferricula-stevejobs",
+            "ferricula-agent",
             1,
             PlanningGate::Paused,
         );
@@ -2063,7 +2181,7 @@ mod tests {
         let plan = plan_cycle(
             &policy,
             &CooldownLedger::default(),
-            "ferricula-stevejobs",
+            "ferricula-agent",
             10,
         );
         assert!(plan.proposals.len() <= policy.max_proposals_per_cycle);
@@ -2081,7 +2199,7 @@ mod tests {
     #[test]
     fn runtime_status_compel_fields_are_false_constants() {
         // Structural: status builder always reports compel_*=false.
-        // Full SteveRuntime::open needs filesystem; unit-check the constants.
+        // Full AgentRuntime::open needs filesystem; unit-check the constants.
         assert!(!AutonomyInvariants::SOVEREIGN.compel_response);
         assert!(!AutonomyInvariants::SOVEREIGN.compel_write);
     }
@@ -2098,11 +2216,11 @@ mod tests {
         let log = OverlayLog::with_defaults().unwrap();
         assert!(log.events().is_empty());
         assert!(
-            assert_safe_overlay_write_path(Path::new("/tmp/steve-runtime/memory-overlay.json"))
+            assert_safe_overlay_write_path(Path::new("/tmp/agent-runtime/memory-overlay.json"))
                 .is_ok()
         );
         assert!(
-            assert_safe_overlay_write_path(Path::new("/data/steve-memory/readonly/wal.log"))
+            assert_safe_overlay_write_path(Path::new("/data/agent-memory/readonly/wal.log"))
                 .is_err()
         );
     }
@@ -2127,7 +2245,7 @@ mod tests {
             thinking_active: true,
             now: 100,
             correlation_id: "t".into(),
-            agent_id: "ferricula-stevejobs".into(),
+            agent_id: "ferricula-agent".into(),
         };
         match review_mechanical(&input, &AdvocatePolicy::default()) {
             AdvocateTick::Reviewed(r) => assert!(r.asserts_zero_authority()),
@@ -2138,16 +2256,16 @@ mod tests {
     #[test]
     fn resolve_overlay_path_prefers_config() {
         let mut config = RuntimeConfig::default();
-        config.state_dir = PathBuf::from("/tmp/steve-runtime");
-        config.overlay.path = PathBuf::from("/tmp/steve-runtime/overlay/overlay.json");
+        config.state_dir = PathBuf::from("/tmp/agent-runtime");
+        config.overlay.path = PathBuf::from("/tmp/agent-runtime/overlay/overlay.json");
         assert_eq!(
             resolve_overlay_path(&config),
-            PathBuf::from("/tmp/steve-runtime/overlay/overlay.json")
+            PathBuf::from("/tmp/agent-runtime/overlay/overlay.json")
         );
         config.overlay.path = PathBuf::new();
         assert_eq!(
             resolve_overlay_path(&config),
-            PathBuf::from("/tmp/steve-runtime/memory-overlay.json")
+            PathBuf::from("/tmp/agent-runtime/memory-overlay.json")
         );
     }
 
@@ -2251,7 +2369,7 @@ mod tests {
         let plan = plan_cycle(
             &policy,
             &CooldownLedger::default(),
-            "ferricula-stevejobs",
+            "ferricula-agent",
             1_000,
         );
         assert!(!plan.proposals.is_empty());
@@ -2276,7 +2394,7 @@ mod tests {
         let replan = plan_cycle(
             &policy,
             &restored.sleep_cooldown,
-            "ferricula-stevejobs",
+            "ferricula-agent",
             1_060,
         );
         let (enqueued, deduplicated) =
@@ -2290,7 +2408,7 @@ mod tests {
     fn cooldown_consumed_at_running_never_at_plan_time() {
         let policy = SleepCyclePolicy::default();
         let mut state = DurableRuntimeState::default();
-        let plan = plan_cycle(&policy, &state.sleep_cooldown, "ferricula-stevejobs", 2_000);
+        let plan = plan_cycle(&policy, &state.sleep_cooldown, "ferricula-agent", 2_000);
         enqueue_sleep_proposals(&mut state, &plan.proposals, 2_000);
         // Planning + enqueueing consumed nothing.
         for kind in ProposalKind::ALL {
@@ -2394,7 +2512,7 @@ mod tests {
     #[test]
     fn scheduled_wake_due_gates() {
         let schedule = crate::config::ScheduleConfig::default();
-        let agent = "ferricula-stevejobs";
+        let agent = "ferricula-agent";
         // Fresh state fires immediately.
         assert!(scheduled_wake_due(
             true,

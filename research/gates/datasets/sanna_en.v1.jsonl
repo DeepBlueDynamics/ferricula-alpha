@@ -1,0 +1,30 @@
+{"id":"sen0001","text":"Kord Campbell leads DeepBlue Dynamics and directed the ferricula_v2 rebuild.","sanna":"KO","source":"authored"}
+{"id":"sen0002","text":"The Pharaon is a three-masted ship that arrived at Marseille in 1815.","sanna":"KIM","source":"authored: Dumas"}
+{"id":"sen0003","text":"The recovery volume was snapshotted on 2026-07-13 and mounted read-only.","sanna":"KADA","source":"authored"}
+{"id":"sen0004","text":"The Steve instance runs in an isolated container bound to host port 18875.","sanna":"KATTHA","source":"authored"}
+{"id":"sen0005","text":"The merge was rejected because the contradiction question returned 0.8, above the review threshold.","sanna":"KASMA","source":"authored"}
+{"id":"sen0006","text":"To revoke a token, rotate the secret, then restart the server with the new file mounted.","sanna":"KATHAM","source":"authored"}
+{"id":"sen0007","text":"Alice Nakamura maintains the ingestion pipeline and reviews every crawler change.","sanna":"KO","source":"authored"}
+{"id":"sen0008","text":"Ojā is the brightness or fidelity of a memory; it decays but the text survives.","sanna":"KIM","source":"authored"}
+{"id":"sen0009","text":"Standup happens every weekday at 09:30; on the 26th it moved to 09:45.","sanna":"KADA","source":"authored"}
+{"id":"sen0010","text":"The audit ledger lives under audit/2026-09-26 in the workspace root.","sanna":"KATTHA","source":"authored"}
+{"id":"sen0011","text":"Decay governs retrieval priority rather than deletion, so that text is never lost to entropy.","sanna":"KASMA","source":"authored"}
+{"id":"sen0012","text":"Fit the temperature by minimizing negative log-likelihood over the recovered logits on train and dev.","sanna":"KATHAM","source":"authored"}
+{"id":"sen0013","text":"Technical Viper runs the parity benchmarks and keeps the independent evidence ledger.","sanna":"KO","source":"authored"}
+{"id":"sen0014","text":"A nimitta is a 384-dimensional embedding vector representing one memory.","sanna":"KIM","source":"authored"}
+{"id":"sen0015","text":"Forty-six sessions were recorded between March 3rd and April 18th of last year.","sanna":"KADA","source":"authored"}
+{"id":"sen0016","text":"The calibration file sits next to the Modelfile in the registry mirror.","sanna":"KATTHA","source":"authored"}
+{"id":"sen0017","text":"The gate abstains because the state window truncated the cluster above 512 tokens.","sanna":"KASMA","source":"authored"}
+{"id":"sen0018","text":"Seal a memory by moving its section to the sealed index and setting the sealed flag.","sanna":"KATHAM","source":"authored"}
+{"id":"sen0019","text":"Bhante Sujato translated the four Nikāyas into English for SuttaCentral.","sanna":"KO","source":"authored"}
+{"id":"sen0020","text":"Upekkhā removes the text but keeps the nimitta so gist-level retrieval still works.","sanna":"KIM","source":"authored"}
+{"id":"sen0021","text":"The nightly bhāvanā cycle starts at 03:00 and finishes before 04:00.","sanna":"KADA","source":"authored"}
+{"id":"sen0022","text":"The failures index is stored separately from the success pool.","sanna":"KATTHA","source":"authored"}
+{"id":"sen0023","text":"Overlays are excluded from training because reconstructions are never training data.","sanna":"KASMA","source":"authored"}
+{"id":"sen0024","text":"Measure anchor recall by querying each anchored memory directly and counting hits.","sanna":"KATHAM","source":"authored"}
+{"id":"sen0025","text":"Driving Penguin owns ferricula-search and the Lume integration seam.","sanna":"KO","source":"authored"}
+{"id":"sen0026","text":"The self-judgment gap is the difference between the agent's own verdict and the evidence.","sanna":"KIM","source":"authored"}
+{"id":"sen0027","text":"Week 6 of the tenure curve was measured on the second Tuesday of the run.","sanna":"KADA","source":"authored"}
+{"id":"sen0028","text":"Keystones are pinned at the top of the retrieval ranking.","sanna":"KATTHA","source":"authored"}
+{"id":"sen0029","text":"The briefing is ephemeral so that curated advice never enters the raw store.","sanna":"KASMA","source":"authored"}
+{"id":"sen0030","text":"Compute the valence skew as KL divergence between the retrieved set and the store histogram.","sanna":"KATHAM","source":"authored"}

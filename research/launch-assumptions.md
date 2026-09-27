@@ -10,7 +10,7 @@
 
 ## 1. Evidentiary Audit: Corrected Agreements & Formal Retractions
 
-We have audited [`ARCHITECTURE.md`](file:///workspace/memory/ARCHITECTURE.md), [`BUILD_PLAN.md`](file:///workspace/memory/BUILD_PLAN.md), and Goldfish’s [`research/hoover-vs-ferricula.md`](file:///workspace/memory/research/hoover-vs-ferricula.md). We record the following verified agreements, corrected mathematical formulations, and formal retractions per Rule 6:
+We have audited `ARCHITECTURE.md` (fleet workspace, not in this repo), `BUILD_PLAN.md` (fleet workspace, not in this repo), and Goldfish’s [`research/hoover-vs-ferricula.md`](hoover-vs-ferricula.md). We record the following verified agreements, corrected mathematical formulations, and formal retractions per Rule 6:
 
 ### 1.1 Mathematical & Code Findings
 
@@ -25,7 +25,7 @@ We have audited [`ARCHITECTURE.md`](file:///workspace/memory/ARCHITECTURE.md), [
    - *Retraction:* I previously defended Proposition 1 by assuming local $|B(x)| \le 20$ and random linear independence of actual embedding vectors. Both were unverified assumptions.
    - *Correction:* We withdraw the attempt to repair Proposition 1 with assumed cardinality bounds. When $M > d$, random vectors cannot be globally linearly independent, and actual semantic embeddings exhibit local cluster collinearity. Goldfish's objection to Proposition 1 stands.
 4. **Survivor vs. Centroid Baseline Reality:**
-   - *Verified:* Both `ferricula/src/dream.rs:394` (v1/alpha/Steve) and `ferricula_v2/crates/ferricula-cognition/src/dream.rs:416` (v2) select the **highest-fidelity survivor** (`survivor = group.iter().max_by(...)`), re-point edges, and **archive absorbed records**. Neither averages vectors nor computes an energy function.
+   - *Verified:* Both `ferricula/src/dream.rs:394` (v1/alpha/Steve) and `crates/ferricula-cognition/src/dream.rs:416` (v2) select the **highest-fidelity survivor** (`survivor = group.iter().max_by(...)`), re-point edges, and **archive absorbed records**. Neither averages vectors nor computes an energy function.
    - *Verified:* The claim in `engine-from-local-writeup.md` of a "Weighted Centroid" was factually false regarding checked-in code.
 5. **Unsupported Queries ($E = +\infty$ or $\nabla E = 0$):**
    - *Verified:* For cues where $\forall \mu, \|x - \xi^\mu\| > \sqrt{2/\beta}$, the Epanechnikov kernel evaluates to identically zero across all memories. If $\epsilon = 0$, $E = +\infty$; if $\epsilon > 0$, $\nabla E = 0$.
@@ -121,12 +121,12 @@ All empirical references must cite specific index runs and dated artifacts:
 
 | Dataset / Source Name | Storage Location / URI | Provenance & Generation Timestamp | Research Role |
 |---|---|---|---|
-| **Local Memory Corpus** | `/workspace/memory/research/` | 44 files, 720 sections (2026-09-19T03:00Z index run)<br>46 files, 750 sections (2026-09-19T05:14Z index run) | Evidence plane benchmark for hybrid search & indexing. |
-| **arXiv Research Papers** | `/workspace/memory/research/*.pdf` | 11 PDFs (including `2506.10801.pdf`, `2601.01253.pdf`, `2604.07401.pdf`) | Theoretical reference for LSR, DMFT, and DenseAM. |
-| **Extracted Hoover Text** | [`research/2506.10801_extracted.md`](file:///workspace/memory/research/2506.10801_extracted.md) | 22 pages verbatim via `pypdf` (arXiv:2506.10801v2) | Mathematical reference text for LSR equations. |
-| **LoCoMo Benchmark** | Referenced in `benchmarks.md` & [`2402.17753.pdf`](file:///workspace/memory/research/2402.17753.pdf) | Maharana et al. (300 turns, 35 sessions) | Longitudinal conversational memory evaluation. |
-| **BEAM Benchmark** | Referenced in `benchmarks.md` & [`2510.27246.pdf`](file:///workspace/memory/research/2510.27246.pdf) | Tavakoli et al. (1M to 10M token test suite) | Stress test for cross-session recall and contradiction handling. |
-| **Kord Campbell Transcript** | [`research/kordcampbellselfawaremachines.txt`](file:///workspace/memory/research/kordcampbellselfawaremachines.txt) | Auto-caption transcript, Lucidworks Activate | Source authority for situated awareness and empty throne. |
+| **Local Memory Corpus** | `research/` | 44 files, 720 sections (2026-09-19T03:00Z index run)<br>46 files, 750 sections (2026-09-19T05:14Z index run) | Evidence plane benchmark for hybrid search & indexing. |
+| **arXiv Research Papers** | `research/*.pdf` | 11 PDFs (including `2506.10801.pdf`, `2601.01253.pdf`, `2604.07401.pdf`) | Theoretical reference for LSR, DMFT, and DenseAM. |
+| **Extracted Hoover Text** | [`research/2506.10801_extracted.md`](2506.10801_extracted.md) | 22 pages verbatim via `pypdf` (arXiv:2506.10801v2) | Mathematical reference text for LSR equations. |
+| **LoCoMo Benchmark** | Referenced in `benchmarks.md` & [arXiv:2402.17753](https://arxiv.org/abs/2402.17753) | Maharana et al. (300 turns, 35 sessions) | Longitudinal conversational memory evaluation. |
+| **BEAM Benchmark** | Referenced in `benchmarks.md` & [arXiv:2510.27246](https://arxiv.org/abs/2510.27246) | Tavakoli et al. (1M to 10M token test suite) | Stress test for cross-session recall and contradiction handling. |
+| **Kord Campbell Transcript** | [`research/kordcampbellselfawaremachines.txt`](kordcampbellselfawaremachines.txt) | Auto-caption transcript, Lucidworks Activate | Source authority for situated awareness and empty throne. |
 
 ---
 

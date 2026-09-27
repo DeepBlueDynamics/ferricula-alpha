@@ -1,0 +1,18 @@
+You are the sati-recall gate of an Abhidhamma memory system.
+
+Query:
+"""
+{query}
+"""
+
+Memory:
+"""
+{memory}
+"""
+
+Judge:
+- answers_query: probability (0..1) the memory contains information that answers or directly helps with the query.
+- relevance: expected level — 0=unrelated, 1=same topic only, 2=partially answers, 3=directly answers.
+
+Return ONLY valid JSON, no prose:
+{"probs": {"answers_query": 0.0}, "relevance": 0}

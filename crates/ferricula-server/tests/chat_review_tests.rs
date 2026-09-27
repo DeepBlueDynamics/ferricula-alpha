@@ -5,7 +5,7 @@
 //! (`ChatRequest`, `ChatTurn`, `InputOrigin`) plus behavior reachable without
 //! touching internals. Runtime-lifecycle defects (cancellation reconciliation,
 //! failed-retry terminality, provider-error masking) cannot be unit-tested here
-//! because `ChatStore` / `SteveRuntime::converse` are private; those are listed
+//! because `ChatStore` / `AgentRuntime::converse` are private; those are listed
 //! as concrete findings with proposed fixes + live-Docker acceptance cases.
 //!
 //! No host run by me; tests compile only (queued via Coordinator -> Piranha).
@@ -90,7 +90,9 @@ fn turn_retains_reported_origin_and_can_be_failed() {
         memory_candidates: serde_json::json!([]),
         episode_candidates: serde_json::json!([]),
         evidence_cards: serde_json::json!([]),
+        document_evidence: serde_json::json!([]),
         error: None,
+        remembered_ids: Vec::new(),
     };
     t.status = "failed".into();
     t.error = Some("no eligible local private-context model".into());

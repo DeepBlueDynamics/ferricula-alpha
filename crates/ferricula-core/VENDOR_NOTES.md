@@ -5,7 +5,7 @@ This crate contains the core storage, engine, memory, persistent engine, prime t
 *Credit to Planned Primate for completing the initial copy of these core modules.*
 
 ## Source of Code
-- Original codebase: `/workspace/DeepBlueDynamics/ferricula/src/`
+- Original codebase: `ferricula/src/`
 - Vendored files:
   - `engine.rs`
   - `graph.rs`

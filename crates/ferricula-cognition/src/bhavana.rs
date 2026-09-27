@@ -32,7 +32,7 @@ use crate::gates::MergeGate;
 use crate::karmic::{KarmicEntry, KarmicEvent, KarmicSink};
 use crate::scope::AgentId;
 
-pub const BHAVANA_OPERATOR_VERSION: &str = "bhavana/2.0.0-alpha.0";
+pub const BHAVANA_OPERATOR_VERSION: &str = "bhavana/3.0.0-alpha.0";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

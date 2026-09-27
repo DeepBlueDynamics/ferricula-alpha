@@ -101,6 +101,17 @@ pub fn filter_query_stopwords(tokens: Vec<crate::Token>) -> Vec<crate::Token> {
     if filtered.is_empty() { tokens } else { filtered }
 }
 
+/// Whether lume prints ranking diagnostics to stderr. Read once from
+/// `LUME_DEBUG` (any value other than empty, `0`, `false` or `off` enables it).
+pub fn debug_enabled() -> bool {
+    static FLAG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *FLAG.get_or_init(|| {
+        std::env::var("LUME_DEBUG")
+            .map(|v| !matches!(v.trim().to_ascii_lowercase().as_str(), "" | "0" | "false" | "off"))
+            .unwrap_or(false)
+    })
+}
+
 /// Represents a section parsed from a Markdown document.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Section {
@@ -441,6 +452,65 @@ impl Bm25Index {
         }
     }
 
+    /// Add sections to an index built without a tagger, in place.
+    ///
+    /// The result is identical to `Bm25Index::build(old ++ new, None)`:
+    /// section ids continue from `num_docs`, term/document frequencies and
+    /// posting lists are extended, and the average field lengths are
+    /// recomputed from the exact integer totals (not from the old float
+    /// averages), so scores match a full rebuild bit for bit. Tag primes
+    /// (which need a whole-corpus tagger pass) are not extended; an index
+    /// built with a tagger should be rebuilt instead.
+    pub fn append(&mut self, sections: Vec<Section>) {
+        for sec in sections {
+            let doc_id = self.sections.len() as u32;
+            let t_toks = tokenize(&sec.title);
+            let b_toks = tokenize(&sec.body);
+            self.title_lens.push(t_toks.len());
+            self.body_lens.push(b_toks.len());
+
+            let mut t_tf = HashMap::new();
+            for tok in &t_toks {
+                *t_tf.entry(tok.bytes.clone()).or_insert(0) += 1;
+                self.posting_lists.entry(tok.bytes.clone()).or_default().insert(doc_id);
+            }
+            for tok_bytes in t_tf.keys() {
+                *self.title_dfs.entry(tok_bytes.clone()).or_insert(0) += 1;
+            }
+            self.title_tfs.push(t_tf);
+
+            let mut b_tf = HashMap::new();
+            for tok in &b_toks {
+                *b_tf.entry(tok.bytes.clone()).or_insert(0) += 1;
+                self.posting_lists.entry(tok.bytes.clone()).or_default().insert(doc_id);
+            }
+            for tok_bytes in b_tf.keys() {
+                *self.body_dfs.entry(tok_bytes.clone()).or_insert(0) += 1;
+            }
+            self.body_tfs.push(b_tf);
+
+            let mut pf = PrimeFilter::new();
+            for tok in t_toks.iter().chain(b_toks.iter()) {
+                pf.add_term(&tok.bytes);
+            }
+            for ent in &sec.entities {
+                let ent_key = ent.trim().to_lowercase();
+                if !ent_key.is_empty() && ent_key != "__lume_processed__" {
+                    self.entity_posting_lists.entry(ent_key.clone()).or_default().insert(doc_id);
+                    self.entity_kinds.entry(ent_key.clone()).or_insert_with(|| "ollama".to_string());
+                    self.entity_labels.entry(ent_key.clone()).or_insert_with(|| ent.clone());
+                }
+            }
+            self.prime_filters.push(pf);
+            self.sections.push(sec);
+        }
+        self.num_docs = self.sections.len();
+        let (total_title, total_body): (usize, usize) =
+            (self.title_lens.iter().sum(), self.body_lens.iter().sum());
+        self.avg_title_len = if self.num_docs > 0 { total_title as f64 / self.num_docs as f64 } else { 0.0 };
+        self.avg_body_len = if self.num_docs > 0 { total_body as f64 / self.num_docs as f64 } else { 0.0 };
+    }
+
     /// Evaluates a query and returns matching sections ordered by their BM25 score.
     pub fn search(
         &self,
@@ -553,11 +623,14 @@ impl Bm25Index {
             pruned_candidates.push(doc_id);
         }
 
-        let pruning_elapsed = start_pruning.elapsed();
-        eprintln!(
-            "\x1B[32m[Two-Stage Pruning] Pruned candidate space from {} to {} (roaring generated: {}) sections in {:.2?}\x1B[0m",
-            self.num_docs, pruned_candidates.len(), num_candidates_roaring, pruning_elapsed
-        );
+        let debug = debug_enabled();
+        if debug {
+            let pruning_elapsed = start_pruning.elapsed();
+            eprintln!(
+                "\x1B[32m[Two-Stage Pruning] Pruned candidate space from {} to {} (roaring generated: {}) sections in {:.2?}\x1B[0m",
+                self.num_docs, pruned_candidates.len(), num_candidates_roaring, pruning_elapsed
+            );
+        }
 
         // Stage 2: Heavy Scoring on active candidates only
         let mut hits = Vec::new();
@@ -664,59 +737,62 @@ impl Bm25Index {
             }
         }
         
-        // Print high-level Rejection Accounting summary to stderr
-        eprintln!("\x1B[33mCandidates: {}\x1B[0m", num_candidates_roaring);
-        eprintln!("\x1B[33mRanked: {}\x1B[0m", hits.len());
-        eprintln!("\x1B[33mRejected:\x1B[0m");
-        eprintln!("  MissingSection: {}", rejected_missing);
-        eprintln!("  EmptyText: {}", rejected_empty);
-        eprintln!("  FieldNotRankable: {}", rejected_not_rankable);
-        eprintln!("  TagSignatureMismatch: {}", rejected_tag_mismatch);
-        eprintln!("  NoTokenMatch: {}", rejected_no_token);
-        eprintln!("  ScoreBelowThreshold: {}", rejected_below_threshold);
+        if debug {
+            // Print high-level Rejection Accounting summary to stderr
+            eprintln!("\x1B[33mCandidates: {}\x1B[0m", num_candidates_roaring);
+            eprintln!("\x1B[33mRanked: {}\x1B[0m", hits.len());
+            eprintln!("\x1B[33mRejected:\x1B[0m");
+            eprintln!("  MissingSection: {}", rejected_missing);
+            eprintln!("  EmptyText: {}", rejected_empty);
+            eprintln!("  FieldNotRankable: {}", rejected_not_rankable);
+            eprintln!("  TagSignatureMismatch: {}", rejected_tag_mismatch);
+            eprintln!("  NoTokenMatch: {}", rejected_no_token);
+            eprintln!("  ScoreBelowThreshold: {}", rejected_below_threshold);
 
-        // Trigger deep diagnostic explanation if hits is empty but we had candidates
-        if hits.is_empty() && num_candidates_roaring > 0 {
-            eprintln!("\n\x1B[1;31m🔍 [Deep Rejection Diagnostics] Why zero ranked results?\x1B[0m");
-            for detail in &candidate_details {
-                if let Some(reason) = detail.rejected {
-                    let doc_id = detail.section_id;
-                    eprintln!("  \x1B[1;33mCandidate {} rejected:\x1B[0m {:?}", doc_id, reason);
+            // Trigger deep diagnostic explanation if hits is empty but we had candidates
+            if hits.is_empty() && num_candidates_roaring > 0 {
+                eprintln!("\n\x1B[1;31m🔍 [Deep Rejection Diagnostics] Why zero ranked results?\x1B[0m");
+                for detail in &candidate_details {
+                    if let Some(reason) = detail.rejected {
+                        let doc_id = detail.section_id;
+                        eprintln!("  \x1B[1;33mCandidate {} rejected:\x1B[0m {:?}", doc_id, reason);
                     
-                    let doc_idx = doc_id as usize;
-                    if doc_idx < self.sections.len() {
-                        let sec = &self.sections[doc_idx];
-                        eprintln!("     - Header: {:?}", sec.title);
-                        eprintln!("     - Body Snippet: {:?}", if sec.body.len() > 100 { format!("{}...", &sec.body[..100]) } else { sec.body.clone() });
+                        let doc_idx = doc_id as usize;
+                        if doc_idx < self.sections.len() {
+                            let sec = &self.sections[doc_idx];
+                            eprintln!("     - Header: {:?}", sec.title);
+                            eprintln!("     - Body Snippet: {:?}", if sec.body.len() > 100 { format!("{}...", &sec.body[..100]) } else { sec.body.clone() });
                         
-                        let title_tokens = tokenize(&sec.title);
-                        let body_tokens = tokenize(&sec.body);
+                            let title_tokens = tokenize(&sec.title);
+                            let body_tokens = tokenize(&sec.body);
                         
-                        let title_terms: Vec<String> = title_tokens.iter().map(|t| String::from_utf8_lossy(&t.bytes).to_string()).collect();
-                        let body_terms: Vec<String> = body_tokens.iter().map(|t| String::from_utf8_lossy(&t.bytes).to_string()).collect();
+                            let title_terms: Vec<String> = title_tokens.iter().map(|t| String::from_utf8_lossy(&t.bytes).to_string()).collect();
+                            let body_terms: Vec<String> = body_tokens.iter().map(|t| String::from_utf8_lossy(&t.bytes).to_string()).collect();
                         
-                        eprintln!("     - Title Tokens: {:?}", title_terms);
-                        eprintln!("     - Body Tokens: {:?}", body_terms);
+                            eprintln!("     - Title Tokens: {:?}", title_terms);
+                            eprintln!("     - Body Tokens: {:?}", body_terms);
                         
-                        let pf = &self.prime_filters[doc_idx];
+                            let pf = &self.prime_filters[doc_idx];
                         
-                        eprintln!("     - Token-by-Token Query Evaluation:");
-                        for q_tok in &query_tokens {
-                            let term_str = String::from_utf8_lossy(&q_tok.bytes);
-                            let prime_match = pf.test_term(&q_tok.bytes);
+                            eprintln!("     - Token-by-Token Query Evaluation:");
+                            for q_tok in &query_tokens {
+                                let term_str = String::from_utf8_lossy(&q_tok.bytes);
+                                let prime_match = pf.test_term(&q_tok.bytes);
                             
-                            let title_tf = self.title_tfs[doc_idx].get(&q_tok.bytes).copied().unwrap_or(0);
-                            let body_tf = self.body_tfs[doc_idx].get(&q_tok.bytes).copied().unwrap_or(0);
+                                let title_tf = self.title_tfs[doc_idx].get(&q_tok.bytes).copied().unwrap_or(0);
+                                let body_tf = self.body_tfs[doc_idx].get(&q_tok.bytes).copied().unwrap_or(0);
                             
-                            eprintln!(
-                                "       * Term '{}' -> Prime Filter Match: {} | Title TF: {} | Body TF: {}",
-                                term_str, prime_match, title_tf, body_tf
-                            );
+                                eprintln!(
+                                    "       * Term '{}' -> Prime Filter Match: {} | Title TF: {} | Body TF: {}",
+                                    term_str, prime_match, title_tf, body_tf
+                                );
+                            }
                         }
                     }
                 }
+                eprintln!();
             }
-            eprintln!();
+
         }
 
         hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
@@ -757,6 +833,53 @@ fn calculate_bm25_term_score(
         SearchVariant::L => {
             let scaled_tf = tf / len_normalization;
             idf * (scaled_tf * (k1 + 1.0)) / (scaled_tf + k1)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sec(title: &str, body: &str) -> Section {
+        Section { title: title.into(), body: body.into(), line_number: 0, filename: None, entities: Vec::new() }
+    }
+
+    fn corpus() -> Vec<Section> {
+        vec![
+            sec("Decay", "Memory records decay when neglected; recall slows the decay."),
+            sec("Recall", "Recall strengthens a trace. Repeated recall keeps fidelity high."),
+            sec("Gates", "A judge answers yes, no, or abstains; calibration matters."),
+            sec("Dreams", "Dreams recombine memory fragments during sleep consolidation."),
+            sec("Sense doors", "Six doors admit contact: eye, ear, nose, tongue, body, mind."),
+            sec("Decay rates", "The decay rate alpha grows with neglect and shrinks with recall."),
+            sec("Empty-ish", "the a of"),
+        ]
+    }
+
+    #[test]
+    fn append_matches_full_rebuild() {
+        let all = corpus();
+        let full = Bm25Index::build(all.clone(), None);
+        for split in 0..=all.len() {
+            let mut inc = Bm25Index::build(all[..split].to_vec(), None);
+            for s in &all[split..] {
+                inc.append(vec![s.clone()]);
+            }
+            assert_eq!(inc.num_docs, full.num_docs);
+            assert_eq!(inc.title_dfs, full.title_dfs);
+            assert_eq!(inc.body_dfs, full.body_dfs);
+            assert_eq!(inc.title_lens, full.title_lens);
+            assert_eq!(inc.body_lens, full.body_lens);
+            assert_eq!(inc.avg_title_len.to_bits(), full.avg_title_len.to_bits());
+            assert_eq!(inc.avg_body_len.to_bits(), full.avg_body_len.to_bits());
+            for q in ["decay", "recall memory", "judge abstains", "sleep dreams memory", "eye ear", "nothing-here"] {
+                let a: Vec<(usize, u64)> = inc.search(q, SearchVariant::Plus, &Bm25Params::default(), None)
+                    .into_iter().map(|h| (h.section_index, h.score.to_bits())).collect();
+                let b: Vec<(usize, u64)> = full.search(q, SearchVariant::Plus, &Bm25Params::default(), None)
+                    .into_iter().map(|h| (h.section_index, h.score.to_bits())).collect();
+                assert_eq!(a, b, "split {split} query {q:?}");
+            }
         }
     }
 }

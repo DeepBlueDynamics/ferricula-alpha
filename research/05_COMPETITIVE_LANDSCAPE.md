@@ -2,7 +2,7 @@
 
 **Analysis Horizon:** Mid-2026 State of the Art  
 **Classification:** Enterprise, Open-Source, and Theoretical Physics Substrates  
-**Location:** `/workspace/memory/research/05_COMPETITIVE_LANDSCAPE.md`  
+**Location:** `research/05_COMPETITIVE_LANDSCAPE.md`  
 
 ---
 

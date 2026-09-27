@@ -1,5 +1,5 @@
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
@@ -32,6 +32,76 @@ const SNAPSHOT_MAGIC: &[u8; 4] = b"FERR";
 const SNAPSHOT_FORMAT_VERSION: u8 = 5;
 const SNAPSHOT_HEADER_LEN: usize = 8;
 
+// --- Durability ---------------------------------------------------------
+//
+// An acknowledged write must survive a crash (kill -9, power loss). Rust's
+// `flush()` only empties user-space buffers into the OS page cache, so every
+// commit point here also calls `sync_data`/`sync_all`, and every
+// write-then-rename also syncs the parent directory so the rename itself is
+// durable.
+
+/// When the WAL is fsynced. Read once per [`DurableEngine::open`] from
+/// `FERRICULA_WAL_SYNC`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WalSync {
+    /// `sync_data` after every append (default). An `Ok` from a mutating
+    /// call means the entry is on stable storage.
+    Always,
+    /// Appends are only flushed to the OS; durability comes at
+    /// [`DurableEngine::checkpoint`] (or [`DurableEngine::sync`]). Survives a
+    /// process crash, but a power loss can drop the tail since the last
+    /// checkpoint. For bulk loads that checkpoint at the end.
+    Checkpoint,
+}
+
+impl WalSync {
+    /// `FERRICULA_WAL_SYNC=always|checkpoint`; anything else (or unset) is `Always`.
+    pub fn from_env() -> Self {
+        match std::env::var("FERRICULA_WAL_SYNC").map(|v| v.trim().to_ascii_lowercase()) {
+            Ok(v) if v == "checkpoint" => WalSync::Checkpoint,
+            _ => WalSync::Always,
+        }
+    }
+}
+
+/// Fsync a directory so a create/rename inside it is durable.
+///
+/// On Unix this opens the directory and calls `fsync`. Windows has no
+/// directory fsync through std (opening a directory handle needs
+/// `FILE_FLAG_BACKUP_SEMANTICS`); NTFS journals metadata operations such as
+/// rename, so this is a no-op there. Filesystems that refuse directory
+/// fsync (`EINVAL`/`EBADF`, some network mounts) are tolerated.
+pub fn sync_dir(dir: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        match File::open(dir).and_then(|d| d.sync_all()) {
+            Ok(()) => Ok(()),
+            Err(e) if matches!(e.raw_os_error(), Some(22) | Some(9)) => Ok(()),
+            Err(e) => Err(e).with_context(|| format!("fsync dir {}", dir.display())),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = dir;
+        Ok(())
+    }
+}
+
+/// Write `bytes` to `path` atomically and durably: write `tmp`, fsync it,
+/// rename it over `path`, fsync the parent directory.
+pub fn write_atomic_durable(path: &Path, tmp: &Path, bytes: &[u8]) -> Result<()> {
+    {
+        let mut file = File::create(tmp).with_context(|| format!("create {}", tmp.display()))?;
+        file.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
+        file.sync_all().with_context(|| format!("fsync {}", tmp.display()))?;
+    }
+    fs::rename(tmp, path).with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        sync_dir(parent)?;
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 pub struct DurableEngine {
     engine: Engine,
@@ -44,7 +114,12 @@ pub struct DurableEngine {
 
 impl DurableEngine {
     pub fn open(base_dir: impl AsRef<Path>) -> Result<Self> {
-        let persistence = Persistence::new(base_dir)?;
+        Self::open_with(base_dir, WalSync::from_env())
+    }
+
+    /// Open with an explicit WAL sync policy (ignores `FERRICULA_WAL_SYNC`).
+    pub fn open_with(base_dir: impl AsRef<Path>, wal_sync: WalSync) -> Result<Self> {
+        let persistence = Persistence::new(base_dir, wal_sync)?;
         let (engine, memory_store, graph, prime_tree, skg) = persistence.load()?;
         Ok(Self {
             engine,
@@ -174,6 +249,17 @@ impl DurableEngine {
 
     // --- Checkpoint & accessors ---
 
+    /// Force the WAL to stable storage: redundant under [`WalSync::Always`],
+    /// the commit point under [`WalSync::Checkpoint`] when a full checkpoint
+    /// is not wanted.
+    pub fn sync(&mut self) -> Result<()> {
+        self.persistence.sync_wal()
+    }
+
+    pub fn wal_sync(&self) -> WalSync {
+        self.persistence.wal_sync
+    }
+
     pub fn checkpoint(&mut self) -> Result<()> {
         self.persistence.checkpoint(
             &self.engine,
@@ -239,10 +325,11 @@ struct Persistence {
     snapshot_tmp_path: PathBuf,
     wal_path: PathBuf,
     wal_bytes: u64,
+    wal_sync: WalSync,
 }
 
 impl Persistence {
-    fn new(base_dir: impl AsRef<Path>) -> Result<Self> {
+    fn new(base_dir: impl AsRef<Path>, wal_sync: WalSync) -> Result<Self> {
         let base_dir = base_dir.as_ref().to_path_buf();
         fs::create_dir_all(&base_dir)?;
         let wal_path = base_dir.join(WAL_FILE);
@@ -255,6 +342,7 @@ impl Persistence {
             snapshot_tmp_path: base_dir.join(SNAPSHOT_TMP_FILE),
             wal_path,
             wal_bytes,
+            wal_sync,
             base_dir,
         })
     }
@@ -435,8 +523,29 @@ impl Persistence {
         writer.write_all(&len.to_le_bytes())?;
         writer.write_all(&payload)?;
         writer.flush()?;
+        if self.wal_sync == WalSync::Always {
+            writer
+                .sync_data()
+                .with_context(|| format!("fsync WAL at {}", self.wal_path.display()))?;
+        }
+        if self.wal_bytes == 0 {
+            // First append after create/truncate: make the directory entry
+            // durable too.
+            sync_dir(&self.base_dir)?;
+        }
         self.wal_bytes += 4 + payload.len() as u64;
         Ok(self.wal_bytes >= WAL_ROTATE_BYTES)
+    }
+
+    fn sync_wal(&mut self) -> Result<()> {
+        if self.wal_path.exists() {
+            OpenOptions::new()
+                .append(true)
+                .open(&self.wal_path)?
+                .sync_all()
+                .with_context(|| format!("fsync WAL at {}", self.wal_path.display()))?;
+        }
+        Ok(())
     }
 
     fn checkpoint(
@@ -468,9 +577,12 @@ impl Persistence {
             let mut writer = BufWriter::new(tmp_file);
             writer.write_all(&framed)?;
             writer.flush()?;
+            // The snapshot must be on disk before the WAL it replaces is cut.
+            writer.get_ref().sync_all()?;
         }
 
         fs::rename(&self.snapshot_tmp_path, &self.snapshot_v4_path)?;
+        sync_dir(&self.base_dir)?;
         // Clean up old snapshots if they exist
         if self.snapshot_v3_path.exists() {
             let _ = fs::remove_file(&self.snapshot_v3_path);
@@ -481,44 +593,62 @@ impl Persistence {
         if self.snapshot_v1_path.exists() {
             let _ = fs::remove_file(&self.snapshot_v1_path);
         }
-        // Truncate WAL
-        File::create(&self.wal_path)?;
+        // Truncate WAL (only after the snapshot rename is durable).
+        File::create(&self.wal_path)?.sync_all()?;
+        sync_dir(&self.base_dir)?;
         self.wal_bytes = 0;
         Ok(())
     }
 
+    /// Read every complete WAL entry. A torn tail -- a length prefix or
+    /// payload cut short by a crash mid-append, or a zero-filled tail left
+    /// by the filesystem -- was never acknowledged (appends fsync before
+    /// returning), so it is dropped and the file is truncated to the last
+    /// complete entry, so later appends do not land after garbage.
     fn read_wal(&self) -> Result<Vec<WalEntry>> {
-        let file = File::open(&self.wal_path)?;
-        let mut reader = BufReader::new(file);
+        let bytes = fs::read(&self.wal_path)
+            .with_context(|| format!("read WAL at {}", self.wal_path.display()))?;
         let mut out = Vec::new();
         let mut migrated = 0usize;
-        loop {
-            let mut len_bytes = [0_u8; 4];
-            match reader.read_exact(&mut len_bytes) {
-                Ok(()) => {
-                    let len = u32::from_le_bytes(len_bytes) as usize;
-                    let mut payload = vec![0_u8; len];
-                    reader.read_exact(&mut payload)?;
-                    // Try the current WalEntry shape first; on failure, fall
-                    // back to the pre-MemoryRef layout (v0.9.2). This handles
-                    // mixed WALs where a v0.9.2 process wrote entries before
-                    // the upgrade and a v0.9.5+ process appended after.
-                    let entry = match postcard::from_bytes::<WalEntry>(&payload) {
-                        Ok(e) => e,
-                        Err(_) => {
-                            let legacy: LegacyWalEntry = postcard::from_bytes(&payload)
-                                .context("WAL entry not parseable under current or legacy layout")?;
-                            migrated += 1;
-                            legacy.into_entry()
-                        }
-                    };
-                    out.push(entry);
-                }
-                Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    break;
-                }
-                Err(err) => return Err(err.into()),
+        let mut pos = 0usize;
+        let mut torn = false;
+        while pos < bytes.len() {
+            if bytes.len() - pos < 4 || bytes[pos..].iter().all(|b| *b == 0) {
+                torn = true;
+                break;
             }
+            let len = u32::from_le_bytes(bytes[pos..pos + 4].try_into().expect("4 bytes")) as usize;
+            let start = pos + 4;
+            if bytes.len() - start < len {
+                torn = true;
+                break;
+            }
+            let payload = &bytes[start..start + len];
+            // Try the current WalEntry shape first; on failure, fall
+            // back to the pre-MemoryRef layout (v0.9.2). This handles
+            // mixed WALs where a v0.9.2 process wrote entries before
+            // the upgrade and a v0.9.5+ process appended after.
+            let entry = match postcard::from_bytes::<WalEntry>(payload) {
+                Ok(e) => e,
+                Err(_) => {
+                    let legacy: LegacyWalEntry = postcard::from_bytes(payload)
+                        .context("WAL entry not parseable under current or legacy layout")?;
+                    migrated += 1;
+                    legacy.into_entry()
+                }
+            };
+            out.push(entry);
+            pos = start + len;
+        }
+        if torn {
+            eprintln!(
+                "[persist] WAL torn tail: dropping {} unacknowledged bytes at offset {}",
+                bytes.len() - pos,
+                pos
+            );
+            let file = OpenOptions::new().write(true).open(&self.wal_path)?;
+            file.set_len(pos as u64)?;
+            file.sync_all()?;
         }
         if migrated > 0 {
             eprintln!(

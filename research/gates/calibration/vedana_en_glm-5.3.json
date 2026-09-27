@@ -1,0 +1,34 @@
+{
+  "temperature": [
+    0.05,
+    0.05,
+    0.05
+  ],
+  "acceptance": {
+    "gate": "vedana",
+    "score_provenance": "model-reported (verbalized probability at temperature 0) — NOT logit-derived; calibration discipline per Eldest Dog 2026-09-26",
+    "n_judged_labelled": 30,
+    "split": {
+      "train": 26,
+      "dev": 2,
+      "test": 2
+    },
+    "split_note": "source families (size desc): train=authored dev=authored: test=['plan', 'boundary:']",
+    "split_disjoint_by": "label source family (source field before ':')",
+    "temperature_fitted": 0.05,
+    "held_out": {
+      "ece_raw": 0.04,
+      "ece_calibrated": 0.0,
+      "accuracy_raw": 1.0,
+      "accuracy_calibrated": 1.0,
+      "n": 2
+    },
+    "dev": {
+      "ece_raw": 0.16,
+      "ece_calibrated": 0.0
+    },
+    "dev_ece_improved": true,
+    "lifecycle_authorized": false,
+    "note": "calibrated probabilities never claimed from this run"
+  }
+}

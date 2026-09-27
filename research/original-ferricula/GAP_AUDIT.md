@@ -1,6 +1,6 @@
 # Gap Audit: Original Ferricula vs. Ferricula V2
 
-This document provides a comprehensive read-only parity audit comparing the original **Ferricula** codebase (located in [original-ferricula/source](file:///workspace/ferricula_v2/research/original-ferricula/source)) against the current **Ferricula V2** runtime (`ferricula_v2`).
+This document provides a comprehensive read-only parity audit comparing the original **Ferricula** codebase (a recovered copy was kept at `research/original-ferricula/source/`, not included in this repo) against the current **Ferricula V2** runtime (`ferricula_v2`).
 
 ---
 
@@ -23,20 +23,20 @@ This document provides a comprehensive read-only parity audit comparing the orig
 ## 2. Topic-by-Topic Parity Analysis
 
 ### A. Original Autonomous Loop
-* **Original System**: Implemented in [steve.py](file:///workspace/ferricula_v2/research/original-ferricula/source/arena/steve.py) as a background thread (`_think_loop` calling `think_cycle` every 45 seconds). It pulled memories, formatted a rich Steve Jobs persona prompt, and let the LLM autonomously decide to query searches, read URLs, draw images, write code/presentations, or update memory.
-* **V2 System**: Shifted to a structured task worker and scheduler in [runtime.rs](file:///workspace/ferricula_v2/crates/ferricula-server/src/runtime.rs). However, `TaskKind::ScheduledWake` does **not** invoke any LLM reasoning or tool loops. It merely scans the Nuts News RSS feed and returns. LLM calls are limited to a single deliberative pass on direct mentions (`deliberate_mention`).
+* **Original System**: Implemented in steve.py (upstream v1 `ferricula/arena/steve.py`) as a background thread (`_think_loop` calling `think_cycle` every 45 seconds). It pulled memories, formatted a rich Steve Jobs persona prompt, and let the LLM autonomously decide to query searches, read URLs, draw images, write code/presentations, or update memory.
+* **V2 System**: Shifted to a structured task worker and scheduler in [runtime.rs](../../crates/ferricula-server/src/runtime.rs). However, `TaskKind::ScheduledWake` does **not** invoke any LLM reasoning or tool loops. It merely scans the Nuts News RSS feed and returns. LLM calls are limited to a single deliberative pass on direct mentions (`deliberate_mention`).
 
 ### B. Emotion and Model Drift
 * **Original System**: Tracked a Plutchik-style emotion state machine (joy, fear, sadness, dominance, optimism, etc.). Emotion dictated which LLM model to use (e.g., `sadness` mapped to `claude-fable-5/claude-opus`, `fear` to `gpt-4o-mini` for fast reaction). It also implemented "Gemma drift" (falling back to local Gemma when idle) and "model heat tracking" (cooling down providers after 4 consecutive uses).
-* **V2 System**: Completely strips Plutchik emotion tracking and model drift mechanics. Model routing is now statically configured in [model_config.rs](file:///workspace/ferricula_v2/crates/ferricula-server/src/model_config.rs) based on `TaskClass` and `ModelCapability` requirements.
+* **V2 System**: Completely strips Plutchik emotion tracking and model drift mechanics. Model routing is now statically configured in [model_config.rs](../../crates/ferricula-server/src/model_config.rs) based on `TaskClass` and `ModelCapability` requirements.
 
 ### C. Dreams
-* **Original System**: The scheduler ran a periodic dream cycle (`dream_cycle` in [dream.rs](file:///workspace/ferricula_v2/research/original-ferricula/source/src/dream.rs)) that consolidated memories with high similarity, generated prompts for Stable Diffusion/ComfyUI based on emerging term pairs, and saved them as `seeing` memories. It was triggered autonomously or via a `/dream` HTTP endpoint.
-* **V2 System**: While the semantic consolidation math is preserved in [dream.rs](file:///workspace/ferricula_v2/crates/ferricula-cognition/src/dream.rs), the runtime scheduler never invokes it, and [api.rs](file:///workspace/ferricula_v2/crates/ferricula-server/src/api.rs) exposes no `/dream` or `/control/dream` endpoint. ComfyUI integration is absent.
+* **Original System**: The scheduler ran a periodic dream cycle (`dream_cycle` in dream.rs (upstream v1 `ferricula/src/dream.rs`)) that consolidated memories with high similarity, generated prompts for Stable Diffusion/ComfyUI based on emerging term pairs, and saved them as `seeing` memories. It was triggered autonomously or via a `/dream` HTTP endpoint.
+* **V2 System**: While the semantic consolidation math is preserved in [dream.rs](../../crates/ferricula-cognition/src/dream.rs), the runtime scheduler never invokes it, and [api.rs](../../crates/ferricula-server/src/api.rs) exposes no `/dream` or `/control/dream` endpoint. ComfyUI integration is absent.
 
 ### D. Memory Reinforcement
 * **Original System**: Allowed active reinforcement of the memory graph through automatic semantic edge updates during dreams, keystone neighboring "halo touches" (slowing down memory decay), and API endpoints (`/remember`, `/memory/connect`, `/memory/disconnect`, `/memory/keystone`).
-* **V2 System**: The memory volume `/data/steve-memory` is mounted **read-only** in compose.yaml. No `/remember` or graph mutation endpoints exist in [api.rs](file:///workspace/ferricula_v2/crates/ferricula-server/src/api.rs). Re-writing or reinforcing the memory plane is completely impossible.
+* **V2 System**: The memory volume `/data/steve-memory` is mounted **read-only** in compose.yaml. No `/remember` or graph mutation endpoints exist in [api.rs](../../crates/ferricula-server/src/api.rs). Re-writing or reinforcing the memory plane is completely impossible.
 
 ### E. Advocate Behavior
 * **Original System**: Ran a separate background thread (`_advocate_loop` / `_run_advocate_cycle`) every 180 seconds. It loaded Steve's values and recent actions, used a local model to produce a blunt judgment on whether the current trajectory aligned with Steve's goals, and saved it to memory.
@@ -44,7 +44,7 @@ This document provides a comprehensive read-only parity audit comparing the orig
 
 ### F. Wisdom King Activation
 * **Original System**: Described in legacy docs as 5 autonomous agents (Intuition, Fortune, Craft, Ethics, Advocate) that would activate at high-intensity tiers.
-* **V2 System**: Elegantly refactored into a single-mind deterministic suggestion council in [wisdom.rs](file:///workspace/ferricula_v2/crates/ferricula-cognition/src/wisdom.rs). Based on context intensity, it generates modulations (whispers) that modify baseline `CognitiveControls` (e.g., novelty tolerance, exploration, publication threshold) for a single deliberative decision.
+* **V2 System**: Elegantly refactored into a single-mind deterministic suggestion council in [wisdom.rs](../../crates/ferricula-cognition/src/wisdom.rs). Based on context intensity, it generates modulations (whispers) that modify baseline `CognitiveControls` (e.g., novelty tolerance, exploration, publication threshold) for a single deliberative decision.
 
 ---
 

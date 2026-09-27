@@ -1,0 +1,143 @@
+# Example deployment: the Steve agent.
+#
+# Shows how a concrete persona is configured on the persona-neutral engine.
+# Nothing here is compiled in; Steve is only this file plus the memory
+# volume (identity.json with agent_id "ferricula-stevejobs", and an
+# agent.toml persona like config/examples/steve/agent.toml).
+#
+# Use with compose.yaml, e.g.:
+#   cp config/examples/steve/steve.toml config/agent.toml
+#   FERRICULA_CONFIG=./config/agent.toml \
+#   FERRICULA_MEMORY_VOLUME=<your-steve-memory-volume> docker compose up -d
+#
+# Environment-variable NAMES only — never token or key values.
+
+bind = "0.0.0.0:8875"
+
+# Must match memory_dir/identity.json and [models.identity].agent_id.
+expected_agent_id = "ferricula-stevejobs"
+
+# How Steve names the operator in conversation memories ("Kord said: ...").
+operator_name = "Kord"
+
+memory_dir = "/data/agent-memory"
+state_dir = "/data/agent-runtime"
+
+operator_token_env = "FERRICULA_OPERATOR_TOKEN"
+require_operator_auth = true
+
+# Steve's deliberation runs on GLM-5.3 through the host's signed-in Ollama.
+#
+# NOTE: `glm-5.3:cloud` is an Ollama `:cloud` model. Because `local_ollama`
+# is listed in private_context_profiles, private memory context is sent
+# off-box to the cloud provider behind Ollama. This is the operator's
+# accepted choice for this deployment. Remove "local_ollama" from the list
+# (or switch to a genuinely local model) to keep private memory on the host.
+private_context_profiles = ["local_ollama"]
+ollama_base_url = "http://host.docker.internal:11434/v1"
+ollama_model = "glm-5.3:cloud"
+
+# glm-5.3 is a thinking model: it spends output tokens on hidden reasoning
+# before the visible answer. 4096 tokens of headroom keeps chat replies and
+# curator briefings from truncating.
+ollama_reasoning_tokens = 4096
+
+# The built-in local_ollama profile assumes an 8192-token local model, and
+# the chat route counts prompt bytes as tokens against it. glm-5.3 has a
+# far larger window; declaring it lets chat carry full document evidence
+# cards (R1) and history instead of shrinking them to fit 8192.
+ollama_context_tokens = 131072
+
+initial_mode = "asleep"
+
+[schedule]
+enabled = true
+wakes_per_day = 4
+jitter_minutes = 45
+
+[budgets]
+max_threads_per_wake = 20
+max_autonomous_comments_per_day = 5
+max_autonomous_submissions_per_day = 1
+max_model_usd_per_day = 5.0
+
+[nutnews]
+# Read-only: scheduled wakes may observe a bounded public digest.
+enabled = true
+mcp_url = "https://news.nuts.services/mcp"
+public_url = "https://news.nuts.services"
+token_env = "NUTNEWS_TOKEN"
+handle = "steve"
+allow_writes = false
+
+[mentions]
+enabled = false
+instance = "news.nuts.services"
+agent_handle = "steve"
+
+[overlay]
+enabled = false
+path = "/data/agent-runtime/overlay/overlay.json"
+
+[models.identity]
+agent_id = "ferricula-stevejobs"
+name = "Steve Jobs"
+
+[documents]
+# Document sense door (R1). Stores live under state_dir (documents/,
+# experience/); memory_dir stays read-only. grub renders web pages to
+# markdown; from inside a container the host is host.docker.internal.
+enabled = true
+grub_base_url = "http://host.docker.internal:6792"
+max_bytes = 33554432
+allow_url = true
+
+[life]
+# Steve has a life between conversations (R3): he gets bored, follows his
+# curiosity to the web (through grub), reads, reflects, sleeps, dreams, and
+# wakes when rested or when the operator speaks. Paused mode stops it all.
+enabled = true
+tick_secs = 60
+# Physical entropy from the SDR radio; the OS RNG when it is unreachable.
+radio_url = "https://sdrrand.nuts.services"
+ollaya_url = "http://host.docker.internal:11435"
+ollaya_model = "laya"
+search_url_template = "https://html.duckduckgo.com/html/?q={q}"
+max_pages_per_curiosity = 2
+max_model_calls_per_day = 40
+max_curiosity_per_day = 12
+curiosity_cooldown_min = 20
+
+[embeddings]
+# Meaning (R2b). Steve's recovered memories carry GTR-T5-base 768-d vectors;
+# shivvr (:8085 on the host) serves that exact space. At startup the runtime
+# re-embeds three short memories and requires cosine > 0.999 with the stored
+# vectors (`/status` -> embeddings.state = ok); unreachable -> degraded,
+# different space -> mismatch, and dense features stay off either way.
+backend = "shivvr"
+url = "http://host.docker.internal:8085"
+space = "gtr-t5-base@768"
+batch = 32
+timeout_secs = 30
+probe = true
+# After a passing probe, embed everything without a vector in the background
+# (2,805 of Steve's 3,362 recovered rows carry all-zero placeholder vectors).
+# Sidecar vectors live under state_dir/meaning/; the memory volume stays
+# read-only. Progress: /status -> meaning; POST /meaning/backfill re-runs it;
+# offline: `ferricula-server embed-backfill --config <file>`.
+backfill = true
+
+[recall]
+# Waking recall (chat, /memory/recall, MCP): lexical + BM25 + dense + one
+# graph hop, fused by RRF. 1,925 of Steve's 3,362 recovered memories are
+# Archived and 28 Forgiven by v1 decay; v3 treats those as released and never
+# ranks them unless this is on. Operator decision.
+include_faded_recovered = false
+dense_k = 24
+graph_seeds = 3
+graph_weight = 0.5
+lexical_weight = 0.5
+dense_guarantee = 2
+# Each completed chat turn becomes two experience rows (hearing / thinking)
+# so later conversations remember what was said.
+remember_turns = true

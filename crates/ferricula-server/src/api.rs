@@ -1,4 +1,4 @@
-//! Operator-facing HTTP surface for Steve.
+//! Operator-facing HTTP surface for the agent runtime.
 //!
 //! Status and recall are read-only. Explicit operator chat and structured
 //! episode commits persist in separate writable state; recovery memory stays
@@ -8,7 +8,7 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use axum::extract::{Path, State};
+use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -17,7 +17,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::runtime::{ActivityMode, RuntimeStatus, SteveRuntime, TaskKind};
+use crate::runtime::{ActivityMode, RuntimeStatus, AgentRuntime, TaskKind};
 use crate::sleep_cycle::{CooldownLedger, PlanningGate, plan_cycle_gated};
 
 type ApiError = (StatusCode, Json<Value>);
@@ -26,8 +26,19 @@ type ApiResult<T> = Result<Json<T>, ApiError>;
 /// Hard cap on array elements returned by Phase One list endpoints.
 const MAX_STATUS_LIST: usize = 64;
 
-pub fn router(runtime: Arc<SteveRuntime>) -> Router {
+pub fn router(runtime: Arc<AgentRuntime>) -> Router {
+    // Routes that can carry a whole document (base64 PDF) get a body limit
+    // sized from [documents] max_bytes; every other route keeps axum's default.
+    let document_body_limit = DefaultBodyLimit::max(runtime.config.documents.body_limit());
+    let documents = Router::new()
+        .route("/documents", get(list_documents).post(ingest_document))
+        .merge(crate::mcp::router())
+        .layer(document_body_limit);
     Router::new()
+        .route("/documents/search", post(search_documents))
+        .route("/documents/{doc_id}", get(get_document))
+        .route("/documents/{doc_id}/sections/{index}", get(get_section))
+        .merge(documents)
         .route("/", get(chat_page))
         .route("/chat", post(chat))
         .route("/chat/{conversation_id}", get(conversation))
@@ -58,13 +69,169 @@ pub fn router(runtime: Arc<SteveRuntime>) -> Router {
             post(overlay_approve_blocked),
         )
         .route("/models/status", get(model_status))
+        // R2b: re-run the embedding space probe (operator).
+        .route("/embeddings/probe", post(embeddings_probe))
+        .route("/meaning", get(meaning_status))
+        .route("/meaning/backfill", post(meaning_backfill))
+        // R3 life: drives, journal, dreams; forced urges for testing.
+        .route("/life", get(life_status))
+        .route("/life/meditate", post(life_meditate))
+        .route("/life/end-meditation", post(life_end_meditation))
+        .route("/life/urge", post(life_urge))
         .route("/wisdom/preview", post(wisdom_preview))
-        .merge(crate::mcp::router())
         .with_state(runtime)
 }
 
+// --- Documents (R1 sense door) ---------------------------------------------
+
+/// `POST /documents` body: a tagged source plus an optional operator note.
+#[derive(Deserialize)]
+pub struct IngestBody {
+    #[serde(flatten)]
+    pub source: IngestSourceBody,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum IngestSourceBody {
+    Text { #[serde(default)] title: Option<String>, text: String },
+    Url { url: String },
+    Pdf { name: String, base64: String },
+}
+
+/// Validate sizes before decoding, then decode into an extraction source.
+/// Shared by the HTTP route and the MCP tool.
+pub fn decode_source(
+    body: IngestSourceBody,
+    config: &crate::config::DocumentsConfig,
+) -> Result<ferricula_ingest::Source, (StatusCode, String)> {
+    use base64::Engine as _;
+    let too_large = |what: &str| (StatusCode::PAYLOAD_TOO_LARGE,
+        format!("{what} exceeds documents.max_bytes ({} bytes)", config.max_bytes));
+    match body {
+        IngestSourceBody::Text { title, text } => {
+            if text.len() > config.max_bytes { return Err(too_large("text")); }
+            if text.trim().is_empty() { return Err((StatusCode::BAD_REQUEST, "text is empty".into())); }
+            if title.as_ref().is_some_and(|t| t.len() > 1024) {
+                return Err((StatusCode::BAD_REQUEST, "title exceeds 1024 bytes".into()));
+            }
+            Ok(ferricula_ingest::Source::Text { title, text })
+        }
+        IngestSourceBody::Url { url } => {
+            if url.len() > 4096 { return Err((StatusCode::BAD_REQUEST, "url exceeds 4096 bytes".into())); }
+            Ok(ferricula_ingest::Source::Url { url: url.trim().to_string() })
+        }
+        IngestSourceBody::Pdf { name, base64 } => {
+            if name.trim().is_empty() || name.len() > 512 {
+                return Err((StatusCode::BAD_REQUEST, "name must be 1 to 512 bytes".into()));
+            }
+            // Checked before decoding so an oversized payload costs no allocation.
+            let compact: String = if base64.bytes().any(|b| b.is_ascii_whitespace()) {
+                base64.chars().filter(|c| !c.is_ascii_whitespace()).collect()
+            } else {
+                base64
+            };
+            if compact.len() > config.max_base64_len() { return Err(too_large("pdf")); }
+            let bytes = base64::engine::general_purpose::STANDARD.decode(compact.as_bytes())
+                .map_err(|e| (StatusCode::BAD_REQUEST, format!("invalid base64: {e}")))?;
+            if bytes.len() > config.max_bytes { return Err(too_large("pdf")); }
+            Ok(ferricula_ingest::Source::Pdf { name, bytes })
+        }
+    }
+}
+
+async fn ingest_document(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    Json(body): Json<IngestBody>,
+) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    if body.note.as_ref().is_some_and(|n| n.len() > crate::runtime::MAX_NOTE_BYTES) {
+        return Err(bad_request(format!("note exceeds {} bytes", crate::runtime::MAX_NOTE_BYTES)));
+    }
+    let source = decode_source(body.source, &runtime.config.documents)
+        .map_err(|(status, error)| (status, Json(json!({ "error": error }))))?;
+    let note = body.note;
+    // Complete the ingest even if the HTTP client disconnects mid-fetch.
+    let worker = runtime.clone();
+    let outcome = tokio::spawn(async move { worker.ingest(source, note).await })
+        .await.map_err(internal)?
+        .map_err(|error| (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": format!("{error:#}") }))))?;
+    runtime.life_sensed_document(outcome.duplicate);
+    Ok(Json(serde_json::to_value(outcome).map_err(internal)?))
+}
+
+async fn list_documents(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    Ok(Json(json!({ "documents": runtime.documents() })))
+}
+
+async fn get_document(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    Path(doc_id): Path<String>,
+) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    let Some(record) = runtime.document(&doc_id) else {
+        return Err((StatusCode::NOT_FOUND, Json(json!({ "error": "document not found" }))));
+    };
+    // Section outline only; verbatim text is served per section.
+    let sections: Vec<Value> = record.sections.iter().map(|s| json!({
+        "index": s.index, "heading": s.heading, "page": s.page, "bytes": s.text.len(),
+        "cite": crate::recall::citation(&record.meta.doc_id, s.index, s.page),
+    })).collect();
+    Ok(Json(json!({ "meta": record.meta, "sections": sections })))
+}
+
+async fn get_section(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    Path((doc_id, index)): Path<(String, u32)>,
+) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    let Some(section) = runtime.document_section(&doc_id, index) else {
+        return Err((StatusCode::NOT_FOUND, Json(json!({ "error": "section not found" }))));
+    };
+    Ok(Json(serde_json::to_value(section).map_err(internal)?))
+}
+
+#[derive(Deserialize)]
+struct DocumentSearchRequest {
+    query: String,
+    #[serde(default = "default_search_k")]
+    k: usize,
+    #[serde(default)]
+    doc_id: Option<String>,
+}
+
+fn default_search_k() -> usize {
+    5
+}
+
+async fn search_documents(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    Json(request): Json<DocumentSearchRequest>,
+) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    if request.query.trim().is_empty() {
+        return Err(bad_request("query cannot be empty"));
+    }
+    if request.query.len() > 8192 {
+        return Err(bad_request("query exceeds 8192 bytes"));
+    }
+    let k = request.k.clamp(1, 50);
+    let hits = runtime.search_documents(&request.query, k, request.doc_id.as_deref());
+    Ok(Json(json!({ "query": request.query, "hits": hits })))
+}
+
 async fn episode_commit(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
     Json(item): Json<ferricula_episode::EpisodeItem>,
 ) -> ApiResult<Value> {
@@ -74,7 +241,7 @@ async fn episode_commit(
 }
 
 async fn episode_query(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
     Json(request): Json<ferricula_episode::query::EpisodeQueryRequest>,
 ) -> ApiResult<ferricula_episode::query::EpisodeQueryResponse> {
@@ -88,7 +255,7 @@ async fn chat_page() -> axum::response::Html<&'static str> {
 }
 
 async fn chat(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
     Json(request): Json<crate::runtime::ChatRequest>,
 ) -> ApiResult<crate::runtime::ChatTurn> {
@@ -103,7 +270,7 @@ async fn chat(
 }
 
 async fn conversation(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Value> {
@@ -111,7 +278,7 @@ async fn conversation(
     Ok(Json(json!({"turns": runtime.conversation(id), "limit": 100})))
 }
 
-async fn health(State(runtime): State<Arc<SteveRuntime>>) -> Json<Value> {
+async fn health(State(runtime): State<Arc<AgentRuntime>>) -> Json<Value> {
     Json(json!({
         "ok": true,
         "agent_id": runtime.inspection.agent_id,
@@ -120,7 +287,7 @@ async fn health(State(runtime): State<Arc<SteveRuntime>>) -> Json<Value> {
 }
 
 async fn status(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<crate::runtime::RuntimeStatus> {
     require_operator(&runtime, &headers)?;
@@ -128,7 +295,7 @@ async fn status(
 }
 
 async fn identity(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<Value> {
     require_operator(&runtime, &headers)?;
@@ -143,7 +310,7 @@ struct ModeRequest {
 }
 
 async fn set_mode(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
     Json(request): Json<ModeRequest>,
 ) -> ApiResult<Value> {
@@ -153,19 +320,19 @@ async fn set_mode(
     Ok(Json(json!({ "mode": mode })))
 }
 
-async fn wake(State(runtime): State<Arc<SteveRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
+async fn wake(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
     require_operator(&runtime, &headers)?;
     runtime.set_mode(ActivityMode::Engaged).map_err(internal)?;
     Ok(Json(json!({ "mode": ActivityMode::Engaged })))
 }
 
-async fn sleep(State(runtime): State<Arc<SteveRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
+async fn sleep(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
     require_operator(&runtime, &headers)?;
     runtime.set_mode(ActivityMode::Asleep).map_err(internal)?;
     Ok(Json(json!({ "mode": ActivityMode::Asleep })))
 }
 
-async fn pause(State(runtime): State<Arc<SteveRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
+async fn pause(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
     require_operator(&runtime, &headers)?;
     runtime.set_mode(ActivityMode::Paused).map_err(internal)?;
     Ok(Json(json!({ "mode": ActivityMode::Paused })))
@@ -177,7 +344,7 @@ struct ScheduleRequest {
 }
 
 async fn set_schedule(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
     Json(request): Json<ScheduleRequest>,
 ) -> ApiResult<Value> {
@@ -186,7 +353,7 @@ async fn set_schedule(
     Ok(Json(json!({ "enabled": request.enabled })))
 }
 
-async fn tasks(State(runtime): State<Arc<SteveRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
+async fn tasks(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
     require_operator(&runtime, &headers)?;
     let list = bound_slice(runtime.tasks(), MAX_STATUS_LIST);
     Ok(Json(
@@ -195,7 +362,7 @@ async fn tasks(State(runtime): State<Arc<SteveRuntime>>, headers: HeaderMap) -> 
 }
 
 async fn task(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Value> {
@@ -217,7 +384,7 @@ struct TaskRequest {
 }
 
 async fn enqueue(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
     Json(request): Json<TaskRequest>,
 ) -> ApiResult<Value> {
@@ -229,7 +396,7 @@ async fn enqueue(
 }
 
 async fn read_feed(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<Value> {
     require_operator(&runtime, &headers)?;
@@ -240,7 +407,7 @@ async fn read_feed(
 }
 
 async fn read_hacker_news(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<Value> {
     require_operator(&runtime, &headers)?;
@@ -259,7 +426,7 @@ struct MentionRequest {
 }
 
 async fn mention(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
     Json(request): Json<MentionRequest>,
 ) -> ApiResult<Value> {
@@ -285,7 +452,7 @@ async fn mention(
 
 /// `GET /control/autonomy` — snapshot from `status()` + public `config.autonomy`.
 async fn autonomy_status(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<Value> {
     require_operator(&runtime, &headers)?;
@@ -296,7 +463,7 @@ async fn autonomy_status(
 /// `GET /tasks/considerations` — pending **counts** only (no private bodies;
 /// runtime does not expose consideration text via a public getter).
 async fn mention_considerations(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<Value> {
     require_operator(&runtime, &headers)?;
@@ -305,9 +472,9 @@ async fn mention_considerations(
 }
 
 /// `GET /control/schedule/plan` — sleep status + optional config-preview plan
-/// (durable cooldown ledger is not public on SteveRuntime; preview uses empty ledger).
+/// (durable cooldown ledger is not public on AgentRuntime; preview uses empty ledger).
 async fn sleep_plan_status(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<Value> {
     require_operator(&runtime, &headers)?;
@@ -326,7 +493,7 @@ async fn sleep_plan_status(
 
 /// `GET /memory/overlay` — metadata only (event count / flags), no payload text.
 async fn overlay_status(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<Value> {
     require_operator(&runtime, &headers)?;
@@ -336,7 +503,7 @@ async fn overlay_status(
 
 /// `GET /control/advocate` — last alignment summary from status; no memory text.
 async fn advocate_status(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<Value> {
     require_operator(&runtime, &headers)?;
@@ -347,7 +514,7 @@ async fn advocate_status(
 /// `POST /memory/overlay/approve/{event_id}` — blocked: no public runtime
 /// method enforces approval + sovereignty yet.
 async fn overlay_approve_blocked(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
     Path(event_id): Path<String>,
 ) -> ApiResult<Value> {
@@ -356,7 +523,7 @@ async fn overlay_approve_blocked(
     Err((
         StatusCode::NOT_IMPLEMENTED,
         Json(json!({
-            "error": "overlay approval is not exposed: SteveRuntime has no public method that appends Approval events under sovereignty/lease gates",
+            "error": "overlay approval is not exposed: AgentRuntime has no public method that appends Approval events under sovereignty/lease gates",
             "event_id": bound_text(&event_id, 128),
             "status": "blocked",
             "hint": "add runtime.approve_overlay_event(..) that checks overlay.enabled, may_write_overlay, and OverlayLog approval rules"
@@ -365,7 +532,7 @@ async fn overlay_approve_blocked(
 }
 
 async fn wisdom_preview(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
     Json(context): Json<WhisperContext>,
 ) -> ApiResult<Value> {
@@ -389,7 +556,7 @@ fn default_recall_limit() -> usize {
 }
 
 async fn recall(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
     Json(request): Json<RecallRequest>,
 ) -> ApiResult<Value> {
@@ -397,13 +564,114 @@ async fn recall(
     if request.query.trim().is_empty() {
         return Err(bad_request("query cannot be empty"));
     }
-    let limit = request.limit.min(MAX_STATUS_LIST);
-    let hits = runtime.recall_candidates(&request.query, limit);
-    Ok(Json(json!({ "query": request.query, "hits": hits })))
+    if request.query.len() > 8192 {
+        return Err(bad_request("query exceeds 8192 bytes"));
+    }
+    let limit = request.limit.clamp(1, MAX_STATUS_LIST);
+    // `hits` keeps its pre-R1 meaning (recovered-base lexical hits); the
+    // experience, section, and fused lists are additive fields.
+    let recall = runtime.hybrid_recall_async(&request.query, limit).await;
+    Ok(Json(serde_json::to_value(recall).map_err(internal)?))
+}
+
+// --- Life (R3) ---------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct LifeQuery {
+    #[serde(default = "default_life_journal")]
+    journal: usize,
+}
+
+fn default_life_journal() -> usize {
+    20
+}
+
+async fn life_status(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    axum::extract::Query(query): axum::extract::Query<LifeQuery>,
+) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    Ok(Json(runtime.life_status(query.journal.min(200))))
+}
+
+async fn life_meditate(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    let entry = runtime.life_meditate(true).map_err(conflict)?;
+    Ok(Json(entry))
+}
+
+async fn life_end_meditation(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    let entry = runtime.life_meditate(false).map_err(conflict)?;
+    Ok(Json(entry))
+}
+
+#[derive(Deserialize)]
+struct UrgeRequest {
+    urge: crate::runtime::LifeUrgeRequest,
+}
+
+async fn life_urge(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    Json(request): Json<UrgeRequest>,
+) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    // Runs to completion even if the HTTP client disconnects.
+    let urge = request.urge;
+    let entries = tokio::spawn(async move { runtime.life_force(urge).await })
+        .await.map_err(internal)?.map_err(conflict)?;
+    Ok(Json(json!({ "urge": urge, "journal": entries })))
+}
+
+fn conflict(error: impl std::fmt::Display) -> ApiError {
+    (StatusCode::CONFLICT, Json(json!({ "error": error.to_string() })))
+}
+
+/// `POST /embeddings/probe` — re-embed a few short recovered memories and
+/// compare with their stored vectors; returns the new embeddings status.
+async fn embeddings_probe(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+) -> ApiResult<crate::runtime::EmbeddingsStatus> {
+    require_operator(&runtime, &headers)?;
+    let status = tokio::task::spawn_blocking(move || runtime.probe_embeddings())
+        .await
+        .map_err(internal)?;
+    Ok(Json(status))
+}
+
+/// `GET /meaning` — meaning index coverage and backfill progress.
+async fn meaning_status(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+) -> ApiResult<crate::runtime::MeaningStatus> {
+    require_operator(&runtime, &headers)?;
+    Ok(Json(runtime.meaning_status()))
+}
+
+/// `POST /meaning/backfill` — start a background backfill (embed every
+/// memory, experience row and section without a vector). 202 with
+/// `started = false` when one is already running; 409 when the embedder is
+/// not usable.
+async fn meaning_backfill(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    require_operator(&runtime, &headers)?;
+    if runtime.embedder().is_none() {
+        return Err(conflict(format!(
+            "embedder not usable (embeddings state {:?})",
+            runtime.embeddings_status().state
+        )));
+    }
+    let started = runtime.spawn_meaning_backfill("operator");
+    Ok((StatusCode::ACCEPTED, Json(json!({ "started": started, "meaning": runtime.meaning_status() }))))
 }
 
 async fn model_status(
-    State(runtime): State<Arc<SteveRuntime>>,
+    State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<Value> {
     require_operator(&runtime, &headers)?;
@@ -451,7 +719,7 @@ fn project_mention_pending(s: &RuntimeStatus, config: &crate::config::RuntimeCon
         "items": [],
         "truncated": s.mention_pending > MAX_STATUS_LIST,
         "shown": pending,
-        "note": "consideration bodies are not exposed via public SteveRuntime methods; count/cursor only"
+        "note": "consideration bodies are not exposed via public AgentRuntime methods; count/cursor only"
     })
 }
 
@@ -524,7 +792,7 @@ fn project_sleep_status(
             "max_proposals_per_cycle": config.sleep_cycle.max_proposals_per_cycle,
             "share_private_memory": config.sleep_cycle.privacy.share_private_memory
         },
-        "note": "proposal list is a pure config preview; durable cooldown ledger is not exposed on SteveRuntime"
+        "note": "proposal list is a pure config preview; durable cooldown ledger is not exposed on AgentRuntime"
     })
 }
 
@@ -571,7 +839,7 @@ fn bound_text(s: &str, max_chars: usize) -> String {
     }
 }
 
-fn require_operator(runtime: &SteveRuntime, headers: &HeaderMap) -> Result<(), ApiError> {
+fn require_operator(runtime: &AgentRuntime, headers: &HeaderMap) -> Result<(), ApiError> {
     let authorization = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
@@ -607,8 +875,8 @@ mod tests {
 
     fn sample_status() -> RuntimeStatus {
         RuntimeStatus {
-            identity: "Steve Jobs".into(),
-            agent_id: "ferricula-stevejobs".into(),
+            identity: "Ferricula Agent".into(),
+            agent_id: "ferricula-agent".into(),
             mode: ActivityMode::Asleep,
             queued: 0,
             running: 0,
@@ -633,6 +901,23 @@ mod tests {
             overlay_events: 0,
             advocate_alignment: Some("aligned".into()),
             advocate_expired: false,
+            documents: 0,
+            experience_records: 0,
+            embeddings: crate::runtime::EmbeddingsStatus {
+                backend: "none".into(),
+                space: "none".into(),
+                state: crate::runtime::EmbeddingsState::Disabled,
+                probe_cosines: Vec::new(),
+                probe_ids: Vec::new(),
+                detail: None,
+                checked_at: None,
+            },
+            meaning: crate::runtime::MeaningStatus {
+                enabled: false,
+                counts: Default::default(),
+                backfill: Default::default(),
+                notes: Vec::new(),
+            },
         }
     }
 
@@ -662,7 +947,7 @@ mod tests {
         let mut s = sample_status();
         s.mode = ActivityMode::Paused;
         let config = RuntimeConfig::default();
-        let v = project_sleep_status(&s, &config, "ferricula-stevejobs", 1_000);
+        let v = project_sleep_status(&s, &config, "ferricula-agent", 1_000);
         assert_eq!(v["ready_for_planning"], false);
         // Default sleep_cycle.enabled is true, but paused gate yields no proposals.
         assert!(v["proposals"].as_array().unwrap().is_empty() || v["gate"] == "paused");
@@ -673,7 +958,7 @@ mod tests {
         let s = sample_status();
         let mut config = RuntimeConfig::default();
         config.sleep_cycle.enabled = false;
-        let v = project_sleep_status(&s, &config, "ferricula-stevejobs", 1_000);
+        let v = project_sleep_status(&s, &config, "ferricula-agent", 1_000);
         assert_eq!(v["enabled"], false);
         assert_eq!(v["proposals_source"], "disabled");
         assert!(v["proposals"].as_array().unwrap().is_empty());

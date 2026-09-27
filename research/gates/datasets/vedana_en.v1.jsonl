@@ -1,0 +1,30 @@
+{"id":"ven0001","text":"The deploy failed again and the client is furious.","valence":"dukkha","intensity":3,"source":"plan §4.1 example"}
+{"id":"ven0002","text":"The user wrote back: this is exactly what I needed, thank you so much.","valence":"sukha","intensity":3,"source":"authored"}
+{"id":"ven0003","text":"Daily standup moved from 9:30 to 9:45 on Tuesdays.","valence":"adukkhamasukha","intensity":0,"source":"authored"}
+{"id":"ven0004","text":"We lost the entire recovery volume. Three months of journal entries are gone.","valence":"dukkha","intensity":4,"source":"authored"}
+{"id":"ven0005","text":"The flight landed twenty minutes early and my bag was first on the belt.","valence":"sukha","intensity":2,"source":"authored"}
+{"id":"ven0006","text":"The API returns 404 for deleted documents by design.","valence":"adukkhamasukha","intensity":1,"source":"authored"}
+{"id":"ven0007","text":"My mentor said my design doc was the clearest she had read this year.","valence":"sukha","intensity":3,"source":"authored"}
+{"id":"ven0008","text":"The demo crashed in front of forty investors and nobody could restart it.","valence":"dukkha","intensity":4,"source":"authored"}
+{"id":"ven0009","text":"Coffee with an old friend; we talked for three hours and it felt like minutes.","valence":"sukha","intensity":3,"source":"authored"}
+{"id":"ven0010","text":"The invoice for March was paid on the 28th.","valence":"adukkhamasukha","intensity":0,"source":"authored"}
+{"id":"ven0011","text":"They cancelled my talk an hour before I went on stage, by email.","valence":"dukkha","intensity":3,"source":"authored"}
+{"id":"ven0012","text":"The build is green again after two days of chasing the race condition.","valence":"sukha","intensity":3,"source":"authored"}
+{"id":"ven0013","text":"Meeting notes: agenda items 1-4 covered; next sync Thursday.","valence":"adukkhamasukha","intensity":0,"source":"authored"}
+{"id":"ven0014","text":"I dropped my phone in the harbour. Every photo of the trip is underwater.","valence":"dukkha","intensity":4,"source":"authored"}
+{"id":"ven0015","text":"The intern shipped her first patch today and it passed review untouched.","valence":"sukha","intensity":2,"source":"authored"}
+{"id":"ven0016","text":"","valence":"adukkhamasukha","intensity":0,"source":"boundary: empty input"}
+{"id":"ven0017","text":"The quarterly report lists revenue of 4.2M, up 8% year over year.","valence":"adukkhamasukha","intensity":1,"source":"authored: reported fact"}
+{"id":"ven0018","text":"My brother's surgery went perfectly; the doctor said recovery will be fast.","valence":"sukha","intensity":4,"source":"authored"}
+{"id":"ven0019","text":"The landlord is selling the flat. I have two months to move.","valence":"dukkha","intensity":3,"source":"authored"}
+{"id":"ven0020","text":"Sunlight through the window while the tests ran. Nothing was on fire.","valence":"sukha","intensity":1,"source":"authored"}
+{"id":"ven0021","text":"Schema v12 adds the retention_days column, default 30.","valence":"adukkhamasukha","intensity":0,"source":"authored"}
+{"id":"ven0022","text":"The customer threatened legal action and CC'd their lawyer on the reply.","valence":"dukkha","intensity":4,"source":"authored"}
+{"id":"ven0023","text":"Found the bug. One inverted flag. The fix is two lines.","valence":"sukha","intensity":2,"source":"authored: relief"}
+{"id":"ven0024","text":"Team lunch order: three pad thai, one green curry, one fried rice.","valence":"adukkhamasukha","intensity":0,"source":"authored"}
+{"id":"ven0025","text":"Everything I wrote this week has to be redone; the spec changed upstream.","valence":"dukkha","intensity":3,"source":"authored"}
+{"id":"ven0026","text":"The children planted tomatoes in the garden today.","valence":"sukha","intensity":2,"source":"authored"}
+{"id":"ven0027","text":"Backup completed at 03:12, 41 GB, no errors reported.","valence":"adukkhamasukha","intensity":1,"source":"authored"}
+{"id":"ven0028","text":"HR confirmed the layoffs. My whole team is gone by Friday.","valence":"dukkha","intensity":4,"source":"authored"}
+{"id":"ven0029","text":"The grant was approved. Two years of funding, no conditions.","valence":"sukha","intensity":4,"source":"authored"}
+{"id":"ven0030","text":"The library charges 0.25 per day for late returns.","valence":"adukkhamasukha","intensity":0,"source":"authored"}

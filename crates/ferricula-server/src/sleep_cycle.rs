@@ -2,7 +2,7 @@
 //!
 //! Pure state and types only: no clock reads, no I/O, no network, and no
 //! access to the memory engine. Callers supply `now` (unix seconds) and
-//! persist the state themselves; this module decides *what Steve may do
+//! persist the state themselves; this module decides *what the agent may do
 //! while asleep* — it never does any of it. Invariants by construction:
 //!
 //! 1. **No memory mutation.** A proposal can request at most
@@ -759,7 +759,7 @@ fn jittered_spacing(base: u64, span: u64, last: u64, agent_id: &str) -> u64 {
 mod tests {
     use super::*;
 
-    const AGENT: &str = "ferricula-stevejobs";
+    const AGENT: &str = "ferricula-agent";
 
     #[test]
     fn defaults_are_safe_and_valid() {
