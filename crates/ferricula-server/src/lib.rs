@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod api;
 pub mod harness;
+pub mod comfy;
 pub mod curation;
 pub mod mcp;
 pub mod evidence_card;
