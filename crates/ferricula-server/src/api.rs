@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::{Json, Router, response::IntoResponse};
 use ferricula_cognition::WhisperContext;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -45,6 +45,11 @@ pub fn router(runtime: Arc<AgentRuntime>) -> Router {
         .route("/health", get(health))
         .route("/status", get(status))
         .route("/identity", get(identity))
+        .route("/auth/login", get(auth_login))
+        .route("/auth/callback", get(auth_callback))
+        .route("/auth/logout", post(auth_logout))
+        .route("/auth/status", get(auth_status))
+        .route("/auth/break-glass", get(auth_break_glass))
         .route("/control/mode", post(set_mode))
         .route("/control/wake", post(wake))
         .route("/control/sleep", post(sleep))
@@ -840,17 +845,242 @@ fn bound_text(s: &str, max_chars: usize) -> String {
 }
 
 fn require_operator(runtime: &AgentRuntime, headers: &HeaderMap) -> Result<(), ApiError> {
+    require_operator_identity(runtime, headers).map(|_| ())
+}
+
+fn require_operator_identity(
+    runtime: &AgentRuntime,
+    headers: &HeaderMap,
+) -> Result<crate::auth::AuthIdentity, ApiError> {
+    if !runtime.config.require_operator_auth {
+        return Ok(crate::auth::AuthIdentity::unauthenticated());
+    }
+
     let authorization = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
-    if runtime.authorize(authorization) {
-        Ok(())
-    } else {
-        Err((
+    let bearer = authorization.and_then(|h| h.strip_prefix("Bearer "));
+    let cookie_session = crate::auth::extract_session_cookie(headers);
+    let expected_static = std::env::var(&runtime.config.operator_token_env).ok();
+
+    match runtime.auth.check_authorization(bearer, cookie_session, expected_static.as_deref()) {
+        crate::auth::AuthCheckResult::Authorized(identity) => {
+            if identity.via == "session" {
+                if let Err(csrf_err) = crate::auth::verify_csrf(headers) {
+                    return Err((
+                        StatusCode::FORBIDDEN,
+                        Json(json!({ "error": csrf_err })),
+                    ));
+                }
+            }
+            Ok(identity)
+        }
+        crate::auth::AuthCheckResult::Forbidden(reason) => Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": reason })),
+        )),
+        crate::auth::AuthCheckResult::Unreachable(reason) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "error": reason })),
+        )),
+        crate::auth::AuthCheckResult::Unauthorized(reason) => Err((
             StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "operator authorization required" })),
-        ))
+            Json(json!({ "error": reason })),
+        )),
     }
+}
+
+fn get_request_origin(headers: &HeaderMap, runtime: &AgentRuntime) -> String {
+    let host = headers
+        .get(axum::http::header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or_else(|| {
+            if runtime.config.bind.ip().is_loopback() {
+                "127.0.0.1:18875"
+            } else {
+                "localhost"
+            }
+        });
+    let is_https = is_request_secure(headers);
+    let scheme = if is_https { "https" } else { "http" };
+    format!("{scheme}://{host}")
+}
+
+fn is_request_secure(headers: &HeaderMap) -> bool {
+    headers
+        .get("x-forwarded-proto")
+        .and_then(|p| p.to_str().ok())
+        .map(|p| p.eq_ignore_ascii_case("https"))
+        .unwrap_or(false)
+}
+
+async fn auth_login(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+) -> Result<axum::response::Response, ApiError> {
+    if !runtime.auth.login_enabled() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "nuts-auth login is disabled" })),
+        ));
+    }
+    let origin = get_request_origin(&headers, &runtime);
+    let return_url = format!("{origin}/auth/callback");
+    let redirect_url = runtime.auth.build_login_url(&return_url);
+    let mut response = axum::response::Redirect::to(&redirect_url).into_response();
+    *response.status_mut() = StatusCode::SEE_OTHER;
+    Ok(response)
+}
+
+#[derive(Deserialize)]
+struct AuthCallbackParams {
+    token: Option<String>,
+}
+
+async fn auth_callback(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    axum::extract::Query(params): axum::extract::Query<AuthCallbackParams>,
+) -> Result<axum::response::Response, ApiError> {
+    let Some(token) = params.token.filter(|t| !t.trim().is_empty()) else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "missing token parameter" })),
+        ));
+    };
+
+    let claims = match runtime.auth.verify_jwt(&token) {
+        Ok(c) => c,
+        Err(crate::auth::JwtError::Expired) => {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({ "error": "token expired" })),
+            ));
+        }
+        Err(crate::auth::JwtError::Unreachable) => {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "error": "nuts-auth unreachable" })),
+            ));
+        }
+        Err(crate::auth::JwtError::Invalid(msg)) => {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({ "error": format!("invalid token: {msg}") })),
+            ));
+        }
+    };
+
+    if !runtime.auth.is_operator(&claims.user_id) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": "not an operator for this agent",
+                "user_id": claims.user_id,
+            })),
+        ));
+    }
+
+    let session = runtime
+        .auth
+        .create_session(
+            &claims.user_id,
+            &claims.sub,
+            claims.name.as_deref(),
+            "nuts-auth",
+            claims.exp,
+        )
+        .map_err(|e| internal(e))?;
+
+    let is_secure = is_request_secure(&headers);
+    let max_age_secs = runtime.auth.config.session_hours * 3600;
+    let cookie = crate::auth::format_session_cookie(&session.session_id, max_age_secs, is_secure);
+
+    let mut response = axum::response::Redirect::to("/talk").into_response();
+    *response.status_mut() = StatusCode::SEE_OTHER;
+    if let Ok(cookie_val) = axum::http::HeaderValue::from_str(&cookie) {
+        response.headers_mut().insert(axum::http::header::SET_COOKIE, cookie_val);
+    }
+    Ok(response)
+}
+
+async fn auth_logout(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+) -> Result<axum::response::Response, ApiError> {
+    if let Some(session_id) = crate::auth::extract_session_cookie(&headers) {
+        runtime.auth.delete_session(session_id);
+    }
+    let is_secure = is_request_secure(&headers);
+    let clear_cookie = crate::auth::format_clear_session_cookie(is_secure);
+    let mut response = Json(json!({ "ok": true })).into_response();
+    if let Ok(cookie_val) = axum::http::HeaderValue::from_str(&clear_cookie) {
+        response.headers_mut().insert(axum::http::header::SET_COOKIE, cookie_val);
+    }
+    Ok(response)
+}
+
+async fn auth_status(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+) -> Json<Value> {
+    let login_enabled = runtime.auth.login_enabled();
+    let authorization = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
+    let bearer = authorization.and_then(|h| h.strip_prefix("Bearer "));
+    let session_id = crate::auth::extract_session_cookie(&headers);
+    let expected_static = std::env::var(&runtime.config.operator_token_env).ok();
+
+    let (signed_in, user_id) = match runtime.auth.check_authorization(
+        bearer,
+        session_id,
+        expected_static.as_deref(),
+    ) {
+        crate::auth::AuthCheckResult::Authorized(id) => (true, Some(id.user_id)),
+        _ => (false, None),
+    };
+
+    Json(json!({
+        "login_enabled": login_enabled,
+        "signed_in": signed_in,
+        "user_id": user_id,
+    }))
+}
+
+#[derive(Deserialize)]
+struct BreakGlassParams {
+    token: Option<String>,
+}
+
+async fn auth_break_glass(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    axum::extract::Query(params): axum::extract::Query<BreakGlassParams>,
+) -> Result<axum::response::Response, ApiError> {
+    let Some(token) = params.token else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "missing break-glass token" })),
+        ));
+    };
+    let Some(session) = runtime.auth.redeem_break_glass_token(&token) else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "invalid or expired break-glass token" })),
+        ));
+    };
+
+    let is_secure = is_request_secure(&headers);
+    let max_age_secs = runtime.auth.config.session_hours * 3600;
+    let cookie = crate::auth::format_session_cookie(&session.session_id, max_age_secs, is_secure);
+
+    let mut response = axum::response::Redirect::to("/talk").into_response();
+    *response.status_mut() = StatusCode::SEE_OTHER;
+    if let Ok(cookie_val) = axum::http::HeaderValue::from_str(&cookie) {
+        response.headers_mut().insert(axum::http::header::SET_COOKIE, cookie_val);
+    }
+    Ok(response)
 }
 
 fn bad_request(error: impl std::fmt::Display) -> ApiError {
