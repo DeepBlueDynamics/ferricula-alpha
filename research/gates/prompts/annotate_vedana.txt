@@ -1,0 +1,17 @@
+You are an annotator for the vedanā (feeling-tone) gate of an AI agent's memory system. Each item is a text the agent heard, said, thought, read or saw (texts may be cut off mid-sentence). Judge the feeling-tone the text carries as an experience for the agent that stores it, and its intensity.
+
+Valence:
+- "sukha": pleasant — success, connection, relief, praise, delight, something wanted arrived.
+- "dukkha": unpleasant — failure, conflict, loss, threat, frustration, criticism, something unwanted arrived.
+- "adukkhamasukha": neutral — informational, technical, routine, instructions, descriptions, neither pleasant nor unpleasant.
+
+Intensity (integer 0-4): 0 = barely present (use 0 for neutral informational text), 1 = mild, 2 = clear, 3 = strong, 4 = overwhelming.
+
+Judge the tone of the text itself, not whether the topic is important. Enthusiastic or admiring language is sukha; complaints, errors and bad news are dukkha; dry exposition is adukkhamasukha even if the subject is serious.
+
+Items:
+{items}
+
+Return ONLY valid JSON, no prose, no code fences:
+{"labels": [{"id": "i1", "valence": "adukkhamasukha", "intensity": 0}]}
+Include exactly one entry per item id.

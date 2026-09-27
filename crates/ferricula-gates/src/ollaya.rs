@@ -102,6 +102,88 @@ impl Decision {
         let p = answer.get("probabilities")?.get(&label)?.as_f64()? as f32;
         Some((label, p))
     }
+
+    /// The full choice distribution in `labels` order (None if any is missing).
+    pub fn choice_probs(&self, id: &str, labels: &[&str]) -> Option<Vec<f32>> {
+        let probs = self.answers.get(id)?.get("probabilities")?;
+        labels.iter().map(|l| probs.get(*l)?.as_f64().map(|p| p as f32)).collect()
+    }
+}
+
+/// The vedanā gate's question set (valence choice + intensity score).
+pub const VEDANA_LABELS: [&str; 3] = ["sukha", "dukkha", "adukkhamasukha"];
+
+pub fn vedana_questions() -> Value {
+    json!({
+        "valence": choice("What feeling-tone does this experience carry?", &[
+            ("sukha", "pleasant, welcome, satisfying"),
+            ("dukkha", "unpleasant, painful, threatening"),
+            ("adukkhamasukha", "neutral, neither pleasant nor unpleasant"),
+        ]),
+        "intensity": score("How strong is that feeling-tone?", &[
+            "none", "faint", "moderate", "strong", "overwhelming",
+        ]),
+    })
+}
+
+/// The sati-recall gate's state and question set.
+pub fn sati_recall_state(query: &str, memory: &str) -> String {
+    format!("Query: {query}\n\nMemory: {memory}")
+}
+
+pub fn sati_recall_questions() -> Value {
+    json!({
+        "answers": noul("The memory contains information that answers the query.",
+            "it answers or directly helps answer the query", "it does not help answer the query"),
+        "relevance": score("How relevant is the memory to the query?", &[
+            "unrelated", "same topic only", "partially answers", "fully answers",
+        ]),
+    })
+}
+
+/// One wording of a yes/no statement. `invert` means the statement is the
+/// negation of the property of interest (p_property = 1 - p_statement).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct YesNoWording<'a> {
+    pub id: &'a str,
+    pub statement: &'a str,
+    pub when_true: &'a str,
+    pub when_false: &'a str,
+    pub invert: bool,
+}
+
+/// Candidate wordings of the curiosity gate ("is this worth researching?").
+/// `cur-v0` is the wording the runtime used through the 2026-09-27 soak.
+pub const CURIOSITY_WORDINGS: &[YesNoWording<'static>] = &[
+    YesNoWording { id: "cur-v0", statement: "This is worth researching further", when_true: "yes", when_false: "no", invert: false },
+    YesNoWording {
+        id: "cur-v1",
+        statement: "There is something here worth looking up on the web to learn more about.",
+        when_true: "a topic, claim, name or question here that a web search would teach something about",
+        when_false: "a greeting, small talk, an instruction or self-contained text with nothing to look up",
+        invert: false,
+    },
+    YesNoWording { id: "cur-v2", statement: "This text raises a topic, claim or question that would be interesting to research.", when_true: "yes", when_false: "no", invert: false },
+    YesNoWording {
+        id: "cur-v3",
+        statement: "This is small talk, a greeting, an instruction or routine text with nothing to look up.",
+        when_true: "nothing here to look up", when_false: "there is a topic or question here worth looking up",
+        invert: true,
+    },
+    YesNoWording {
+        id: "cur-v4",
+        statement: "Researching this further would teach something new and useful.",
+        when_true: "a search would find new, useful information", when_false: "a search would add nothing",
+        invert: false,
+    },
+];
+
+/// The wording the curiosity gate should use (selected on the WP-4 dev split;
+/// see research/gates/datasets/CARD-v3.md).
+pub const CURIOSITY_WORDING: &str = "cur-v0";
+
+pub fn curiosity_wording(id: &str) -> Option<&'static YesNoWording<'static>> {
+    CURIOSITY_WORDINGS.iter().find(|w| w.id == id)
 }
 
 pub fn noul(instructions: &str, when_true: &str, when_false: &str) -> Value {
@@ -180,9 +262,26 @@ impl OllayaGate {
     /// e.g. "is this worth deliberating on?" Low confidence abstains, and an
     /// abstention is never read as "no".
     pub fn yes_no(&self, state: &str, statement: &str, min_confidence: f32) -> Judged<YesNo> {
-        let features = [QUESTIONS_VERSION, statement, state];
-        self.run(&features, state, json!({ "q": noul(statement, "yes", "no") }), |d| {
-            let p = d.noul("q").ok_or_else(|| missing("q"))?;
+        let wording = YesNoWording { id: "", statement, when_true: "yes", when_false: "no", invert: false };
+        self.yes_no_worded(state, &wording, min_confidence)
+    }
+
+    /// [`Self::yes_no`] with explicit criteria. The returned `p` is the
+    /// probability of the property of interest (inverted for an `invert`
+    /// wording), after this gate's calibration temperature if any.
+    pub fn yes_no_worded(&self, state: &str, w: &YesNoWording<'_>, min_confidence: f32) -> Judged<YesNo> {
+        // Plain yes/no criteria keep the pre-wording feature hash.
+        let plain = w.when_true == "yes" && w.when_false == "no" && !w.invert;
+        let features: Vec<&str> = if plain {
+            vec![QUESTIONS_VERSION, w.statement, state]
+        } else {
+            vec![QUESTIONS_VERSION, w.statement, w.when_true, w.when_false, if w.invert { "invert" } else { "" }, state]
+        };
+        let calibration = self.calibration.clone();
+        self.run(&features, state, json!({ "q": noul(w.statement, w.when_true, w.when_false) }), |d| {
+            let raw = d.noul("q").ok_or_else(|| missing("q"))?;
+            let raw = if w.invert { 1.0 - raw } else { raw };
+            let p = calibration.as_ref().map_or(raw, |c| c.apply_binary(raw));
             let confidence = p.max(1.0 - p);
             if confidence < min_confidence {
                 return Err(AbstainReason::LowConfidence { p_max: confidence });
@@ -217,47 +316,54 @@ fn missing(id: &str) -> AbstainReason {
 impl VedanaGate for OllayaGate {
     fn judge(&self, _agent: &AgentId, text: &str) -> Judged<VedanaVerdict> {
         let features = [QUESTIONS_VERSION, "vedana", text];
-        let questions = json!({
-            "valence": choice("What feeling-tone does this experience carry?", &[
-                ("sukha", "pleasant, welcome, satisfying"),
-                ("dukkha", "unpleasant, painful, threatening"),
-                ("adukkhamasukha", "neutral, neither pleasant nor unpleasant"),
-            ]),
-            "intensity": score("How strong is that feeling-tone?", &[
-                "none", "faint", "moderate", "strong", "overwhelming",
-            ]),
-        });
-        self.run(&features, text, questions, |d| {
-            let (label, p) = d.choice("valence").ok_or_else(|| missing("valence"))?;
-            let intensity = d.score("intensity").ok_or_else(|| missing("intensity"))?;
-            if p < 0.5 {
-                return Err(AbstainReason::LowConfidence { p_max: p });
-            }
-            let valence = match label.as_str() {
-                "sukha" => Valence::Sukha,
-                "dukkha" => Valence::Dukkha,
-                _ => Valence::Neutral,
-            };
-            Ok(VedanaVerdict { valence, intensity: intensity.clamp(0.0, 4.0), p })
-        })
+        let calibration = self.calibration.clone();
+        self.run(&features, text, vedana_questions(), |d| vedana_verdict(d, calibration.as_ref()))
     }
+}
+
+/// Map a vedanā decision to a verdict: temper the full valence distribution
+/// when a calibration is loaded, then abstain below p = 0.5.
+pub fn vedana_verdict(d: &Decision, calibration: Option<&Calibration>) -> Result<VedanaVerdict, AbstainReason> {
+    let raw = match d.choice_probs("valence", &VEDANA_LABELS) {
+        Some(raw) => raw,
+        // Distribution incomplete: only the winner is usable, uncalibrated.
+        None if calibration.is_none() => {
+            let (label, p) = d.choice("valence").ok_or_else(|| missing("valence"))?;
+            let k = VEDANA_LABELS.iter().position(|l| *l == label).ok_or_else(|| missing("valence"))?;
+            let mut v = vec![0.0; 3];
+            v[k] = p;
+            v
+        }
+        None => return Err(missing("valence")),
+    };
+    let probs = calibration.map_or_else(|| raw.clone(), |c| c.apply(&raw));
+    let intensity = d.score("intensity").ok_or_else(|| missing("intensity"))?;
+    let (k, p) = probs.iter().cloned().enumerate()
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .ok_or_else(|| missing("valence"))?;
+    if p < 0.5 {
+        return Err(AbstainReason::LowConfidence { p_max: p });
+    }
+    let valence = match VEDANA_LABELS[k] {
+        "sukha" => Valence::Sukha,
+        "dukkha" => Valence::Dukkha,
+        _ => Valence::Neutral,
+    };
+    Ok(VedanaVerdict { valence, intensity: intensity.clamp(0.0, 4.0), p })
 }
 
 impl SatiRecallGate for OllayaGate {
     fn judge(&self, _agent: &AgentId, query: &str, memory: &str) -> Judged<SatiRecallVerdict> {
         let features = [QUESTIONS_VERSION, "sati-recall", query, memory];
-        let state = format!("Query: {query}\n\nMemory: {memory}");
-        let questions = json!({
-            "answers": noul("The memory contains information that answers the query.",
-                "it answers or directly helps answer the query", "it does not help answer the query"),
-            "relevance": score("How relevant is the memory to the query?", &[
-                "unrelated", "same topic only", "partially answers", "fully answers",
-            ]),
-        });
-        self.run(&features, &state, questions, |d| Ok(SatiRecallVerdict {
-            answers_query: d.noul("answers").ok_or_else(|| missing("answers"))?,
-            relevance: d.score("relevance").ok_or_else(|| missing("relevance"))?.clamp(0.0, 3.0),
-        }))
+        let state = sati_recall_state(query, memory);
+        let calibration = self.calibration.clone();
+        self.run(&features, &state, sati_recall_questions(), |d| {
+            let raw = d.noul("answers").ok_or_else(|| missing("answers"))?;
+            Ok(SatiRecallVerdict {
+                answers_query: calibration.as_ref().map_or(raw, |c| c.apply_binary(raw)),
+                relevance: d.score("relevance").ok_or_else(|| missing("relevance"))?.clamp(0.0, 3.0),
+            })
+        })
     }
 }
 
@@ -274,9 +380,10 @@ impl MergeGate for OllayaGate {
             "contradiction": noul("At least two of these memories contradict each other.",
                 "they contradict", "they are consistent"),
         });
+        let cal = |p: f32| self.calibration.as_ref().map_or(p, |c| c.apply_binary(p));
         self.run(&features, &state, questions, |d| Ok(MergeVerdict {
-            same_truth: d.noul("same").ok_or_else(|| missing("same"))?,
-            contradiction: d.noul("contradiction").ok_or_else(|| missing("contradiction"))?,
+            same_truth: cal(d.noul("same").ok_or_else(|| missing("same"))?),
+            contradiction: cal(d.noul("contradiction").ok_or_else(|| missing("contradiction"))?),
         }))
     }
 }
@@ -288,8 +395,9 @@ impl TaskSucceededGate for OllayaGate {
             "succeeded": noul("The task in this transcript was completed, and the completion is confirmed by external evidence (a tool result, test, or observation), not only by the agent's own claim.",
                 "completed and externally confirmed", "not completed or only self-reported"),
         });
+        let cal = |p: f32| self.calibration.as_ref().map_or(p, |c| c.apply_binary(p));
         self.run(&features, transcript, questions, |d| Ok(TaskSucceededVerdict {
-            p: d.noul("succeeded").ok_or_else(|| missing("succeeded"))?,
+            p: cal(d.noul("succeeded").ok_or_else(|| missing("succeeded"))?),
         }))
     }
 }
@@ -320,6 +428,33 @@ mod tests {
         assert_eq!(d.score("i"), Some(2.5));
         assert_eq!(d.noul("n"), Some(0.91));
         assert_eq!(d.noul("missing"), None);
+    }
+
+    #[test]
+    fn vedana_verdict_tempers_then_abstains() {
+        let d = decision(json!({
+            "valence": {"type": "choice", "choice": "sukha",
+                        "probabilities": {"sukha": 0.6, "dukkha": 0.3, "adukkhamasukha": 0.1}},
+            "intensity": {"type": "score", "score": 2.0},
+        }), false);
+        let raw = vedana_verdict(&d, None).unwrap();
+        assert!((raw.p - 0.6).abs() < 1e-6);
+        let sharpen = Calibration { sha256: "x".into(), temperature: 0.5, lifecycle_authorized: false };
+        let v = vedana_verdict(&d, Some(&sharpen)).unwrap();
+        assert!((v.p - 0.36 / 0.46).abs() < 1e-5);
+        assert_eq!(v.valence, Valence::Sukha);
+        let flatten = Calibration { sha256: "x".into(), temperature: 3.0, lifecycle_authorized: false };
+        assert!(matches!(vedana_verdict(&d, Some(&flatten)), Err(AbstainReason::LowConfidence { .. })));
+    }
+
+    #[test]
+    fn curiosity_wordings_are_unique_and_default_exists() {
+        let mut ids: Vec<&str> = CURIOSITY_WORDINGS.iter().map(|w| w.id).collect();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), CURIOSITY_WORDINGS.len());
+        assert!(curiosity_wording(CURIOSITY_WORDING).is_some());
+        assert_eq!(curiosity_wording("cur-v0").unwrap().statement, "This is worth researching further");
     }
 
     #[test]

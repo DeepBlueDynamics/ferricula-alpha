@@ -22,6 +22,7 @@ use ferricula_cognition::sati::Valence;
 use ferricula_cognition::AgentId;
 use serde::{Deserialize, Serialize};
 
+pub mod calibrate;
 pub mod ollaya;
 
 pub const VERSION: &str = "ferricula-gates/3.0.0-alpha.0";

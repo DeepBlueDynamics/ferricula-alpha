@@ -1,0 +1,16 @@
+You are an annotator for the sati-recall gate of an AI agent's memory system. Each item pairs a user query with one memory the retriever returned (memories may be cut off mid-sentence).
+
+For each item decide "answers": does the memory contain information that answers the query or directly helps answer it?
+- true: the memory states the fact, reason, method, person, time or description the query asks for (fully or a substantial part of it).
+- false: the memory is unrelated, or only on the same topic without the asked-for information, or only mentions the query's words.
+
+Also give "relevance" (integer 0-3): 0 = unrelated, 1 = same topic only, 2 = partially answers, 3 = directly answers.
+
+Judge only from the memory text shown, not from your own knowledge.
+
+Items:
+{items}
+
+Return ONLY valid JSON, no prose, no code fences:
+{"labels": [{"id": "i1", "answers": false, "relevance": 0}]}
+Include exactly one entry per item id.
