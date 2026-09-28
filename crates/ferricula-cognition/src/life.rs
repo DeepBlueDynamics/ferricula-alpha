@@ -40,6 +40,12 @@ pub struct DriveConfig {
     pub sleep_per_1k_tokens: f32,
     /// Sleep pressure at which the agent falls asleep.
     pub sleep_threshold: f32,
+    /// Ceiling on sleep pressure, as a multiple of `sleep_threshold`. Token
+    /// spend is unbounded (a thinking model can spend hundreds of thousands
+    /// of tokens a day), so without a ceiling one busy day could demand a
+    /// sleep of days. At 1.5 the longest sleep is 1.5 x threshold /
+    /// recovery rate (9 hours at the defaults).
+    pub max_sleep_pressure_factor: f32,
     /// Sleep pressure drained per sleeping minute.
     pub sleep_recovery_per_min: f32,
     /// Sleep ends on its own when pressure falls below this.
@@ -69,6 +75,7 @@ impl Default for DriveConfig {
             sleep_per_awake_min: 1.0 / (16.0 * 60.0),
             sleep_per_1k_tokens: 0.01,
             sleep_threshold: 1.0,
+            max_sleep_pressure_factor: 1.5,
             sleep_recovery_per_min: 1.0 / (6.0 * 60.0),
             rested_below: 0.1,
             max_curiosity_per_day: 12,
@@ -197,6 +204,7 @@ pub fn step(d: &mut Drives, cfg: &DriveConfig, stimulus: &Stimulus, now: u64) ->
         }
     }
 
+    cap_pressure(d, cfg);
     let mut urges = Vec::new();
     match stimulus {
         Stimulus::Tick => {
@@ -230,6 +238,7 @@ pub fn step(d: &mut Drives, cfg: &DriveConfig, stimulus: &Stimulus, now: u64) ->
         }
         Stimulus::TokensSpent { tokens } => {
             d.sleep_pressure += cfg.sleep_per_1k_tokens * *tokens as f32 / 1000.0;
+            cap_pressure(d, cfg);
         }
         Stimulus::Consolidated => {
             if d.phase == Phase::Asleep && cfg.dream_on_sleep && !d.dreamed_this_sleep {
@@ -291,6 +300,15 @@ pub fn step(d: &mut Drives, cfg: &DriveConfig, stimulus: &Stimulus, now: u64) ->
         _ => {}
     }
     urges
+}
+
+/// Hold sleep pressure at or under its ceiling (see
+/// [`DriveConfig::max_sleep_pressure_factor`]); a non-positive factor
+/// disables the ceiling.
+fn cap_pressure(d: &mut Drives, cfg: &DriveConfig) {
+    if cfg.max_sleep_pressure_factor > 0.0 {
+        d.sleep_pressure = d.sleep_pressure.min(cfg.sleep_threshold * cfg.max_sleep_pressure_factor);
+    }
 }
 
 /// Whether the last dream falls inside the resumed-sleep window.
@@ -455,6 +473,34 @@ mod tests {
 
     fn trace(id: &str, intensity: f32) -> Trace {
         Trace { id: id.into(), text: format!("memory {id}"), valence: Valence::Neutral, intensity }
+    }
+
+    #[test]
+    fn sleep_pressure_is_capped_so_one_heavy_day_cannot_demand_days_of_sleep() {
+        let cfg = DriveConfig::default();
+        let mut d = Drives::new(T0);
+        // A thinking-model day: 1.7M tokens would be 17.0 pressure uncapped.
+        step(&mut d, &cfg, &Stimulus::TokensSpent { tokens: 1_700_000 }, T0);
+        assert!((d.sleep_pressure - 1.5).abs() < 1e-6, "{}", d.sleep_pressure);
+        assert_eq!(d.phase, Phase::Asleep);
+        // A state persisted before the cap (17.25) is pulled down on the next step.
+        // (It has already dreamed, so rest alone ends this sleep.)
+        d.sleep_pressure = 17.25;
+        d.dreamed_this_sleep = true;
+        d.last_dream_at = Some(T0);
+        step(&mut d, &cfg, &Stimulus::Tick, T0 + 60);
+        assert!(d.sleep_pressure <= 1.5);
+        // The longest sleep is bounded: 1.5 / (1/360 per min) = 540 min.
+        let wake_by = T0 + 60 + 541 * 60;
+        let mut t = T0 + 60;
+        while d.phase == Phase::Asleep && t < wake_by {
+            t += 60;
+            // A long sleep dreams again every so often; deliver each dream.
+            if step(&mut d, &cfg, &Stimulus::Tick, t).contains(&Urge::Dream) {
+                step(&mut d, &cfg, &Stimulus::Dreamed { question: None }, t);
+            }
+        }
+        assert_ne!(d.phase, Phase::Asleep, "still asleep after {} min", (t - T0) / 60);
     }
 
     #[test]

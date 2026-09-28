@@ -364,7 +364,20 @@ async fn wake(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> A
 async fn sleep(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
     require_operator(&runtime, &headers)?;
     runtime.set_mode(ActivityMode::Asleep).map_err(internal)?;
-    Ok(Json(json!({ "mode": ActivityMode::Asleep })))
+    // The mode alone left the drives awake (phase resting, no consolidation,
+    // no dream). With life on, the operator's sleep is a real sleep: the
+    // same path as the forced sleep urge, run in the background because
+    // consolidation and the dream take model calls.
+    let life = runtime.life_status(0)["enabled"].as_bool().unwrap_or(false);
+    if life {
+        let runtime = runtime.clone();
+        tokio::spawn(async move {
+            if let Err(error) = runtime.life_force(crate::runtime::LifeUrgeRequest::Sleep).await {
+                eprintln!("control: sleep did not reach life: {error:#}");
+            }
+        });
+    }
+    Ok(Json(json!({ "mode": ActivityMode::Asleep, "life_sleep": life })))
 }
 
 async fn pause(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
