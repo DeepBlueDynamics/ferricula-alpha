@@ -637,7 +637,7 @@ pub fn query_segments(text: &str) -> Vec<String> {
 /// Combine per-segment dense result lists: weighted RRF (k = 60) where
 /// each segment's weight is its novelty (1 − its best cosine to memory)
 /// relative to the most novel segment, so familiar small talk ("Steve,
-/// it's Kord.") does not crowd out the part of the message that asks for
+/// it's Rowan.") does not crowd out the part of the message that asks for
 /// something. Each key keeps its best cosine. A single list passes through.
 pub fn fuse_segments(lists: Vec<(Vec<DenseHit>, f64)>, k: usize) -> Vec<DenseHit> {
     if lists.len() == 1 {
@@ -867,22 +867,22 @@ pub(crate) mod tests {
         let dim = 64;
         let mut index = MeaningIndex::new("fake@64", dim, None);
         index.set_catalog(MeaningSet::Recovered, vec![
-            CatalogItem::recovered(1, "Raised by Paul and Clara, a machinist and a bookkeeper", true, None),
-            CatalogItem::recovered(2, "Designing the iMac with Jony", false, Some(fake_vector("Designing the iMac with Jony", dim))),
-            CatalogItem::recovered(3, "[dream image] a machinist in a garden", false, None),
+            CatalogItem::recovered(1, "Raised by Otto and Ilse, a glassblower and a ferryman", true, None),
+            CatalogItem::recovered(2, "Designing the lamp with Tomas", false, Some(fake_vector("Designing the lamp with Tomas", dim))),
+            CatalogItem::recovered(3, "[dream image] a glassblower in a garden", false, None),
         ]);
         index.set_catalog(MeaningSet::Experience, vec![
-            CatalogItem::experience(10, "I dreamed of a machinist and a bookkeeper", Some("dream")),
-            CatalogItem::experience(11, "I read about bookkeeper careers", Some("reading")),
+            CatalogItem::experience(10, "I dreamed of a glassblower and a ferryman", Some("dream")),
+            CatalogItem::experience(11, "I read about ferryman careers", Some("reading")),
         ]);
-        index.set_catalog(MeaningSet::Section, vec![CatalogItem::section("d1", 0, "A section on machinist tools")]);
+        index.set_catalog(MeaningSet::Section, vec![CatalogItem::section("d1", 0, "A section on glassblower tools")]);
         let c = index.counts();
         assert_eq!((c.recovered_total, c.recovered_embedded, c.recovered_stored, c.pending), (3, 1, 1, 5));
         assert_eq!(index.pending(&[MeaningSet::Recovered]).len(), 2);
         embed_all(&mut index, dim);
         assert_eq!(index.counts().pending, 0);
 
-        let q = fake_vector("machinist bookkeeper", dim);
+        let q = fake_vector("glassblower ferryman", dim);
         // Faded row 1 excluded by default; dream + dream image excluded as evidence.
         let hits = index.search(&q, 10, &SearchFilter::evidence(false));
         let keys: Vec<MeaningKey> = hits.iter().map(|h| h.key.clone()).collect();
@@ -954,10 +954,10 @@ pub(crate) mod tests {
 
     #[test]
     fn segments_and_novelty_weighted_segment_fusion() {
-        assert_eq!(query_segments("What do I name my phones?"), ["What do I name my phones?"]);
+        assert_eq!(query_segments("What do I name my bikes?"), ["What do I name my bikes?"]);
         assert_eq!(query_segments("hi"), ["hi"]);
-        let two = query_segments("Steve, it's Kord. Did you call your father Dad, or Paul?");
-        assert_eq!(two, ["Steve, it's Kord.", "Did you call your father Dad, or Paul?"]);
+        let two = query_segments("Mara, it's Rowan. Did you call your father Dad, or Otto?");
+        assert_eq!(two, ["Mara, it's Rowan.", "Did you call your father Dad, or Otto?"]);
         let hit = |id: u32, c: f64| DenseHit { key: MeaningKey::Recovered(id), cosine: c };
         // Greeting list (familiar: novelty 0.3) vs question list (novelty 0.6).
         let greeting = vec![hit(1, 0.70), hit(2, 0.68), hit(3, 0.66)];

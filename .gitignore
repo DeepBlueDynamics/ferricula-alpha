@@ -29,3 +29,10 @@ research/**/*.pdf
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Real recovered-memory benchmark data stays local (never in the repo)
+/research/bench/private/
+# Artifacts showing a real agent's memories or dreams stay local (2026-09-28)
+/inbox/*.zip
+/inbox/ui-review/*.png
+/audit/life/dream-image-sample.png

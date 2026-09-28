@@ -1,6 +1,6 @@
 # UI plan: "While he thinks"
 
-_Status: proposed, 2026-09-27. Source: `inbox/While he thinks-html.zip` (`Thinking.dc.html`, a design-tool export; the README says to replicate its values, not copy its markup). This plan covers the conversation page shown while the agent works on a turn. The instruments view (`Main.dc.html`, linked from the header) is not in the zip._
+_Status: proposed, 2026-09-27. Source: `inbox/While he thinks-html.zip` (local only since 2026-09-28; the extracted, redacted copy is `inbox/while-he-thinks/`) (`Thinking.dc.html`, a design-tool export; the README says to replicate its values, not copy its markup). This plan covers the conversation page shown while the agent works on a turn. The instruments view (`Main.dc.html`, linked from the header) is not in the zip._
 
 ## 1. The design
 

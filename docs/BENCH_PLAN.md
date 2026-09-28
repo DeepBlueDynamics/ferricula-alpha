@@ -61,7 +61,7 @@ Work is organized as packages (B-ids) a coordinator can hand to separate agents.
 
 ### B3. Recall over the recovered memory ✅ (keep, extend)
 - **What:** 30 meaning-level queries with gold recovered ids; lexical vs dense vs hybrid. Result R@5 0.133 lexical → 0.500 hybrid (0.600 with faded memories) (`audit/bench/recall-2026-09-27.md`). This is a retrieval diagnostic, **not** a headline claim (n = 30).
-- **Where:** `crates/ferricula-bench/src/recall.rs`, `research/bench/steve-recall-queries.json`.
+- **Where:** `crates/ferricula-bench/src/recall.rs`, `research/bench/synthetic/` (public: invented memories of a fictional person), and a real agent's set in `research/bench/private/` (gitignored, never in the repo).
 - **Extend:** CIs (B0); feed its misses into B4's class E candidates.
 - **Parallel:** yes.
 

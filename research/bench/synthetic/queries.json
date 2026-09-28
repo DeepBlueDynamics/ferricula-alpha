@@ -1,0 +1,156 @@
+{
+  "version": 1,
+  "memory": "synthetic:mara-voss-v1",
+  "memories": "memories.jsonl",
+  "description": "Synthetic recall set: 40 invented memories of a fictional lens-maker (Mara Voss) and 20 meaning-level queries with gold memory ids. No real person's memories. Five memories are archived, so the 'active' policy caps some queries and the 'faded' policy should recover them.",
+  "queries": [
+    {
+      "id": "q01",
+      "query": "Who were the people that brought you up, and what did they do for a living?",
+      "gold": [
+        1,
+        34,
+        27
+      ]
+    },
+    {
+      "id": "q02",
+      "query": "Where did you first set up to make things?",
+      "gold": [
+        2
+      ]
+    },
+    {
+      "id": "q03",
+      "query": "What was the very first thing you and your partner made together and sold?",
+      "gold": [
+        3
+      ]
+    },
+    {
+      "id": "q04",
+      "query": "Did you finish your formal education?",
+      "gold": [
+        5
+      ]
+    },
+    {
+      "id": "q05",
+      "query": "What did studying letterforms teach you?",
+      "gold": [
+        6
+      ]
+    },
+    {
+      "id": "q06",
+      "query": "How did it feel to lose control of the firm you started?",
+      "gold": [
+        8,
+        9
+      ]
+    },
+    {
+      "id": "q07",
+      "query": "What did you do in the years after you were forced out?",
+      "gold": [
+        10,
+        11
+      ]
+    },
+    {
+      "id": "q08",
+      "query": "How did you end up back at the company you founded?",
+      "gold": [
+        12
+      ]
+    },
+    {
+      "id": "q09",
+      "query": "Describe your closest collaborator.",
+      "gold": [
+        13,
+        14
+      ]
+    },
+    {
+      "id": "q10",
+      "query": "Why do you fuss over parts customers never see?",
+      "gold": [
+        16
+      ]
+    },
+    {
+      "id": "q11",
+      "query": "What did facing a serious diagnosis change for you?",
+      "gold": [
+        18,
+        19
+      ]
+    },
+    {
+      "id": "q12",
+      "query": "How are things with your child?",
+      "gold": [
+        20,
+        21
+      ]
+    },
+    {
+      "id": "q13",
+      "query": "How do you get to work?",
+      "gold": [
+        22
+      ]
+    },
+    {
+      "id": "q14",
+      "query": "What names do you give your bikes?",
+      "gold": [
+        23
+      ]
+    },
+    {
+      "id": "q15",
+      "query": "What was your biggest hit product?",
+      "gold": [
+        24,
+        25
+      ]
+    },
+    {
+      "id": "q16",
+      "query": "Did you ever study any spiritual practice?",
+      "gold": [
+        28
+      ]
+    },
+    {
+      "id": "q17",
+      "query": "Why do you always wear the same clothes?",
+      "gold": [
+        33
+      ]
+    },
+    {
+      "id": "q18",
+      "query": "When did you find out you were adopted?",
+      "gold": [
+        35
+      ]
+    },
+    {
+      "id": "q19",
+      "query": "What happened to the original workshop?",
+      "gold": [
+        36
+      ]
+    },
+    {
+      "id": "q20",
+      "query": "What do you think about mortality?",
+      "gold": [
+        38
+      ]
+    }
+  ]
+}

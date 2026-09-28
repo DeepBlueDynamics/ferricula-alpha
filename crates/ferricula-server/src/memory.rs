@@ -864,15 +864,15 @@ mod tests {
         let store = ExperienceStore::open(&dir, HashSet::new()).unwrap();
         let conv = uuid::Uuid::new_v4();
         let turn = |heard: &str, said: &str| TurnEvent {
-            conversation_id: conv, request_id: uuid::Uuid::new_v4(), speaker: "Kord".into(),
+            conversation_id: conv, request_id: uuid::Uuid::new_v4(), speaker: "Rowan".into(),
             heard: heard.into(), said: said.into(),
         };
-        let first = turn("I always name my iPhones Steve.", "That's flattering.");
+        let first = turn("I always name my bicycles Mara.", "That's flattering.");
         let (h1, s1) = store.remember_turn(&first).unwrap();
         assert!(store.remember_turn(&first).is_err(), "a turn is remembered once");
-        let (h2, s2) = store.remember_turn(&turn("And my iPads?", &"x".repeat(900))).unwrap();
+        let (h2, s2) = store.remember_turn(&turn("And my canoes?", &"x".repeat(900))).unwrap();
         let rows: std::collections::HashMap<u32, Row> = store.rows().into_iter().map(|(r, _)| (r.id, r)).collect();
-        assert_eq!(rows[&h1].tags["text"], "Kord said: I always name my iPhones Steve.");
+        assert_eq!(rows[&h1].tags["text"], "Rowan said: I always name my bicycles Mara.");
         assert_eq!(rows[&h1].tags["channel"], "hearing");
         assert_eq!(rows[&s1].tags["channel"], "thinking");
         assert_eq!(rows[&h2].tags["turn"], "1");

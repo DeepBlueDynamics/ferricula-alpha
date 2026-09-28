@@ -17,7 +17,8 @@ use anyhow::{Result, bail};
 const USAGE: &str = "usage: ferricula-bench gates|docs|longmem|recall [--limit N] [--seed S] [--out DIR]
   gates:   [--datasets research/gates/datasets] [--url http://127.0.0.1:11435] [--model laya] [--timeout-ms 30000] [--only SUBSTR]
   docs:    [--corpus research] (--limit = sampled sentences, default 200; env FERRICULA_BENCH_PDFS, BENCH_PARAPHRASE_MODEL, OLLAMA_URL, BENCH_SHIVVR_URL (default http://127.0.0.1:8085; \"none\" skips dense))
-  recall:  --memory <copy of a recovered memory dir> [--queries research/bench/steve-recall-queries.json] (env BENCH_SHIVVR_URL)
+  recall:  [--queries research/bench/synthetic/queries.json] (synthetic store built in a temp dir)
+           or --memory <copy of a recovered memory dir> --queries research/bench/private/<set>.json (env BENCH_SHIVVR_URL)
   longmem: [--dataset data/longmemeval/longmemeval_s.json] [--full-server] (env LONGMEMEVAL_PATH, BENCH_ANSWER_MODEL, OLLAMA_URL, FERRICULA_URL)";
 
 fn main() -> Result<()> {
@@ -71,12 +72,12 @@ fn main() -> Result<()> {
         }
         "recall" => {
             let ctx = ledger::RunContext::new("recall", &out, seed);
-            let Some(memory_dir) = get("memory").or_else(|| env("FERRICULA_BENCH_MEMORY")) else {
-                bail!("recall needs --memory <copy of a recovered memory dir>\n{USAGE}");
-            };
+            // Without --memory, the synthetic set builds its own store. A
+            // real agent's query set lives in research/bench/private/.
+            let memory_dir = get("memory").or_else(|| env("FERRICULA_BENCH_MEMORY")).map(PathBuf::from);
             recall::run(&ctx, &recall::RecallArgs {
-                memory_dir: PathBuf::from(memory_dir),
-                queries: PathBuf::from(get("queries").unwrap_or_else(|| "research/bench/steve-recall-queries.json".into())),
+                memory_dir,
+                queries: PathBuf::from(get("queries").unwrap_or_else(|| "research/bench/synthetic/queries.json".into())),
                 shivvr_url: shivvr.clone(),
                 lexical_weight: get("lexical-weight").map(|v| v.parse()).transpose()?.unwrap_or(ferricula_server::config::RecallConfig::default().lexical_weight),
                 dense_guarantee: get("dense-guarantee").map(|v| v.parse()).transpose()?.unwrap_or(ferricula_server::config::RecallConfig::default().dense_guarantee),

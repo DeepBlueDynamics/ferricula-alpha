@@ -100,7 +100,7 @@ cargo run --release -p ferricula-bench -- docs|gates|recall|longmem [--limit N] 
 |---|---|---|
 | `docs` | Finding the source section of verbatim, partial and paraphrased sentences (BM25, dense, hybrid) | `--corpus research`; env `BENCH_SHIVVR_URL` (`none` skips dense) |
 | `gates` | Judge accuracy and calibration (ECE) on labeled sets | `--datasets research/gates/datasets --url http://127.0.0.1:11435 --model laya` |
-| `recall` | Recall@k over a **copy** of a recovered memory | `--memory <dir> --queries research/bench/steve-recall-queries.json` |
+| `recall` | Recall@k. With no flags: the synthetic set (`research/bench/synthetic/`, invented memories, built into a temp store). For a real agent: `--memory <copy of its memory dir> --queries research/bench/private/<set>.json` (the private folder is gitignored; a real person's memories never go in the repo) | `[--memory <dir> --queries <file>]` |
 | `longmem` | LongMemEval (skeleton) | `--dataset …` or env `LONGMEMEVAL_PATH` |
 
 Every run appends a row to `audit/bench/ledger.jsonl` (commit, dataset hash, model, metrics) and writes a report beside it. What will count as credible is set out in the benchmark plan (`inbox/`).

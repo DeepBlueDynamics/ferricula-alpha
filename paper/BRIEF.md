@@ -26,8 +26,8 @@ A Rust runtime that gives one language-model agent a persistent identity, a memo
 - Coming soon (don't invent): dense and hybrid recall numbers, a 30-query recall benchmark over Steve's memory, LongMemEval, lifecycle invariants, 72-hour drives soak.
 
 ## Findings that belong in the paper (honestly)
-- Waking recall by words fails on meaning: asked whether he called his father "Dad" or "Paul", Steve refused to confirm from a leading question (good), but his memory *did* contain "Raised in the Valley by Paul and Clara Jobs" (memory 3802021270) and lexical recall missed it. 2,805 of 3,362 recovered vectors turned out to be all-zero. Dense recall is the fix.
-- The dream's most vivid details (the Crist Drive garage, his father, the fence) came from the language model's pretraining, not from the traces supplied; grounding must be measured.
+- Waking recall by words fails on meaning: asked a leading question about what he called his father, Steve refused to confirm it (good), but his memory *did* contain the answer (memory 3802021270) and lexical recall missed it. 2,805 of 3,362 recovered vectors turned out to be all-zero. Dense recall is the fix.
+- The dream's most vivid details (a childhood place, a parent, a craftsman's maxim) came from the language model's pretraining, not from the traces supplied; grounding must be measured.
 - Judges are advisory until calibrated; the "worth researching?" gate (p=0.33) did not stop curiosity. The calibration rule is why this is safe.
 - Old v1 dream images leaked into curiosity seeds; a paywall page was ingested as a document.
 

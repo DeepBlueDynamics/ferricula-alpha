@@ -44,7 +44,7 @@ plan/
   bench/                  ← what we measure and how
     BENCH_PLAN.md
     benchmark-plan-2026-09.pdf   (+ benchmark-plan-2026-09.md, extracted text)
-    steve-recall-queries.json    (was research/bench/)
+    synthetic/                   (was research/bench/synthetic; the real set stays in the gitignored private/)
   research/               ← research/ as is (essays, gates/, nuts-news/, original-ferricula/, INDEX.md, REFERENCES.md)
   paper/                  ← paper/ as is
   archive/                ← superseded, kept for history
@@ -120,7 +120,7 @@ A single prompt, written for a human or an agent, that covers submitting and int
 1. **Restore** `THIRD_PARTY_NOTICES.md` in the root.
 2. **Move with history** (`git mv`, one commit, no content changes): the layout above. `inbox/` items move to their homes (the mockup zip → `specs/design/while-he-thinks/`, extracted beside it).
 3. **Fix references** (second commit):
-   - Code defaults: `crates/ferricula-bench/src/main.rs:53` (`research/gates/datasets` → `plan/research/gates/datasets`), `:79` (`research/bench/steve-recall-queries.json` → `plan/bench/steve-recall-queries.json`); check `research/gates/harness/*.py` and `*.mjs` for relative paths.
+   - Code defaults: `crates/ferricula-bench/src/main.rs:53` (`research/gates/datasets` → `plan/research/gates/datasets`), `:79` (`research/bench/synthetic/queries.json` → `plan/bench/steve-recall-queries.json`); check `research/gates/harness/*.py` and `*.mjs` for relative paths.
    - Doc comments naming paths: `ferricula-gates/src/ollaya.rs` (CARD-v3), `ferricula-server/src/chat_tools.rs` (`docs/TOOLS.md`), and the other files a `grep -rE '(research|paper|docs)/'` lists in `crates/` and `README.md`.
    - Cross-links inside the moved markdown (relative links between `docs/`, `research/`, `paper/`).
    - Claude's memory: `start-here` points at `docs/HANDOFF.md` → `plan/current/HANDOFF.md`.
