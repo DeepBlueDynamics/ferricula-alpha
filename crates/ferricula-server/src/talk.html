@@ -9,15 +9,16 @@
 <style>
 :root{--paper:#F6F4EF;--ink:#1B1B19;--muted:#5E5B55;--rule:#DDD8CE;--rule-soft:#EEEBE4;--input-rule:#CFCAC0;--card:#FFFFFF;--accent:#2A5BA8;--accent-deep:#1C4180;--accent-wash:#EEF2F9;--accent-edge:#C9D5EA;--tired:#A6541A;--warn:#7A3A0E;font-family:'IBM Plex Sans',system-ui,sans-serif;color:var(--ink);background:var(--paper)}
 *{box-sizing:border-box}body{margin:0}button,input,textarea,select{font:inherit;color:inherit}button,a,input,textarea,summary,select{outline-offset:4px}:focus-visible{outline:2px solid var(--accent)}button{min-height:44px;border:1px solid var(--ink);border-radius:10px;background:var(--card);padding:0 14px;cursor:pointer}button:disabled{color:var(--muted);border-color:var(--rule);cursor:not-allowed}a{color:var(--accent)}a:hover{color:var(--accent-deep)}[hidden]{display:none!important}p{margin:0}header{min-height:68px;padding:12px 32px;border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:14px;flex-wrap:wrap}.brand{font:500 26px 'EB Garamond',Georgia,serif;letter-spacing:.01em;margin:0}.disclosure{font-size:12px;color:var(--muted);letter-spacing:.04em;max-width:440px}.header-actions{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap}.pill{display:flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--rule);border-radius:999px;font-size:13px}.pill:before{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent)}#instruments-toggle[aria-expanded=true]{background:var(--ink);color:var(--paper)}.quiet{background:transparent;border-color:transparent}.layout{display:flex;min-height:calc(100vh - 68px)}main{flex:1;min-width:0;padding:36px 48px 28px}.column{max-width:640px;margin:auto;min-height:calc(100vh - 132px);display:flex;flex-direction:column}.date-line{text-align:center;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:30px}.settings{font-size:13px}.settings>summary{color:var(--muted)}summary{cursor:pointer;padding:8px 0}label{display:block;font-size:12px;color:var(--muted);margin:8px 0}.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.row input{flex:1;min-width:160px}input{min-height:44px;padding:8px;border:1px solid var(--input-rule);border-radius:8px;background:var(--card);min-width:0}.fine{font-size:12px;color:var(--muted);line-height:1.5;margin:8px 0}.mono{font-family:'IBM Plex Mono',monospace;font-size:11px;overflow-wrap:anywhere}.tools{margin-top:16px}.turn{display:flex;flex-direction:column;gap:12px;margin-bottom:30px;overflow-wrap:anywhere}.speaker{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0}.operator{font-size:16px;line-height:1.55;white-space:pre-wrap;margin-bottom:18px}.answer{font:400 20px/1.6 'EB Garamond',Georgia,serif;white-space:pre-wrap}.turn-heading{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.inspect{min-height:32px;padding:4px 10px;border:1px solid var(--rule);border-radius:999px;background:transparent;font-size:11px;color:var(--muted)}.sources{display:flex;flex-wrap:wrap;gap:8px;list-style:none;margin:0;padding:0}.sources a{display:block;border:1px solid var(--accent-edge);border-radius:8px;background:var(--accent-wash);padding:6px 10px;font-size:12px;text-decoration:none;color:var(--ink)}.web-reading{border-left:2px solid var(--tired);padding:8px 12px;margin:4px 0}.web-source{font-size:12px;color:var(--warn)}.web-reading .row{margin-top:10px}.sources .document{background:var(--card);border-color:var(--input-rule)}sup a{font:11px 'IBM Plex Sans',sans-serif;padding:0 3px}.panel{position:sticky;top:0;align-self:flex-start;max-height:100vh;overflow-y:auto;min-height:calc(100vh - 68px);width:440px;flex-shrink:0;border-left:1px solid var(--rule);background:var(--rule-soft);padding:24px 28px;min-width:0;overflow-wrap:anywhere}.panel-top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:22px}.panel-top h2{font:22px 'EB Garamond',Georgia,serif;margin:0}.panel h3{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}.panel-section{margin-bottom:22px}.record{font-size:12px;line-height:1.6;padding:10px 0;border-bottom:1px solid var(--rule);white-space:pre-wrap}.candidate-text{font-size:13px;line-height:1.6}.metadata{color:var(--muted);font:11px/1.6 'IBM Plex Mono',monospace;margin-top:6px}.candidate-title{font-size:13px;font-weight:500;margin-bottom:4px}.candidate-title:before{content:"";display:inline-block;width:8px;height:8px;margin-right:8px;border-radius:50%;border:1.5px solid var(--accent)}.document-title:before{border-radius:0;background:var(--ink);border-color:var(--ink)}.fidelity-track{width:120px;height:4px;border-radius:2px;background:var(--rule);margin:8px 0}.fidelity-fill{height:4px;border-radius:2px;background:var(--accent)}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.6 'IBM Plex Mono',monospace;max-height:400px;overflow:auto}.error{color:var(--warn)}.empty{padding:32px 0;color:var(--muted);font:20px/1.6 'EB Garamond',Georgia,serif}.thinking{border-top:3px solid var(--accent);padding-top:10px;color:var(--accent-deep);font-size:13px;margin-bottom:24px}.composer{margin-top:auto;padding-top:16px}.compose-box{display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--input-rule);border-radius:16px;background:var(--card)}textarea{flex:1;min-width:0;resize:vertical;min-height:60px;max-height:320px;border:0;background:transparent;font:19px/1.5 'EB Garamond',Georgia,serif}.compose-box button{border-radius:12px}.compose-box:focus-within{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}.compose-box textarea:focus-visible{outline:none}.status{font-size:13px;line-height:1.5;min-height:24px;margin:12px 0;overflow-wrap:anywhere}.drives-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.instrument{font-size:12px;line-height:1.6;margin-bottom:10px}.gauge-label{display:flex;justify-content:space-between;gap:10px}.gauge{height:4px;border-radius:2px;background:var(--rule);margin-top:6px}.fill{height:4px;border-radius:2px;background:var(--ink);width:0}#tired-fill{background:var(--tired)}.panel-counts{border-top:1px solid var(--rule);padding-top:14px;display:flex;gap:24px;font-size:12px;color:var(--muted)}dialog{max-width:min(560px,calc(100vw - 32px));max-height:90vh;width:100%;padding:24px;border:1px solid var(--rule);border-radius:12px;background:var(--paper);color:var(--ink)}dialog::backdrop{background:rgb(27 27 25 / .3)}.dialog-close{float:right}.moments{font:11px/1.7 'IBM Plex Mono',monospace;color:var(--muted)}.moment{display:flex;justify-content:space-between;border-bottom:1px solid var(--rule);padding:5px 0;gap:8px}.sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+#documents-header{display:none}#documents-dialog{max-width:min(960px,calc(100vw - 32px));width:100%}.documents-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.documents-heading h2{margin:0;font:26px 'EB Garamond',Georgia,serif}.document-filter{flex:1;min-width:180px}.document-filter input{width:100%}#documents-list{list-style:none;padding:0;margin:0}.document-list-item{border-top:1px solid var(--rule);padding:16px 0;overflow-wrap:anywhere}.document-open{font-weight:500;text-align:left;max-width:100%}.document-metadata{font-size:12px;line-height:1.7;color:var(--muted);overflow-wrap:anywhere;margin:10px 0}.document-metadata p{margin:4px 0}.document-navigation{margin:20px 0}.document-navigation select{min-height:44px;max-width:100%;flex:1;min-width:120px;border:1px solid var(--input-rule);border-radius:8px;background:var(--card);padding:6px}.document-section{padding:20px 12px;margin:12px 0;border-top:1px solid var(--rule);overflow-wrap:anywhere}.document-section h3{font-size:16px;font-weight:500;margin:0 0 8px}.document-section.cited-section{background:var(--accent-wash);border-left:3px solid var(--accent)}.section-text{white-space:pre-wrap;font:16px/1.7 'IBM Plex Sans',system-ui,sans-serif;margin-top:14px}.cite-link{display:inline-block;overflow-wrap:anywhere}.document-note{border-left:2px solid var(--rule);padding-left:12px;white-space:pre-wrap}.section-retry{margin-top:12px}
 @media(max-width:1050px){header{padding:12px 20px}main{padding:32px 24px}.panel{width:360px;padding:24px 20px}}
-@media(max-width:760px){header{padding:16px;gap:12px}.disclosure{flex-basis:100%;max-width:none}.header-actions{margin-left:0;gap:8px}main{padding:24px 16px}.layout{flex-direction:column}.panel{position:static;max-height:none;min-height:0;width:100%;border-left:0;border-top:1px solid var(--rule);padding:24px 16px}.compose-box{flex-wrap:wrap}textarea{flex-basis:100%}.drives-grid{gap:24px}}
+@media(max-width:760px){#documents-header{display:inline-block}#documents-dialog{padding:16px}.documents-heading{align-items:flex-start}header{padding:16px;gap:12px}.disclosure{flex-basis:100%;max-width:none}.header-actions{margin-left:0;gap:8px}main{padding:24px 16px}.layout{flex-direction:column}.panel{position:static;max-height:none;min-height:0;width:100%;border-left:0;border-top:1px solid var(--rule);padding:24px 16px}.compose-box{flex-wrap:wrap}textarea{flex-basis:100%}.drives-grid{gap:24px}}
 </style>
 </head>
 <body>
 <header>
 <h1 class="brand" id="brand">Ferricula</h1>
 <p class="disclosure">A simulation built from recovered memory. Not the living person.</p>
-<div class="header-actions"><span class="pill" id="phase">Phase unavailable</span><button class="quiet" id="day-toggle" type="button">His day</button><button class="quiet" id="settings-toggle" type="button" aria-haspopup="dialog">Connection</button><button id="instruments-toggle" type="button" aria-controls="instruments" aria-expanded="true">Hide instruments</button></div>
+<div class="header-actions"><span class="pill" id="phase">Phase unavailable</span><button class="quiet" id="documents-header" type="button">Documents</button><button class="quiet" id="day-toggle" type="button">His day</button><button class="quiet" id="settings-toggle" type="button" aria-haspopup="dialog">Connection</button><button id="instruments-toggle" type="button" aria-controls="instruments" aria-expanded="true">Hide instruments</button></div>
 </header>
 <dialog id="connection-dialog" aria-label="Connection and conversation"><button class="dialog-close" id="close-settings" type="button">Close</button>
 <details class="settings" id="settings" open>
@@ -36,6 +37,23 @@
 </details>
 </dialog>
 <dialog id="day-dialog" aria-labelledby="day-title"><button class="dialog-close" id="close-day" type="button">Close</button><h2 id="day-title">His day</h2><p id="day-date" class="fine"></p><p id="day-note" class="fine">Life readings unavailable.</p><ol id="day-events"></ol></dialog>
+<dialog id="documents-dialog" aria-labelledby="documents-title">
+<div class="documents-heading"><h2 id="documents-title" tabindex="-1">Documents</h2><button id="close-documents" type="button">Close</button></div>
+<p class="fine">Read-only · documents are held verbatim and never decay.</p>
+<p id="documents-status" class="fine" role="status" aria-live="polite"></p>
+<div id="documents-list-view">
+<div class="row"><div class="document-filter"><label for="document-filter">Filter by title</label><input id="document-filter" type="search" autocomplete="off"></div><button id="refresh-documents" type="button">Refresh list</button></div>
+<p id="documents-count" class="fine"></p><ul id="documents-list"></ul>
+</div>
+<div id="document-reader" hidden>
+<button id="documents-back" type="button">All documents</button>
+<div id="document-metadata"></div>
+<div class="row document-navigation"><label for="document-section-select">Go to section</label><select id="document-section-select"></select><button id="document-jump" type="button">Go</button></div>
+<button id="document-earlier" type="button" hidden>Load earlier sections</button>
+<div id="document-sections" aria-label="Document sections"></div>
+<button id="document-more" type="button" hidden>Load more sections</button>
+</div>
+</dialog>
 <div class="layout">
 <main><div class="column">
 <p class="date-line" id="date-line"></p>
@@ -53,6 +71,7 @@
 </div></main>
 <aside class="panel" id="instruments" aria-label="Instruments" tabindex="-1">
 <div class="panel-top"><h2>Instruments</h2><span class="fine" id="inspected-turn">last turn</span></div>
+<section class="panel-section"><button id="documents-panel" type="button">Documents</button><p class="fine">Browse the documents held verbatim. Read-only; documents never decay.</p></section>
 <section class="panel-section"><h3>Moments of this turn</h3><div class="moments" id="moments"></div></section>
 <div id="turn-instruments"></div>
 <div class="drives-grid">
@@ -101,6 +120,7 @@ function notice(value, error = false) { el('status').textContent = value; el('st
 function controls() {
   for (const id of ['new','reload','open','saved-id']) el(id).disabled = busy || !connected;
   for (const id of ['connect','token','retry','disconnect']) el(id).disabled = busy;
+  for (const id of ['documents-header','documents-panel']) el(id).disabled = !connected;
   el('message').disabled = awaiting;
   el('attach-button').disabled = busy || !connected;
   for (const button of document.querySelectorAll('.web-decision')) button.disabled = busy || !connected || button.dataset.unavailable === 'true';
@@ -116,6 +136,7 @@ function unavailableLife() {
   for (const key of ['bored','tired']) { el(key).textContent = 'Unavailable'; el(key + '-fill').style.width = '0'; }
 }
 function authFailure(status) {
+  if (el('documents-dialog').open) el('documents-dialog').close();
   token = ''; el('token').value = ''; connected = false; authEpoch++;
   needsReload = true; auth.signed_in = status === 403; el('settings').open = true; if (!el('connection-dialog').open) el('connection-dialog').showModal();
   el('connection').textContent = status === 403 ? 'Signed in, but not an operator for this agent.' : 'Sign in or enter an operator bearer token.';
@@ -138,6 +159,195 @@ async function refreshAuth() {
 }
 let inspectedIndex = null, latestLife = null, documentCatalog = [];
 const webDecisions = new Map();
+const sessionIngestNotes = new Map();
+const SECTION_BATCH = 3;
+let documentsVersion = 0, documentView = null, documentsLoading = false;
+const validDocumentId = id => typeof id === 'string' && /^[a-f0-9]{16}$/i.test(id);
+function documentCitation(handle) {
+  if(typeof handle!=='string')return null;
+  const match=handle.match(/^\[doc ([a-f0-9]{16})(?:§(\d+)(?:-\d+)?)?(?: p\.\d+)?\]$/i);
+  if(!match)return null;
+  const index=match[2]===undefined?null:Number(match[2]);
+  return index===null||validSectionIndex(index)?{id:match[1],index}:null;
+}
+function citationNode(handle) {
+  const cite=documentCitation(handle);
+  if(!cite)return node('span',handle,'mono');
+  const a=node('a',handle,'cite-link mono');a.href='#document-'+cite.id+(cite.index===null?'':'-'+cite.index);
+  a.setAttribute('aria-haspopup','dialog');a.onclick=event=>{event.preventDefault();openDocument(cite.id,cite.index);};return a;
+}
+function validSectionIndex(index) { return Number.isInteger(index) && index >= 0 && index <= 4294967295; }
+function documentNotice(value,error=false) {
+  el('documents-status').textContent=value;
+  el('documents-status').className='fine'+(error?' error':'');
+}
+function documentMeta(parent,meta,note) {
+  const box=node('div',null,'document-metadata');
+  const origin=node('p'),url=safeUrl(meta.origin);
+  origin.append(document.createTextNode('Origin: '));
+  if(url){const a=node('a',meta.origin);a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';origin.append(a);}
+  else origin.append(document.createTextNode(text(meta.origin)));
+  box.append(origin,node('p','Source: '+text(meta.source_kind)+' · Ingested '+dateText(meta.ingested_at,true)),
+    node('p',text(meta.sections)+' sections · '+text(meta.pages)+' pages'));
+  if(typeof note==='string'&&note.trim())box.append(node('p','Ingest note: '+note,'document-note'));
+  parent.append(box);
+}
+function renderDocumentList() {
+  const query=el('document-filter').value.trim().toLocaleLowerCase();
+  const all=documentCatalog.filter(d=>validDocumentId(d.doc_id)).slice().sort((a,b)=>
+    (Number(b.ingested_at)||0)-(Number(a.ingested_at)||0)||text(a.title).localeCompare(text(b.title)));
+  const docs=all.filter(d=>text(d.title).toLocaleLowerCase().includes(query)),root=el('documents-list');
+  root.replaceChildren();el('documents-count').textContent=docs.length+' of '+all.length+' documents · newest first';
+  for(const doc of docs){
+    const li=node('li',null,'document-list-item'),open=node('button',doc.title||'Untitled document','document-open');
+    open.type='button';open.onclick=()=>openDocument(doc.doc_id);li.append(open);
+    documentMeta(li,doc,doc.note??sessionIngestNotes.get(doc.doc_id));root.append(li);
+  }
+  if(!docs.length)root.append(node('li',all.length?'No titles match this filter.':'No documents are held yet.','fine'));
+}
+async function openDocumentList(refresh=true) {
+  if(!connected){notice('Connect to browse documents.',true);el('connection-dialog').showModal();return;}
+  const version=++documentsVersion;documentView=null;
+  el('documents-title').textContent='Documents';
+  el('documents-list-view').hidden=false;el('document-reader').hidden=true;
+  if(!el('documents-dialog').open)el('documents-dialog').showModal();
+  el('document-filter').focus();
+  if(!refresh){documentNotice('');renderDocumentList();return;}
+  documentsLoading=true;el('refresh-documents').disabled=true;
+  el('documents-list').replaceChildren();el('documents-count').textContent='';documentNotice('Loading documents…');
+  try{
+    const data=await api('/documents');
+    if(version!==documentsVersion||!connected||!el('documents-dialog').open)return;
+    if(!Array.isArray(data.documents))throw Error('Document list was not recognized.');
+    documentCatalog=data.documents;renderDocumentList();documentNotice('Document list loaded.');
+  }catch(error){
+    if(version===documentsVersion&&el('documents-dialog').open)documentNotice('Could not load documents: '+error.message+' Use Refresh list to retry.',true);
+  }finally{
+    if(version===documentsVersion){documentsLoading=false;el('refresh-documents').disabled=false;}
+  }
+}
+function currentDocument(view) {
+  return documentView===view&&view.version===documentsVersion&&connected&&el('documents-dialog').open;
+}
+function noteForDocument(data,id) {
+  if(typeof data.reading?.note==='string')return data.reading.note;
+  if(typeof data.note==='string')return data.note;
+  if(typeof data.meta?.note==='string')return data.meta.note;
+  if(sessionIngestNotes.has(id))return sessionIngestNotes.get(id);
+  for(const turn of turns)for(const c of array(turn.memory_candidates)){
+    if(c.tags?.doc_id===id&&typeof c.tags.note==='string')return c.tags.note;
+  }
+  return null;
+}
+async function openDocument(id,section=null) {
+  if(!validDocumentId(id)||(section!==null&&!validSectionIndex(section))){notice('This document citation is not valid.',true);return;}
+  if(!connected){notice('Connect to open documents.',true);el('connection-dialog').showModal();return;}
+  const view={id,version:++documentsVersion,outline:[],loaded:new Map(),busy:false,from:0,to:0,target:section};
+  documentView=view;documentsLoading=false;el('refresh-documents').disabled=false;
+  el('documents-list-view').hidden=true;el('document-reader').hidden=false;
+  el('document-metadata').replaceChildren();el('document-sections').replaceChildren();
+  el('document-section-select').replaceChildren();el('document-jump').disabled=true;
+  el('document-earlier').hidden=true;el('document-more').hidden=true;
+  el('documents-title').textContent='Loading document…';
+  if(!el('documents-dialog').open)el('documents-dialog').showModal();
+  el('documents-title').focus();documentNotice('Loading document outline…');
+  try{
+    const data=await api('/documents/'+encodeURIComponent(id));
+    if(!currentDocument(view))return;
+    if(data.meta?.doc_id!==id||!Array.isArray(data.sections))throw Error('Document outline was not recognized.');
+    const seen=new Set();
+    view.outline=data.sections.filter(s=>validSectionIndex(s.index)&&!seen.has(s.index)&&seen.add(s.index)).sort((a,b)=>a.index-b.index);
+    el('documents-title').textContent=data.meta.title||'Untitled document';
+    const note=noteForDocument(data,id);documentMeta(el('document-metadata'),data.meta,note);
+    if(data.reading?.read_at)el('document-metadata').append(node('p','Reading recorded '+dateText(data.reading.read_at,true),'fine'));
+    if(!note)el('document-metadata').append(node('p','Ingest note not available.','fine'));
+    for(const s of view.outline){
+      const option=node('option','§'+s.index+(s.page!=null?' · page '+s.page:'')+(s.heading?' · '+s.heading:''));
+      option.value=String(s.index);el('document-section-select').append(option);
+    }
+    el('document-jump').disabled=!view.outline.length;
+    if(!view.outline.length){documentNotice('This document has no sections.');return;}
+    let position=section===null?0:view.outline.findIndex(s=>s.index===section);
+    if(position<0){
+      documentNotice('The cited section is not in this document. Choose a section from the outline.',true);
+      el('document-section-select').value=String(view.outline[0].index);return;
+    }
+    await loadDocumentRange(view,position,Math.min(view.outline.length,position+SECTION_BATCH),section);
+  }catch(error){
+    if(!currentDocument(view))return;
+    el('documents-title').textContent='Document unavailable';
+    documentNotice(error.message,true);
+    const retry=node('button','Retry document','section-retry');retry.type='button';retry.onclick=()=>openDocument(id,section);el('document-sections').append(retry);
+  }
+}
+function updateDocumentControls(view) {
+  el('document-earlier').hidden=view.from===0;
+  el('document-more').hidden=view.to>=view.outline.length;
+  el('document-earlier').disabled=view.busy;el('document-more').disabled=view.busy;el('document-jump').disabled=view.busy;
+  el('document-earlier').textContent='Load previous '+Math.min(SECTION_BATCH,view.from)+' sections';
+  el('document-more').textContent='Load next '+Math.min(SECTION_BATCH,view.outline.length-view.to)+' sections';
+}
+async function fetchDocumentSection(view,entry) {
+  try {
+    const data=await api('/documents/'+encodeURIComponent(view.id)+'/sections/'+entry.index);
+    if(!currentDocument(view))return;
+    if(data.doc_id!==view.id||data.index!==entry.index||typeof data.text!=='string')throw Error('Section response was not recognized.');
+    view.loaded.set(entry.index,{data});
+  }catch(error){if(currentDocument(view))view.loaded.set(entry.index,{error:error.message});}
+}
+function renderDocumentSections(view) {
+  const root=el('document-sections');root.replaceChildren();
+  for(const entry of view.outline.slice(view.from,view.to)){
+    const article=node('section',null,'document-section');article.id='document-section-'+entry.index;article.tabIndex=-1;
+    if(entry.index===view.target){article.classList.add('cited-section');article.setAttribute('aria-label','Cited section '+entry.index);}
+    const saved=view.loaded.get(entry.index);
+    article.append(node('h3',entry.heading||'Section '+entry.index),
+      node('p',entry.cite??('[doc '+view.id+'§'+entry.index+(entry.page!=null?' p.'+entry.page:'')+']'),'mono'),
+      node('p',entry.page!=null?'Page '+entry.page:'Unpaged section','fine'));
+    if(saved?.data)article.append(node('div',saved.data.text,'section-text'));
+    else{
+      article.append(node('p',saved?.error||'Section not loaded.','error'));
+      const retry=node('button','Retry section '+entry.index,'section-retry');retry.type='button';
+      retry.disabled=view.busy;
+      retry.onclick=async()=>{
+        if(!currentDocument(view)||view.busy)return;
+        view.busy=true;retry.disabled=true;updateDocumentControls(view);documentNotice('Retrying section '+entry.index+'…');
+        await fetchDocumentSection(view,entry);
+        if(!currentDocument(view))return;
+        view.busy=false;renderDocumentSections(view);updateDocumentControls(view);
+        documentNotice(view.loaded.get(entry.index)?.error?'Section still unavailable.':'Section loaded.',!!view.loaded.get(entry.index)?.error);
+        el('document-section-'+entry.index)?.focus();
+      };
+      article.append(retry);
+    }
+    root.append(article);
+  }
+}
+async function loadDocumentRange(view,from,to,focusSection=null,prepend=false) {
+  if(!currentDocument(view)||view.busy)return;
+  view.busy=true;view.from=Math.min(view.from===view.to?from:view.from,from);view.to=Math.max(view.to,to);
+  updateDocumentControls(view);documentNotice('Loading sections…');
+  const dialog=el('documents-dialog'),previousHeight=dialog.scrollHeight,previousTop=dialog.scrollTop;
+  // Only a small batch of section bodies is fetched; the outline remains navigable.
+  for(const entry of view.outline.slice(from,to)){
+    if(!currentDocument(view))return;
+    if(!view.loaded.has(entry.index))await fetchDocumentSection(view,entry);
+  }
+  if(!currentDocument(view))return;
+  view.busy=false;renderDocumentSections(view);updateDocumentControls(view);
+  const failures=[...view.loaded.values()].filter(v=>v.error).length;
+  documentNotice('Showing '+(view.to-view.from)+' of '+view.outline.length+' sections.'+(failures?' '+failures+' section(s) could not be loaded; use Retry.':''),failures>0);
+  if(focusSection!==null){
+    el('document-section-select').value=String(focusSection);
+    const section=el('document-section-'+focusSection);section?.focus();section?.scrollIntoView({block:'nearest'});
+  }else if(prepend)dialog.scrollTop=previousTop+(dialog.scrollHeight-previousHeight);
+}
+function jumpDocumentSection() {
+  const view=documentView,index=Number(el('document-section-select').value);
+  if(!view||view.busy||!validSectionIndex(index))return;
+  openDocument(view.id,index);
+}
+
 function safeUrl(value) {
   try { const u=new URL(value);return ['http:','https:'].includes(u.protocol)&&!u.username&&!u.password ? u : null; } catch { return null; }
 }
@@ -187,6 +397,7 @@ async function keepWeb(turn,call,index) {
   try {
     const result=await api('/documents',{kind:'url',url:url.href,note:'Kept by the operator clicking Keep as a document in chat; conversation '+conversationId});
     if(!result.doc_id)throw Error('Document response was not recognized.');
+    if(result.duplicate===false)sessionIngestNotes.set(result.doc_id,'Kept by the operator clicking Keep as a document in chat; conversation '+conversationId);
     webDecisions.set(webKey(turn,index),{label:'Kept as a document · '+result.doc_id});
     await refreshDocuments();render();notice('Page kept as a document.');
   } catch(error) { notice(error.message+' Keeping was not confirmed. Check the documents before trying again.',true); }
@@ -213,6 +424,7 @@ async function attachFile() {
     }
     const result=await api('/documents',{...source,note:'attached by the operator in chat'});
     if(!result.doc_id)throw Error('Document response was not recognized.');
+    if(result.duplicate===false)sessionIngestNotes.set(result.doc_id,'attached by the operator in chat');
     el('attachment-status').textContent='Kept '+file.name+' · document '+result.doc_id;
     el('attachment').value='';await refreshDocuments();render();
   }catch(error){el('attachment-status').textContent='Attachment not confirmed: '+error.message+' Your message draft is unchanged.';}
@@ -323,6 +535,8 @@ function renderAnswer(parent, turn, index) {
     if (!number) { sources.push(match[0]); number = sources.length; }
     const sup = node('sup'), link = node('a',number);
     link.href = '#source-' + index + '-' + number;
+    const docCite=documentCitation(match[0]);
+    if(docCite){link.setAttribute('aria-haspopup','dialog');link.onclick=event=>{event.preventDefault();openDocument(docCite.id,docCite.index);};}
     link.setAttribute('aria-label','Source ' + number + ': ' + sourceLabel(match[0],turn));
     sup.append(link);answer.append(sup);start = match.index + match[0].length;
   }
@@ -333,7 +547,8 @@ function renderAnswer(parent, turn, index) {
       const li = node('li'), a = node('a',(i+1) + ' · ' + sourceLabel(handle,turn));
       a.id = 'source-' + index + '-' + (i+1);a.href = '#instruments';a.title = handle;
       if (handle.startsWith('[doc ')) a.className = 'document';
-      a.onclick = event => { event.preventDefault(); inspect(index); };
+      a.onclick = event => { event.preventDefault(); const cite=documentCitation(handle); if(cite)openDocument(cite.id,cite.index); else inspect(index); };
+      if(documentCitation(handle))a.setAttribute('aria-haspopup','dialog');
       li.append(a);list.append(li);
     });
     parent.append(list);
@@ -384,7 +599,7 @@ function renderInstruments() {
   }
   for (const doc of array(turn.document_evidence)) {
     const entry=node('div',null,'record');entry.append(node('p','Document · '+text(doc.title ?? doc.doc_id),'candidate-title document-title'),
-      node('p',doc.cite,'mono'),node('p',(doc.truncated ? 'verbatim excerpt' : 'verbatim') + ' · never decays' + (typeof doc.cite === 'string' && turn.reply?.includes(doc.cite) ? ' · cited exactly' : ''),'metadata'));
+      citationNode(doc.cite),node('p',(doc.truncated ? 'verbatim excerpt' : 'verbatim') + ' · never decays' + (typeof doc.cite === 'string' && turn.reply?.includes(doc.cite) ? ' · cited exactly' : ''),'metadata'));
     const d=node('details');d.append(node('summary',doc.truncated ? 'Read recorded excerpt' : 'Read recorded section'),node('p',doc.text ?? doc.excerpt,'candidate-text'));entry.append(d);
     details(entry,'Document record',doc);items.push(entry);
   }
@@ -403,7 +618,8 @@ function renderInstruments() {
     else if(call.name==='ingest_url')record.append(node('p',call.error?'Keeping failed · check the recorded error':call.ok===true?'Kept as a document':'Retention not recorded','fine'));
     else if(['read_document','read_section','search_memory','search_documents'].includes(call.name))record.append(node('p','Read-only · nothing saved by this call','fine'));
     if(call.error)record.append(node('p',call.error,'error'));
-    for(const cite of array(call.cites))record.append(node('p',cite,'mono'));
+    for(const cite of array(call.cites))record.append(citationNode(cite));
+    if(!array(call.cites).length&&validDocumentId(call.doc_id??call.arguments?.doc_id))record.append(citationNode('[doc '+(call.doc_id??call.arguments.doc_id)+(validSectionIndex(call.arguments?.index)?'§'+call.arguments.index:'')+']'));
     details(record,'Recorded tool details',call);activity.append(record);
   }
   if(!array(turn.tool_calls).length)activity.append(node('p','No searches or reading recorded for this turn.','fine'));
@@ -478,7 +694,7 @@ el('connect-form').onsubmit = event => {
 el('retry').onclick = connect;
 el('disconnect').onclick = async () => {
   if (busy) return;
-  busy = true; token = ''; el('token').value = ''; connected = false; authEpoch++; needsReload = true; unavailableLife(); controls();
+  busy = true; token = ''; el('token').value = ''; connected = false; authEpoch++; needsReload = true; if (el('documents-dialog').open) el('documents-dialog').close(); unavailableLife(); controls();
   try { await api('/auth/logout', {}); auth.signed_in = false; notice('Disconnected.'); }
   catch (error) { notice('Bearer token cleared. Session logout could not be confirmed: ' + error.message, true); }
   finally { el('connection').textContent = 'Disconnected'; busy = false; controls(); }
@@ -526,6 +742,16 @@ el('composer').onsubmit = async event => {
     notice(error.message + ' Draft retained. The request may still finish; reload history before sending again. Request: ' + request.request_id,true);
   } finally { busy = false; awaiting = false; controls(); el('message').focus(); }
 };
+el('documents-header').onclick=()=>openDocumentList();
+el('documents-panel').onclick=()=>openDocumentList();
+el('close-documents').onclick=()=>el('documents-dialog').close();
+el('documents-dialog').addEventListener('close',()=>{documentsVersion++;documentView=null;documentsLoading=false;el('refresh-documents').disabled=false;});
+el('refresh-documents').onclick=()=>openDocumentList();
+el('documents-back').onclick=()=>openDocumentList(false);
+el('document-filter').oninput=()=>{if(!documentsLoading)renderDocumentList();};
+el('document-jump').onclick=jumpDocumentSection;
+el('document-earlier').onclick=()=>{const v=documentView;if(v)loadDocumentRange(v,Math.max(0,v.from-SECTION_BATCH),v.from,null,true);};
+el('document-more').onclick=()=>{const v=documentView;if(v)loadDocumentRange(v,v.to,Math.min(v.outline.length,v.to+SECTION_BATCH));};
 el('attach-button').onclick = () => el('attachment').click();
 el('attachment').onchange = attachFile;
 el('day-toggle').onclick = () => { renderDay(); el('day-dialog').showModal(); };
