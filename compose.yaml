@@ -99,6 +99,27 @@ services:
         max-size: "10m"
         max-file: "5"
 
+  # Fast judges for the gates (Ollaya, upstream image; not built here).
+  # Optional and GPU-only: `docker compose --profile judges up -d`, then pull
+  # the models once: `docker exec ollaya ollaya pull laya`. The agent reaches
+  # it at host.docker.internal:11435 ([life] ollaya_url).
+  ollaya:
+    image: ghcr.io/ollaya-dev/ollaya:cuda
+    container_name: ollaya
+    profiles: ["judges"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11435:11435"
+    volumes:
+      - ollaya-models:/root/.ollaya
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
 secrets:
   ferricula_operator_token:
     file: ${FERRICULA_SECRETS_DIR:-${HOME}/.config/ferricula}/operator_token
@@ -108,6 +129,8 @@ secrets:
   #   file: ${FERRICULA_SECRETS_DIR:-${HOME}/.config/ferricula}/anthropic_api_key
 
 volumes:
+  ollaya-models:
+    name: ollaya-models
   # Pre-existing memory volume. `external: true` means compose will never
   # create, alter, or remove it.
   ferricula-memory:
