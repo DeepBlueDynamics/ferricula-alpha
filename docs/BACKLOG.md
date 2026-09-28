@@ -14,7 +14,7 @@ _Rewritten 2026-09-27 (evening) from the day's work and decisions. Ranked by imp
 - **K2. TypeSafe key** at `%USERPROFILE%\.config\ferricula\typesafe_api_key`; direct vs OpenRouter; API reference, limits, retention terms (`inbox/JEV_PLAN.md`).
 - **K3. nuts-auth fixes** before the UI relies on it: no issuer/audience claims, `return_url` not allowlisted, tokens logged and sent in URLs, one fixed signing key (`inbox/UI_PLAN.md` §3a).
 - **K4. Open decisions in the plans:** `inbox/PLAN_CONSOLIDATION.md` (five), `inbox/UI_PLAN.md`, `inbox/JEV_PLAN.md`, DOCUMENTS.md part two.
-- **K5.** Memory 2147483704 (the reply that repeated the fabricated eulogy quotes) is unmarked; the real speech (Macography.net) is not ingested.
+- **K5.** Half done 2026-09-28: Steve superseded memory 2147483704 himself (verdict 2147483836, evidence `[doc eecee3fca20e6eb7§12]`; he read all 30 sections and identified doc `b153ba89bbbdd0fe` as the 2021 remembrance, not the eulogy). Still open: the real 2011 speech (Macography.net) is not ingested, so whether Jony said the quoted lines at the memorial is unresolved.
 - ~~**K6.**~~ Done 2026-09-27 (committed on `v3/r0`, `7708a1d`). Was: Commit today's working tree (your `inbox/` moves plus the plan and doc edits) and decide the branch.
 - **K7. shivvr and grub:** done by the grubcrawler session (shivvr v0.4.0, grub v0.15.0 with PDF support; `inbox/SHIVVR_GRUB.md`). Left for Kord: redeploy local shivvr (`:8085` is still v0.3.0) and grub; rebuild the shivvr models image for the SigLIP text tower; the Cloud Build / Cloud Run deploys.
 - **K8. Hyperia** (`inbox/HYPERIA_COMMS.md`):
