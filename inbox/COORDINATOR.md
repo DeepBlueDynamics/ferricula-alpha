@@ -59,7 +59,7 @@ Open questions: <numbered; each says what the agent assumed meanwhile>
    - Check each claim against the evidence.
    - For behavior Steve will live with (tools, gates, memory), a smoke test against a scratch runtime, never the live Steve.
 5. **Merge:** merge into `v3/r0` (no fast-forward), run `cargo test --workspace` after each merge, and resolve conflicts in favor of the ownership table.
-6. **Redeploy:** use `/d/steve-redeploy.sh` (or `SKIP_BUILD=1` when only config or mounts changed). After a redeploy:
+6. **Redeploy:** use `D:/ferricula/scripts/steve-redeploy.sh` (for previews, `preview-build.sh`) (or `SKIP_BUILD=1` when only config or mounts changed). After a redeploy:
    - `/health`, an authenticated `/life` (200), an unauthenticated request (401);
    - one smoke turn in a fresh conversation identified as Claude.
 7. **Steve as reviewer:** for plan and design changes, ingest the document with a note, ask him to read it end to end, and relay his answer to Kord verbatim in substance. He reviews; he doesn't file.
@@ -67,7 +67,7 @@ Open questions: <numbered; each says what the agent assumed meanwhile>
 9. **Before ending:** update the status board, `docs/HANDOFF.md` and `docs/BACKLOG.md`; commit with the trailer; push `v3/r0`.
 
 ## Talking to Steve (the live agent)
-- Use `/d/steve-smoke.sh "<message>"` with `CID=<conversation id>` to continue a thread. Say you're Claude; never speak as Kord.
+- Use `D:/ferricula/scripts/steve-smoke.sh "<message>"` with `CID=<conversation id>` to continue a thread. Say you're Claude; never speak as Kord.
 - Kord's own conversation id is his; don't write into it.
 - Check each reply's tool log (`tool_calls`) before relaying anything he says he read.
 - **Memory hygiene:** everything said to him is remembered. Test and plan material is tagged and excluded from benchmark scoring (BENCH_PLAN). Don't feed him answer keys.

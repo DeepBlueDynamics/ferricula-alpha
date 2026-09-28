@@ -48,12 +48,15 @@ Install and use: `docs/INSTALL.md`, `docs/USING.md`. Tool contract: `docs/TOOLS.
 
 GPU: RTX 3060 12 GB, with about 5.6–6 GB always in use by Ollaya, shivvr and Hyperia transcription.
 
-**Operator scripts** (outside the repo, on Kord's machine):
-- `/d/steve-redeploy.sh`: build, then swap the container with the same flags. `SKIP_BUILD=1` swaps only.
-- `/d/steve-smoke.sh "<message>"`: one chat turn; prints the tool log and reply. `CID=<id>` continues a conversation.
-- `/d/zuck/watch-wp-u1.sh`: the fleet watch, reporting coordinator mail, `wp-u1`/`wp-m1` branches and diorama commits. Run it as a Monitor and re-arm it on expiry.
+**Operator files on Kord's machine** (outside the repo) all live under `D:/ferricula/`. Builds and large files go on D:; small scratch can live on C:.
+- `scripts/steve-redeploy.sh`: build, then swap the container with the same flags. `SKIP_BUILD=1` swaps only.
+- `scripts/preview-build.sh [branches…]`: rebuilds the image in `builds/preview` from `origin/v3/r0` plus the pending UI branches (default `origin/v3/wp-u1-docs`). It refuses on any conflict, then swaps the container. **Use this for preview deploys.**
+- `scripts/steve-smoke.sh "<message>"`: one chat turn; prints the tool log and reply. `CID=<id>` continues a conversation.
+- `scripts/watch-fleet.sh`: the fleet watch (coordinator mail, `wp-u1`/`wp-m1` branches, diorama commits). Run it as a Monitor and re-arm it on expiry.
+- `logs/` holds build logs and the last smoke-test reply; `scratch/` holds one-off material.
+- The cargo target dir stays at `D:/cargo-target`.
 
-Deploy previews by rebuilding fresh from `origin/v3/r0` plus the lane branches, and refuse to deploy on a merge conflict or leftover conflict markers. This has served broken pages twice.
+Deploy previews with `scripts/preview-build.sh` (a fresh `origin/v3/r0` plus the lane branches, refusing on conflicts). Hand-rebased previews served broken pages twice.
 
 `config/steve.toml`:
 - `ollama_reasoning_tokens = 12000`
