@@ -541,12 +541,28 @@ function sourceLabel(handle, turn) {
   }
   return 'Episode / ' + handle + ' · details in the turn record';
 }
+// Light inline markup in replies: *emphasis* and **strong** (the model writes
+// markdown). Any asterisk left over gets a zero-width non-joiner after it:
+// the Google Fonts build of EB Garamond turns the sequence "*direct" into
+// arrow glyphs (a required substitution that font-variant-ligatures cannot
+// turn off), so a raw asterisk must never touch the next letter.
+function appendInline(parent, str) {
+  const re = /(\*\*|\*)(?=\S)([^*\n]*?\S)\1/g;
+  let at = 0;
+  const plain = t => parent.append(document.createTextNode(t.replace(/\*/g, '*\u200C')));
+  for (const m of str.matchAll(re)) {
+    plain(str.slice(at, m.index));
+    parent.append(node(m[1] === '**' ? 'strong' : 'em', m[2].replace(/\*/g, '*\u200C')));
+    at = m.index + m[0].length;
+  }
+  plain(str.slice(at));
+}
 function renderAnswer(parent, turn, index) {
   const answer = node('p',null,'answer'), sources = [], body = text(turn.reply);
   const handles = /\[(?:memory \d+|doc [^\]\n]+|episode [^\]\n]+)\]/g;
   let start = 0;
   for (const match of body.matchAll(handles)) {
-    answer.append(document.createTextNode(body.slice(start,match.index)));
+    appendInline(answer, body.slice(start,match.index));
     let number = sources.indexOf(match[0]) + 1;
     if (!number) { sources.push(match[0]); number = sources.length; }
     const sup = node('sup'), link = node('a',number);
@@ -556,7 +572,7 @@ function renderAnswer(parent, turn, index) {
     link.setAttribute('aria-label','Source ' + number + ': ' + sourceLabel(match[0],turn));
     sup.append(link);answer.append(sup);start = match.index + match[0].length;
   }
-  answer.append(document.createTextNode(body.slice(start)));parent.append(answer);
+  appendInline(answer, body.slice(start));parent.append(answer);
   if (sources.length) {
     const list = node('ol',null,'sources');list.setAttribute('aria-label','Sources cited in this reply');
     sources.forEach((handle,i) => {
