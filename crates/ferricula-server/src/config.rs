@@ -40,6 +40,11 @@ pub struct RuntimeConfig {
     /// profile assumes a small 8192-token local model). The chat route sizes
     /// its prompt, including document evidence cards, from this value.
     pub ollama_context_tokens: Option<u32>,
+    /// Per-call timeout for `local_ollama`, in milliseconds (the built-in
+    /// profile uses 120000). A thinking model on a long tool-loop turn can
+    /// reason for more than two minutes in one call, and the empty-reply
+    /// retry doubles its headroom.
+    pub ollama_timeout_ms: Option<u64>,
     pub initial_mode: String,
     /// Generate an ephemeral briefing from scoped raw recovered memories before chat.
     /// Adds a separately budgeted model call; never writes the briefing to memory.
@@ -286,6 +291,7 @@ impl Default for RuntimeConfig {
             ollama_model: None,
             ollama_reasoning_tokens: None,
             ollama_context_tokens: None,
+            ollama_timeout_ms: None,
             initial_mode: "asleep".into(),
             curator_enabled: false,
             schedule: ScheduleConfig::default(),
@@ -337,6 +343,7 @@ impl RuntimeConfig {
         if config.ollama_base_url.is_some() || config.ollama_model.is_some()
             || config.ollama_reasoning_tokens.is_some()
             || config.ollama_context_tokens.is_some()
+            || config.ollama_timeout_ms.is_some()
         {
             let profile = config
                 .models
@@ -346,6 +353,12 @@ impl RuntimeConfig {
                 .context("Ollama overrides require the built-in local_ollama profile")?;
             if let Some(tokens) = config.ollama_reasoning_tokens {
                 profile.reasoning_tokens = tokens;
+            }
+            if let Some(timeout_ms) = config.ollama_timeout_ms {
+                if timeout_ms < 1000 {
+                    bail!("ollama_timeout_ms must be at least 1000");
+                }
+                profile.timeout_ms = timeout_ms;
             }
             if let Some(tokens) = config.ollama_context_tokens {
                 if tokens < 2048 {

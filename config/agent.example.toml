@@ -73,6 +73,9 @@ ollama_model = "gemma4:e2b"
 # local_ollama profile. Leave unset (or 0) for non-thinking models;
 # 4096 is a reasonable starting point for glm-5.3.
 # ollama_reasoning_tokens = 4096
+# Per-call timeout for the Ollama profile (default 120000 ms). A thinking model
+# on a long tool-loop turn can need more; Steve uses 300000.
+# ollama_timeout_ms = 300000
 
 # Mode on FIRST boot with an empty state volume: paused | asleep |
 # peripheral | engaged | deliberative. After first boot the persisted mode

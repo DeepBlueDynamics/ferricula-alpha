@@ -277,7 +277,15 @@ impl AgentRuntime {
         // tool results as they arrive); citing any other document is caught.
         let mut seen_docs: std::collections::HashSet<String> = chat_tools::doc_ids_in(&turn.document_evidence).into_iter().collect();
         let (conversation_id, request_id) = (turn.request.conversation_id, turn.request.request_id);
+        let turn_started = std::time::Instant::now();
+        let tag = format!("{}/{}", &conversation_id.to_string()[..8], &request_id.to_string()[..8]);
+        eprintln!("chat {tag}: turn start ({} bytes in, prompt ~{} tok, {} memory candidates, {} document cards)",
+            turn.request.message.len(), inference.estimated_input_tokens,
+            turn.memory_candidates.as_array().map_or(0, Vec::len),
+            turn.document_evidence.as_array().map_or(0, Vec::len));
+        let worker_tag = tag.clone();
         let result = tokio::task::spawn_blocking(move || {
+            let tag = worker_tag;
             let _permit = permit;
             if runtime.config.curator_enabled {
                 let agent = ferricula_cognition::scope::AgentId::new(
@@ -313,9 +321,13 @@ impl AgentRuntime {
             let (model, reply) = loop {
                 round += 1;
                 *tool_log_worker.lock().expect("tool log poisoned") = tool_log.clone();
+                let round_started = std::time::Instant::now();
                 let (decision, response) = runtime.chat_completion(&mut inference)
                     .with_context(|| format!("chat round {round}"))?;
                 let text = response.text;
+                eprintln!("chat {tag}: round {round} {:.1}s (finish {}, {} bytes, tool calls {:?})",
+                    round_started.elapsed().as_secs_f64(), finish_reason(&response.raw).unwrap_or("?"), text.len(),
+                    chat_tools::parse_tool_calls(&text).iter().map(|c| c.name.clone()).collect::<Vec<_>>());
                 if text.trim().is_empty() {
                     let message = response.raw.pointer("/choices/0/message");
                     eprintln!("chat: empty reply in round {round} (finish_reason {}, message keys {:?}, reasoning {} bytes)",
@@ -365,6 +377,7 @@ impl AgentRuntime {
                     let used = prompt_bytes(&inference.system, &inference.messages)
                         + results.iter().map(String::len).sum::<usize>();
                     let room = budget.saturating_sub(used);
+                    let tool_started = std::time::Instant::now();
                     let result = if room < 1500 {
                         json!({ "error": "no room left in this turn's context for more tool results; answer with what you have" })
                     } else {
@@ -373,6 +386,9 @@ impl AgentRuntime {
                     };
                     seen_docs.extend(chat_tools::doc_ids_in(&result));
                     let rendered = chat_tools::render_result(calls_made, &call.name, &result);
+                    eprintln!("chat {tag}: tool {} {} {:.1}s -> {} bytes{}", calls_made, call.name,
+                        tool_started.elapsed().as_secs_f64(), rendered.len(),
+                        result.get("error").and_then(Value::as_str).map(|e| format!(" (error: {})", truncate(e, 160))).unwrap_or_default());
                     tool_log.push(chat_tools::log_entry(&call, &result, rendered.len()));
                     results.push(rendered);
                 }
@@ -417,7 +433,7 @@ impl AgentRuntime {
                 turn.tool_calls = std::mem::take(&mut *tool_log_shared.lock().expect("tool log poisoned"));
                 // Operator-side log only; the durable turn keeps the bounded message.
                 match failure {
-                    Ok(Err(error)) => eprintln!("chat: turn failed: {error:#}"),
+                    Ok(Err(error)) => eprintln!("chat {tag}: turn failed: {error:#}"),
                     Err(error) => eprintln!("chat: turn task panicked: {error}"),
                     Ok(Ok(_)) => unreachable!(),
                 }
@@ -428,6 +444,8 @@ impl AgentRuntime {
             }
         }
         turn.completed_at = Some(now());
+        eprintln!("chat {tag}: turn {} in {:.1}s ({} tool calls, reply {} bytes)", turn.status,
+            turn_started.elapsed().as_secs_f64(), turn.tool_calls.len(), turn.reply.as_deref().map_or(0, str::len));
         {
             let mut turns = self.chat.turns.lock().expect("chat store poisoned");
             let mut next = turns.clone();
@@ -454,7 +472,7 @@ impl AgentRuntime {
                 self.config.budgets.max_model_usd_per_day);
             self.persist_model_usage()?;
             let (decision, response) = completion?;
-            if decision.no_model { bail!("no eligible local private-context model"); }
+            if decision.no_model { bail!("no eligible local private-context model (route steps skipped: {:?}; see the model: log lines)", decision.skipped); }
             Ok((decision, response))
         };
         let (decision, response) = complete(inference)?;

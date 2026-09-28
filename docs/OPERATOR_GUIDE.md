@@ -17,6 +17,7 @@ $h = @{ Authorization = "Bearer $tok" }
 - The reply cites memories as `[memory <id>]` and documents as `[doc <doc_id>§<section> p.<page>]`.
 - Messages are limited to 8 KB. A browser chat page is at `http://127.0.0.1:18875/` (paste the token).
 - A turn that comes back `failed` with "model returned an empty response" means the thinking model ran out of room: raise `ollama_reasoning_tokens` in the config and restart.
+- `docker logs ferricula-steve` has one line per chat turn start and end, per model round, per tool call (name, time, result size, error), and per provider call (`model:` with duration, finish reason, tokens, or the real error). A turn that fails with "no eligible local private-context model" after about two minutes is a timeout: raise `ollama_timeout_ms`.
 
 ## Give him something to read
 `POST /documents` with one of:

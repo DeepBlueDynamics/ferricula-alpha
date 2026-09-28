@@ -143,6 +143,7 @@ A turn that was mid-inference during a restart is marked `interrupted` and is no
 | Symptom | Cause and fix |
 |---|---|
 | Chat fails with "model returned an empty response" | A thinking model spent its whole output allowance on reasoning. Raise `ollama_reasoning_tokens` (Steve uses 12000). The server retries once with double headroom before failing. |
+| Chat fails with "no eligible local private-context model" after a long wait | The Ollama call hit its timeout (default 2 minutes) and the router fell through to the no-model step. The `model:` line in `docker logs` shows the real error and duration. Raise `ollama_timeout_ms` (Steve uses 300000). |
 | Evidence cards cut short, or the model sees little context | Raise `ollama_context_tokens` to the model's real context (the chat input budget is derived from it, at 3 bytes per token, capped at 400 KB). |
 | `docker build` fails at `COPY … THIRD_PARTY_NOTICES.md` | The notices file must exist in the repository root. It also carries the lume license notice. |
 | Log says `embeddings: degraded` | shivvr is unreachable or in the wrong space. Recall falls back to lexical + BM25, and chat still works. Check `[embeddings] url` and `space`. |
