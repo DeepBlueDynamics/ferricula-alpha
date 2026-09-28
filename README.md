@@ -34,7 +34,7 @@ consolidation and a dream, meditation holds it, and entropy comes from an SDR ra
 Ollaya decision gates judge whether something is worth deliberating on; they are fast
 (10–18 ms) but not yet calibrated, so they are advisory only.
 
-The design follows the Abhidhamma's analysis of a moment of mind (contact, feeling-tone, recognition, investigation, a fast judgment, and only then the expensive step, thinking with an LLM). See the [white paper](paper/WHITEPAPER_V2.md) for the architecture and measured results, [PLAN_V3.md](PLAN_V3.md) and [docs/BACKLOG.md](docs/BACKLOG.md) for what is left, and [docs/HANDOFF.md](docs/HANDOFF.md) to pick up the work.
+The design follows the Abhidhamma's analysis of a moment of mind (contact, feeling-tone, recognition, investigation, a fast judgment, and only then the expensive step, thinking with an LLM). See the [white paper](paper/WHITEPAPER_V2.md) for the architecture and measured results, [inbox/PLAN_V3.md](inbox/PLAN_V3.md) and [docs/BACKLOG.md](docs/BACKLOG.md) for what is left, and [docs/HANDOFF.md](docs/HANDOFF.md) to pick up the work.
 
 ## What's new in v3 (2026-09-27)
 
@@ -54,7 +54,7 @@ The design follows the Abhidhamma's analysis of a moment of mind (contact, feeli
   cetasikas; Paṭṭhāna edges; meditation with a bell and breath; dream images via
   ComfyUI.
 - **Next** — the agent's own tools to search and read documents mid-conversation
-  ([docs/HANDOFF.md](docs/HANDOFF.md), [SEARCH_TOOL.md](SEARCH_TOOL.md)), per the agent's four requirements.
+  ([docs/HANDOFF.md](docs/HANDOFF.md), [inbox/SEARCH_TOOL.md](inbox/SEARCH_TOOL.md)), per the agent's four requirements.
 - **Benchmarks** — every number lives in `audit/bench/ledger.jsonl`; the plan is in
   [docs/BENCH_PLAN.md](docs/BENCH_PLAN.md) and the v3 benchmark plan PDF.
 

@@ -10,12 +10,12 @@ _Rewritten 2026-09-27 (evening) from the day's work and decisions. Ranked by imp
 - Earlier merges: N1 (dense recall, remembered turns), N2 (post-wake grace), N3 (junk-page screen), N4 (durability), WP-2 (dream-image client), WP-5 (meditation core), gate calibration code (`506f4e6`).
 
 ## Blockers only Kord can clear
-- **K1. `THIRD_PARTY_NOTICES.md`** is deleted from the working tree; `Dockerfile:23` copies it, so image builds fail, and it carries the BSD-3 notice for lume-derived code. Restore it or decide otherwise.
+- ~~**K1.**~~ Done 2026-09-27 (restored and committed). Was: **K1. `THIRD_PARTY_NOTICES.md`** is deleted from the working tree; `Dockerfile:23` copies it, so image builds fail, and it carries the BSD-3 notice for lume-derived code. Restore it or decide otherwise.
 - **K2. TypeSafe key** at `%USERPROFILE%\.config\ferricula\typesafe_api_key`; direct vs OpenRouter; API reference, limits, retention terms (`inbox/JEV_PLAN.md`).
 - **K3. nuts-auth fixes** before the UI relies on it: no issuer/audience claims, `return_url` not allowlisted, tokens logged and sent in URLs, one fixed signing key (`inbox/UI_PLAN.md` §3a).
 - **K4. Open decisions in the plans:** `inbox/PLAN_CONSOLIDATION.md` (five), `inbox/UI_PLAN.md`, `inbox/JEV_PLAN.md`, DOCUMENTS.md part two.
 - **K5.** Memory 2147483704 (the reply that repeated the fabricated eulogy quotes) is unmarked; the real speech (Macography.net) is not ingested.
-- **K6.** Commit today's working tree (your `inbox/` moves plus the plan and doc edits) and decide the branch.
+- ~~**K6.**~~ Done 2026-09-27 (committed on `v3/r0`, `7708a1d`). Was: Commit today's working tree (your `inbox/` moves plus the plan and doc edits) and decide the branch.
 - **K7. shivvr and grub:** done by the grubcrawler session (shivvr v0.4.0, grub v0.15.0 with PDF support; `inbox/SHIVVR_GRUB.md`). Left for Kord: redeploy local shivvr (`:8085` is still v0.3.0) and grub; rebuild the shivvr models image for the SigLIP text tower; the Cloud Build / Cloud Run deploys.
 - **K8. Hyperia** (`inbox/HYPERIA_COMMS.md`):
   - Start it, and approve the first sender→recipient pairs.

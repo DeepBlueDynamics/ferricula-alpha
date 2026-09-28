@@ -12,7 +12,7 @@ Steve takes part in Hyperia messaging as a full participant: the coding agents m
 
 ## What Hyperia provides (from its source; untested because Hyperia was down)
 - **HTTP API** on the sidecar at `:9800` (bound to 127.0.0.1 on Windows, so `http://host.docker.internal:9800` from the container). All calls take `Authorization: Bearer <token>`.
-- **Send:** `POST /api/msg/send {to_label, subject?, body, idempotency_key?}` returns `{message_id, stored, read:false}`; 202 while pending, 200 when stored.
+- **Send:** `POST /api/msg/send {pane | to_label, subject?, body, idempotency_key?}` (`pane` is the full pane uuid; there is no `to_pane` field, and unknown fields are silently ignored) returns `{message_id, stored, read:false}`; 202 while pending, 200 when stored.
 - **Receive:** `POST /api/msg/check {limit?, ack_ids?}` returns unread mail. With `ack_ids:[]` delivery is at least once and we ack explicitly.
 - **Other routes:** `GET /api/msg/inbox`, `POST /api/msg/read`, `GET /api/msg/search`, `GET /api/delivery/status`, `GET /api/identity/whoami`.
 - **Identity:** `POST /api/identity/agent {"name": "ferricula/steve", "single_session": true}` mints a `hyp_agent_` token. Each agent gets its own name. nuts-auth tokens are **not** accepted.
