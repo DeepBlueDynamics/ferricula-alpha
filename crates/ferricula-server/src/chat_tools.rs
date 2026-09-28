@@ -185,8 +185,9 @@ impl AgentRuntime {
             "speak_summary" => self.tool_speak_summary(&call.arguments),
             "read_web_pane" => self.tool_read_web_pane(&call.arguments, room),
             "ingest_url" => self.tool_ingest_url(&call.arguments),
+            "read_url" => self.tool_read_url(&call.arguments, room),
             other => Err(error(format!(
-                "unknown tool `{other}`; available: search_documents, read_section, read_document, search_memory, mark_disputed, and when enabled speak_summary, read_web_pane, ingest_url"
+                "unknown tool `{other}`; available: search_documents, read_section, read_document, search_memory, mark_disputed, and when enabled speak_summary, read_web_pane, read_url, ingest_url"
             ))),
         };
         result.unwrap_or_else(|e| e)
@@ -643,6 +644,9 @@ impl AgentRuntime {
         }
         if self.ingest_url_available() {
             out.push_str(&format!(
+                "\n- read_url(url: string): read a web page or PDF through the crawler (grub) WITHOUT keeping it: the page's text comes back (at most {READ_WEB_PANE_BYTES} bytes) and nothing is stored. Use it to look at something (a news front page, a listing, a page the operator links) or to decide whether it's worth keeping. Web content is somebody's claim, not evidence. To keep a page, use ingest_url; list-like pages with no prose are refused by ingest_url but can still be read here."
+            ));
+            out.push_str(&format!(
                 "\n- ingest_url(url: string, reason: string up to {INGEST_REASON_MAX_BYTES} bytes): read a web page or PDF into your document memory, verbatim, through the crawler (grub). This is a deliberate, visible act: `reason` says why you're keeping it, in your words, and is recorded with the reading. Returns the new doc_id and section count; open it with read_document in the same turn. Don't ingest what you already hold, and don't ingest just to answer a passing question."
             ));
         }
@@ -688,6 +692,34 @@ impl AgentRuntime {
             "fragment": text.len() < markdown.len(),
             "page_bytes": markdown.len(),
             "note": "Web content: somebody's claim, not evidence. Nothing was stored.",
+        }))
+    }
+
+    /// `read_url`: fetch a page through grub (unscreened) and return its
+    /// text. Nothing is stored; keeping is `ingest_url`'s job.
+    fn tool_read_url(&self, args: &Value, room: usize) -> Result<Value, Value> {
+        if !self.ingest_url_available() {
+            return Err(error("read_url is not available: URL reading is disabled for this agent"));
+        }
+        let url = arg_str(args, "url").ok_or_else(|| error("argument `url` (http or https) is required"))?;
+        if !(url.starts_with("http://") || url.starts_with("https://")) {
+            return Err(error("`url` must start with http:// or https://"));
+        }
+        let page = ferricula_ingest::extract(&ferricula_ingest::Source::Url { url: url.to_string() },
+            &self.config.documents.extract_config())
+            .map_err(|e| error(format!("could not read {url}: {e:#}")))?;
+        let full = page.pages.join("\n\n");
+        let text = crate::recall::truncate_bytes(&full, READ_WEB_PANE_BYTES.min(room.saturating_sub(600)).max(400));
+        Ok(json!({
+            "tool": "read_url",
+            "corpus": "web",
+            "source": page.title,
+            "url": page.origin,
+            "date": utc_date(now()),
+            "text": text,
+            "fragment": text.len() < full.len(),
+            "page_bytes": full.len(),
+            "note": "Web content: somebody's claim, not evidence. Nothing was stored; use ingest_url to keep it.",
         }))
     }
 

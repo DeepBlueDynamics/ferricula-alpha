@@ -89,6 +89,9 @@ Returns `{tool, query, ranking, results: [...], dropped_no_provenance, note}`. E
 
 Writes a new experience row on channel `verdict`, **keystone** (it never decays), tagged `kind`, `target`, `reason`, `evidence`, `conversation_id`, `request_id`, text "My verdict: memory N is disputed/superseded. …", with a causal edge verdict → memory labelled `paccaya:arammana` (disputes: the memory is the verdict's object) or `paccaya:adhipati` (supersedes: the verdict predominates). The disputed memory is never changed or deleted. From then on `search_memory` results and chat memory candidates for that memory carry `verdicts: [{verdict_id, cite, kind, reason, evidence, date}]`, and the prompt tells the model to say so and weigh it. Rules follow the agent's own design (2026-09-27): evidence settles; the agent writes the verdict; the operator is the court of appeal; a judge may only ever flag (`disputes`), never crown (`supersedes`); chance never decides what is true. Returns `{ok, verdict_id, cite, memory_id, kind, evidence, target_text, note}`.
 
+### `read_url(url)` — read without keeping (2026-09-27)
+Fetches a page or PDF through grub, unscreened, and returns `{corpus: "web", source, url, date, text (at most 24,000 bytes), fragment, page_bytes}`. Nothing is stored. List-like pages (a news front page) that `ingest_url`'s junk-page screen refuses can still be read. Keeping stays `ingest_url`'s job.
+
 ## Errors
 
 Errors come back as a tool result `{"error": "..."}` and count toward the 4 calls:
