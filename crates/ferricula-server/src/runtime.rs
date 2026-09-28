@@ -48,7 +48,7 @@ use crate::sleep_cycle::{
 
 #[path = "chat.rs"]
 mod chat;
-pub use chat::{ChatRequest, ChatTurn, InputOrigin};
+pub use chat::{ChatRequest, ChatTurn, InputOrigin, TurnEvents};
 
 #[path = "chat_tools.rs"]
 mod chat_tools;

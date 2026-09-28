@@ -42,6 +42,7 @@ pub fn router(runtime: Arc<AgentRuntime>) -> Router {
         .route("/", get(chat_page))
         .route("/talk", get(|| async { axum::response::Html(include_str!("talk.html")) }))
         .route("/chat", post(chat))
+        .route("/chat/stream", post(chat_stream))
         .route("/chat/{conversation_id}", get(conversation))
         .route("/health", get(health))
         .route("/status", get(status))
@@ -273,6 +274,34 @@ async fn chat(
         StatusCode::CONFLICT, Json(json!({"error": error.to_string()}))
     ))?;
     Ok(Json(turn))
+}
+
+/// `POST /chat/stream`: the same turn as `/chat`, answered as
+/// `text/event-stream`. Each SSE message is named for its event (`accepted`,
+/// `candidate`, `document`, `curator`, `round_start`, `model_call`, `round`,
+/// `tool_call`, `tool_result`, `gate`, `verdict`, `nudge`, then `done` or
+/// `failed`) and carries one JSON object with `request_id` and `t` (ms since
+/// the turn began). The durable turn completes even if the client leaves.
+async fn chat_stream(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    Json(request): Json<crate::runtime::ChatRequest>,
+) -> Result<axum::response::sse::Sse<impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, (StatusCode, Json<Value>)> {
+    require_operator(&runtime, &headers)?;
+    request.validate().map_err(bad_request)?;
+    let (events, rx) = crate::runtime::TurnEvents::channel(request.request_id);
+    let rejected = events.clone();
+    tokio::spawn(async move {
+        if let Err(error) = runtime.converse_with_events(request, events).await {
+            // Rejected before the turn began (busy, reused request_id...).
+            rejected.emit("failed", json!({ "error": error.to_string(), "rejected": true }));
+        }
+    });
+    let stream = tokio_stream::StreamExt::map(tokio_stream::wrappers::UnboundedReceiverStream::new(rx), |event| {
+        let name = event["event"].as_str().unwrap_or("message").to_string();
+        Ok(axum::response::sse::Event::default().event(name).data(event.to_string()))
+    });
+    Ok(axum::response::sse::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
 }
 
 async fn conversation(

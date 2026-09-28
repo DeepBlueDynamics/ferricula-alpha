@@ -71,6 +71,12 @@ Today `/` returns `include_str!("chat.html")` (`api.rs:253-255`). Add the new pa
 | `stage` | `{stage: contact|feeling|recognition|remembering|deciding|speaking, pali, progress 0..1, signal}` | see stage map |
 | `candidate` | one memory candidate as stored in `memory_candidates`, incl. `verdicts` | after `hybrid_recall_async` (`chat.rs:128`), one per candidate |
 | `document` | one evidence card | after `search_documents` (`chat.rs:165`) |
+| `curator` | `{ok, skipped?}` | curator briefing (when enabled) |
+| `round_start` | `{round, prompt_tokens_est, tool_calls_left}` | each tool-loop round |
+| `model_call` | `{round, attempt, ok, profile, model, secs, finish, output_tokens, reasoning_budget, max_tokens, prompt_tokens_est, reply_bytes}` or `{round, attempt, ok: false, secs, error}` | every provider call, including the empty-reply retry (`attempt` 2) |
+| `round` | `{round, secs, finish, reply_bytes, output_tokens, tool_calls: [names]}` | end of each round |
+| `gate` | `{gate, kind: deterministic|ollaya, verdict, advisory?, ...}`. Built: `citation_check` (`pass`, `sent_back`, `let_through_after_one_correction`, with `cited`/`unseen`) and `speak_modality` (Ollaya write/speak/both, `detail` has the probabilities and threshold). | tool loop; later the §4 gates |
+| `nudge` | `{round, reason}` | empty reply mid-loop |
 | `judge` | `{gate, p, verdict: fast|think|abstain, reason}` | §4 |
 | `premise_warning` | `{p, text}` | §4 |
 | `tool_call` / `tool_result` | name, arguments; cites, sizes, error (same shape as the `tool_calls` log) | tool loop (`chat.rs:313-360`) |
@@ -78,6 +84,8 @@ Today `/` returns `include_str!("chat.html")` (`api.rs:253-255`). Add the new pa
 | `token` | `{text}` | final round only (below) |
 | `done` | the full `ChatTurn` | end |
 | `failed` / `cancelled` | bounded error | end |
+
+**Built 2026-09-28 (server side):** `POST /chat/stream` (SSE; each message is named for its event and carries one JSON object) with `accepted`, `candidate`, `document`, `curator`, `round_start`, `model_call`, `round`, `tool_call`, `tool_result`, `gate`, `verdict`, `nudge`, `done`/`failed`. Not yet: `stage`, `judge`, `premise_warning`, `token` (needs provider streaming), `cancelled`. Gates outside a turn (the life curiosity gate) are in `GET /life` journal entries under `gate`, with `verdict`, `provenance` and `advisory`. A thinking-model round can run for minutes; the `model_call` and `round` events are what make that wait visible.
 
 The durable turn is unchanged: `/chat` keeps working, and the stream is a view of the same `converse` run. Implementation: `converse` takes an optional `tokio::sync::mpsc::Sender<TurnEvent>`; `/chat` passes `None`.
 

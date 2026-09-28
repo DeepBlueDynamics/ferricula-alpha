@@ -118,9 +118,16 @@ impl AgentRuntime {
     /// Explicit operator request. Pausing background tasks does not disable this
     /// route. No model inference runs while a durable state mutex is held.
     pub async fn converse(self: &Arc<Self>, request: ChatRequest) -> Result<ChatTurn> {
+        self.converse_with_events(request, TurnEvents::none()).await
+    }
+
+    /// [`Self::converse`] with a live event view of the turn for the UI
+    /// (`POST /chat/stream`). The durable turn is the same either way.
+    pub async fn converse_with_events(self: &Arc<Self>, request: ChatRequest, events: TurnEvents) -> Result<ChatTurn> {
         request.validate()?;
         let permit = self.chat.admission.clone().try_acquire_owned()
             .map_err(|_| anyhow::anyhow!("conversation busy; retry after current request finishes"))?;
+        events.emit("accepted", json!({ "conversation_id": request.conversation_id }));
         // Recovered base + experience store + sections, fused by rank over
         // the lexical, BM25 and (with an embedder) dense and graph arms; the
         // memory list keeps its MemoryHit shape plus `kind`, `arms` and
@@ -158,6 +165,9 @@ impl AgentRuntime {
                 "dream": crate::recall::truncate_bytes(hit.tags.get("text").map(String::as_str).unwrap_or(""), 600),
                 "question": hit.tags.get("question"),
             })).collect();
+        for hit in &memory_hits {
+            events.emit("candidate", json!({ "candidate": hit }));
+        }
         let candidates = Value::Array(memory_hits);
         // Document cards: BM25 first (the docs benchmark shows GTR-T5 over
         // long sections is less precise than BM25: paraphrase R@1 0.37 vs
@@ -257,6 +267,9 @@ impl AgentRuntime {
             &turn.document_evidence, prompt_budget.saturating_sub(base_system.len() + current));
         // The durable turn records exactly the evidence the model saw.
         turn.document_evidence = shown_cards;
+        for card in turn.document_evidence.as_array().into_iter().flatten() {
+            events.emit("document", json!({ "card": card }));
+        }
         let system = base_system + &documents_block;
         while messages.len() > 1 && prompt_bytes(&system, &messages) > prompt_budget {
             messages.drain(..2);
@@ -284,8 +297,10 @@ impl AgentRuntime {
             turn.memory_candidates.as_array().map_or(0, Vec::len),
             turn.document_evidence.as_array().map_or(0, Vec::len));
         let worker_tag = tag.clone();
+        let worker_events = events.clone();
         let result = tokio::task::spawn_blocking(move || {
             let tag = worker_tag;
+            let events = worker_events;
             let _permit = permit;
             if runtime.config.curator_enabled {
                 let agent = ferricula_cognition::scope::AgentId::new(
@@ -301,6 +316,7 @@ impl AgentRuntime {
                 // degrades to un-curated chat instead of failing the turn.
                 match briefing_result {
                     Ok(briefing) => {
+                        events.emit("curator", json!({ "ok": true }));
                         // No briefing is attached to ChatTurn or written into source memory.
                         let rendered = briefing.render();
                         inference.system.push_str("\nEphemeral memory briefing (guidance, not source evidence):\n");
@@ -308,7 +324,10 @@ impl AgentRuntime {
                         inference.estimated_input_tokens = inference.estimated_input_tokens
                             .saturating_add(u32::try_from(rendered.len() + 80)?);
                     }
-                    Err(error) => eprintln!("chat: curator skipped: {error:#}"),
+                    Err(error) => {
+                        eprintln!("chat: curator skipped: {error:#}");
+                        events.emit("curator", json!({ "ok": false, "skipped": true }));
+                    }
                 }
             }
             // Bounded tool loop: every round is a routed, budgeted completion;
@@ -322,9 +341,14 @@ impl AgentRuntime {
                 round += 1;
                 *tool_log_worker.lock().expect("tool log poisoned") = tool_log.clone();
                 let round_started = std::time::Instant::now();
-                let (decision, response) = runtime.chat_completion(&mut inference)
+                events.emit("round_start", json!({ "round": round, "prompt_tokens_est": inference.estimated_input_tokens,
+                    "tool_calls_left": chat_tools::MAX_TOOL_CALLS.saturating_sub(calls_made) }));
+                let (decision, response) = runtime.chat_completion(&mut inference, &events, round)
                     .with_context(|| format!("chat round {round}"))?;
                 let text = response.text;
+                events.emit("round", json!({ "round": round, "secs": secs(round_started), "finish": finish_reason(&response.raw),
+                    "reply_bytes": text.len(), "output_tokens": response.output_tokens,
+                    "tool_calls": chat_tools::parse_tool_calls(&text).iter().map(|c| c.name.clone()).collect::<Vec<_>>() }));
                 eprintln!("chat {tag}: round {round} {:.1}s (finish {}, {} bytes, tool calls {:?})",
                     round_started.elapsed().as_secs_f64(), finish_reason(&response.raw).unwrap_or("?"), text.len(),
                     chat_tools::parse_tool_calls(&text).iter().map(|c| c.name.clone()).collect::<Vec<_>>());
@@ -342,6 +366,7 @@ impl AgentRuntime {
                     // Mid-loop: ask once for the answer from what it has read.
                     nudged = true;
                     tool_log.push(json!({ "name": "empty_reply_nudge", "round": round }));
+                    events.emit("nudge", json!({ "round": round, "reason": "empty reply mid-loop; asked for the answer from the tool results" }));
                     inference.messages.push(ChatMessage { role: "user".into(), content:
                         "Your last reply was empty. Answer the operator now from the tool results above, in plain text, with no <use_tool>.".into() });
                     continue;
@@ -349,9 +374,17 @@ impl AgentRuntime {
                 if !chat_tools::has_tool_call(&text) {
                     let unseen: Vec<String> = chat_tools::cited_doc_ids(&text).into_iter()
                         .filter(|id| !seen_docs.contains(id)).collect();
+                    let cited = chat_tools::cited_doc_ids(&text);
                     if unseen.is_empty() || citation_checked {
+                        if !cited.is_empty() || citation_checked {
+                            events.emit("gate", json!({ "gate": "citation_check", "kind": "deterministic", "round": round,
+                                "verdict": if unseen.is_empty() { "pass" } else { "let_through_after_one_correction" },
+                                "cited": cited, "unseen": unseen }));
+                        }
                         break (decision.model, text);
                     }
+                    events.emit("gate", json!({ "gate": "citation_check", "kind": "deterministic", "round": round,
+                        "verdict": "sent_back", "cited": cited, "unseen": unseen }));
                     // One correction round: the reply cites a document it was
                     // never shown. It must open it or say it has not read it.
                     citation_checked = true;
@@ -374,6 +407,8 @@ impl AgentRuntime {
                         continue;
                     }
                     calls_made += 1;
+                    events.emit("tool_call", json!({ "n": calls_made, "name": call.name, "arguments": call.arguments,
+                        "parse_error": call.parse_error }));
                     let used = prompt_bytes(&inference.system, &inference.messages)
                         + results.iter().map(String::len).sum::<usize>();
                     let room = budget.saturating_sub(used);
@@ -389,7 +424,17 @@ impl AgentRuntime {
                     eprintln!("chat {tag}: tool {} {} {:.1}s -> {} bytes{}", calls_made, call.name,
                         tool_started.elapsed().as_secs_f64(), rendered.len(),
                         result.get("error").and_then(Value::as_str).map(|e| format!(" (error: {})", truncate(e, 160))).unwrap_or_default());
-                    tool_log.push(chat_tools::log_entry(&call, &result, rendered.len()));
+                    let entry = chat_tools::log_entry(&call, &result, rendered.len());
+                    events.emit("tool_result", json!({ "n": calls_made, "secs": secs(tool_started), "entry": entry }));
+                    if let Some(gate) = result.get("gate") {
+                        // The Ollaya write/speak/both gate behind speak_summary.
+                        events.emit("gate", json!({ "gate": "speak_modality", "kind": "ollaya", "advisory": true,
+                            "verdict": gate.get("mode"), "detail": gate }));
+                    }
+                    if call.name == "mark_disputed" && result.get("error").is_none() {
+                        events.emit("verdict", json!({ "result": result }));
+                    }
+                    tool_log.push(entry);
                     results.push(rendered);
                 }
                 let left = chat_tools::MAX_TOOL_CALLS - calls_made;
@@ -444,6 +489,11 @@ impl AgentRuntime {
             }
         }
         turn.completed_at = Some(now());
+        if turn.status == "completed" {
+            events.emit("done", json!({ "secs": secs(turn_started), "turn": &turn }));
+        } else {
+            events.emit("failed", json!({ "secs": secs(turn_started), "error": turn.error, "turn": &turn }));
+        }
         eprintln!("chat {tag}: turn {} in {:.1}s ({} tool calls, reply {} bytes)", turn.status,
             turn_started.elapsed().as_secs_f64(), turn.tool_calls.len(), turn.reply.as_deref().map_or(0, str::len));
         {
@@ -465,12 +515,24 @@ impl AgentRuntime {
     /// whole allowance on reasoning returns empty content (finish_reason
     /// `length`); that is retried once with double the reasoning headroom
     /// instead of failing the turn.
-    fn chat_completion(&self, inference: &mut InferenceRequest) -> Result<(crate::model::RouteDecision, crate::model::ProviderResponse)> {
+    fn chat_completion(&self, inference: &mut InferenceRequest, events: &TurnEvents, round: usize) -> Result<(crate::model::RouteDecision, crate::model::ProviderResponse)> {
+        let attempt = std::cell::Cell::new(0u32);
         let complete = |inference: &InferenceRequest| {
+            attempt.set(attempt.get() + 1);
+            let started = std::time::Instant::now();
             let completion = self.router.complete_with_budget(
                 inference, &*self.transport, SystemTime::now(),
                 self.config.budgets.max_model_usd_per_day);
             self.persist_model_usage()?;
+            match &completion {
+                Ok((decision, response)) => events.emit("model_call", json!({ "round": round, "attempt": attempt.get(),
+                    "ok": !decision.no_model, "profile": decision.profile_id, "model": decision.model,
+                    "secs": secs(started), "finish": finish_reason(&response.raw), "output_tokens": response.output_tokens,
+                    "reasoning_budget": decision.reasoning_tokens, "max_tokens": inference.max_tokens,
+                    "prompt_tokens_est": inference.estimated_input_tokens, "reply_bytes": response.text.len() })),
+                Err(error) => events.emit("model_call", json!({ "round": round, "attempt": attempt.get(), "ok": false,
+                    "secs": secs(started), "error": truncate(&format!("{error:#}"), 300) })),
+            }
             let (decision, response) = completion?;
             if decision.no_model { bail!("no eligible local private-context model (route steps skipped: {:?}; see the model: log lines)", decision.skipped); }
             Ok((decision, response))
@@ -590,6 +652,43 @@ const MAX_CHAT_INPUT_BYTES: usize = 400_000;
 
 /// Bytes of the chat budget held back for tool results: half on large
 /// contexts, a quarter on small ones.
+/// Live events for one turn (`POST /chat/stream`): each is a JSON object
+/// `{event, request_id, t, ...}` with `t` in ms since the turn began. Plain
+/// `/chat` runs with [`TurnEvents::none`]; emitting never blocks or fails.
+#[derive(Clone)]
+pub struct TurnEvents {
+    tx: Option<tokio::sync::mpsc::UnboundedSender<Value>>,
+    started: std::time::Instant,
+    request_id: Option<Uuid>,
+}
+
+impl TurnEvents {
+    pub fn none() -> Self {
+        Self { tx: None, started: std::time::Instant::now(), request_id: None }
+    }
+
+    pub fn channel(request_id: Uuid) -> (Self, tokio::sync::mpsc::UnboundedReceiver<Value>) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        (Self { tx: Some(tx), started: std::time::Instant::now(), request_id: Some(request_id) }, rx)
+    }
+
+    pub fn emit(&self, event: &str, payload: Value) {
+        let Some(tx) = &self.tx else { return };
+        let mut object = match payload {
+            Value::Object(map) => map,
+            other => { let mut map = serde_json::Map::new(); map.insert("value".into(), other); map }
+        };
+        object.insert("event".into(), json!(event));
+        object.insert("request_id".into(), json!(self.request_id));
+        object.insert("t".into(), json!(self.started.elapsed().as_millis() as u64));
+        let _ = tx.send(Value::Object(object));
+    }
+}
+
+fn secs(started: std::time::Instant) -> f64 {
+    (started.elapsed().as_secs_f64() * 10.0).round() / 10.0
+}
+
 fn tool_reserve(budget: usize) -> usize {
     if budget >= 60_000 { budget / 2 } else { budget / 4 }
 }
@@ -791,6 +890,51 @@ mod tests {
         assert!(rounds[2].contains(&format!("[doc {doc_id}§0]")));
         assert!(rounds[2].contains("\"corpus\":\"document\""));
         drop(rounds);
+        drop(runtime);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn streamed_turn_emits_rounds_tools_gates_and_done() {
+        fn script(round: usize, prompt: &str) -> String {
+            match round {
+                0 => r#"<use_tool>{"name":"search_documents","arguments":{"query":"fence back side"}}</use_tool>"#.into(),
+                _ => {
+                    let at = prompt.find("\"doc_id\":\"").expect("search result in prompt") + 10;
+                    format!("The fence has a back side nobody sees [doc {}§0].", &prompt[at..at + 16])
+                }
+            }
+        }
+        let (runtime, _model, root, _doc_id) = scripted_runtime(script);
+        let request_id = Uuid::new_v4();
+        let (events, mut rx) = TurnEvents::channel(request_id);
+        let turn = tokio::runtime::Runtime::new().unwrap().block_on(runtime.converse_with_events(ChatRequest {
+            request_id, conversation_id: Uuid::new_v4(),
+            message: "What did he say about the fence?".into(), reported_origin: InputOrigin::Human,
+        }, events)).unwrap();
+        assert_eq!(turn.status, "completed", "{:?}", turn.error);
+        let mut seen = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            assert_eq!(event["request_id"], json!(request_id));
+            assert!(event["t"].is_u64());
+            seen.push(event);
+        }
+        let names: Vec<&str> = seen.iter().map(|e| e["event"].as_str().unwrap()).collect();
+        assert_eq!(names.first(), Some(&"accepted"));
+        assert_eq!(names.last(), Some(&"done"));
+        let order = |name: &str| names.iter().position(|n| *n == name).unwrap_or_else(|| panic!("no {name} in {names:?}"));
+        assert!(order("round_start") < order("model_call"));
+        assert!(order("model_call") < order("round"));
+        assert!(order("round") < order("tool_call"));
+        assert!(order("tool_call") < order("tool_result"));
+        assert_eq!(names.iter().filter(|n| **n == "round").count(), 2);
+        let tool = seen.iter().find(|e| e["event"] == "tool_call").unwrap();
+        assert_eq!(tool["name"], "search_documents");
+        let gate = seen.iter().find(|e| e["event"] == "gate").expect("citation gate");
+        assert_eq!(gate["gate"], "citation_check");
+        assert_eq!(gate["verdict"], "pass");
+        let done = seen.last().unwrap();
+        assert_eq!(done["turn"]["status"], "completed");
         drop(runtime);
         let _ = fs::remove_dir_all(root);
     }
