@@ -34,7 +34,7 @@ use ferricula_cognition::life::{
     parse_dream, propose_dream, step,
 };
 use ferricula_cognition::sati::Valence;
-use ferricula_gates::ollaya::{OllayaClient, OllayaGate};
+use ferricula_gates::ollaya::OllayaClient;
 
 /// Conversation turns remembered as already explored (bounded).
 const MAX_EXPLORED_TURNS: usize = 256;
@@ -591,22 +591,25 @@ impl AgentRuntime {
     /// Advisory Ollaya gate: "This is worth researching further". Returns
     /// the journal record and whether Ollaya confidently said no (p < 0.2).
     /// Abstentions and an unreachable sidecar never block.
-    async fn life_worth_researching(&self, state: &str) -> (Value, bool) {
+    async fn life_worth_researching(self: &Arc<Self>, state: &str) -> (Value, bool) {
         let mut client = OllayaClient::new(self.life_cfg().ollaya_url.clone(), self.life_cfg().ollaya_model.clone());
         // First use may load the model (seconds); still advisory on timeout.
         client.timeout_ms = 20_000;
-        let gate = OllayaGate::new(client, "life-curiosity");
         let state = crate::recall::truncate_bytes(state, 4000).to_string();
+        // Ollaya first; hosted JEV when Ollaya cannot judge (or first, in
+        // primary mode). The seed is conversation: private.
+        let runtime = self.clone();
         let judged = tokio::task::spawn_blocking(move || {
-            gate.yes_no(&state, "This is worth researching further", 0.6)
+            runtime.gate_yes_no("life-curiosity", client, &state, "This is worth researching further", 0.6, true)
         }).await;
         match judged {
-            Ok(judged) => {
+            Ok((judged, route)) => {
                 let confident_no = matches!(&judged.verdict, Verdict::Answer(yes_no) if yes_no.p < 0.2);
                 (json!({
                     "statement": "This is worth researching further",
                     "verdict": judged.verdict,
                     "provenance": judged.provenance,
+                    "route": route,
                     "advisory": true,
                     "skip": confident_no,
                 }), confident_no)

@@ -1,6 +1,6 @@
 # Plan: hosted JEV (TypeSafe) as the second gate tier
 
-_Status: proposed 2026-09-27. Owner: v3 R2. Related: PLAN_V3 R2 ("`Jev` hosted TypeSafe"), backlog X7 ("hosted JEV backend absent"), X9 (entropy on conflicted gates, as revised by the agent), `docs/BENCH_PLAN.md` / benchmark-plan PDF §4 (cascade curve, gate calibration)._
+_Status: J1 and J2 built 2026-09-28, awaiting the key (Kord enters it at `/settings`). What changed from this plan: the key is set from the UI and stored on the state volume (`state_dir/secrets/typesafe_api_key`, owner-only), with `TYPESAFE_API_KEY` as the fallback, instead of a host file mount. The settings live in `state_dir/settings/jev.json`, not TOML. Both live gates (curiosity, speak modality) route through `gate_decide`/`gate_yes_no` in `crates/ferricula-server/src/jev.rs`, in `backup` mode (JEV when Ollaya errors or truncates) or `primary` mode (JEV first, Ollaya as fallback). `private_context` defaults off. The route is recorded in the gate's journal entry and in the `gate` stream event. Still open: J1's recorded live fixtures (run the probe once the key is in), the low-confidence escalation, J3 (merge gate) and J4 (curve). Original status: proposed 2026-09-27. Owner: v3 R2. Related: PLAN_V3 R2 ("`Jev` hosted TypeSafe"), backlog X7 ("hosted JEV backend absent"), X9 (entropy on conflicted gates, as revised by the agent), `docs/BENCH_PLAN.md` / benchmark-plan PDF §4 (cascade curve, gate calibration)._
 
 ## Where we are
 

@@ -1024,6 +1024,37 @@ mod tests {
     }
 
     #[test]
+    fn jev_backs_up_the_speak_gate_when_ollaya_is_down() {
+        let (hyperia, _heard) = stub_server(r#"{"ok":true}"#.into());
+        // JEV answers like Ollaya (aloud 0.8), with a cost.
+        let reply = ollaya_reply(0.2, 0.7, 0.1).replacen('{', r#"{"usage":{"input_tokens":40,"cost":0.0000017},"#, 1);
+        let (jev, seen) = stub_server(reply);
+        let (runtime, root) = speak_runtime(&hyperia, "http://127.0.0.1:9");
+        // Private reply text: with private_context off, JEV is not consulted.
+        runtime.jev_update(crate::jev::JevUpdate { api_key: Some("ts-test-key".into()), enabled: Some(true),
+            base_url: Some(jev.clone()), ..Default::default() }).unwrap();
+        let out = speak(&runtime, "Short news.");
+        assert_eq!(out["mode"], "write");
+        assert!(out["gate"]["route"]["jev_skipped"].as_str().unwrap().contains("private_context"), "{out}");
+        assert!(seen.recv_timeout(std::time::Duration::from_millis(300)).is_err(), "JEV not called");
+        // Allowed: Ollaya is down, JEV judges.
+        runtime.jev_update(crate::jev::JevUpdate { private_context: Some(true), ..Default::default() }).unwrap();
+        let out = speak(&runtime, "Short news.");
+        assert_eq!(out["gate"]["route"]["tier"], "jev", "{out}");
+        assert_eq!(out["gate"]["route"]["escalated_from"], "ollaya");
+        assert_eq!(out["mode"], "speak");
+        let request = seen.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /v1/systemone"), "{request}");
+        assert!(request.to_ascii_lowercase().contains("authorization: bearer ts-test-key"));
+        assert!(!request.contains("keep_alive"));
+        let status = runtime.jev_status();
+        assert_eq!(status["calls_today"], 1);
+        assert!(!status.to_string().contains("ts-test-key"));
+        drop(runtime);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn speak_gate_writes_when_unsure_or_unreachable() {
         let (hyperia, heard) = stub_server(r#"{"ok":true}"#.into());
         // P(aloud) = 0.47 < 0.5: write, nothing spoken, nothing recorded.

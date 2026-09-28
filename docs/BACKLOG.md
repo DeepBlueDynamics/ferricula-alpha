@@ -11,7 +11,7 @@ _Rewritten 2026-09-27 (evening) from the day's work and decisions. Ranked by imp
 
 ## Blockers only Kord can clear
 - ~~**K1.**~~ Done 2026-09-27 (restored and committed). Was: **K1. `THIRD_PARTY_NOTICES.md`** is deleted from the working tree; `Dockerfile:23` copies it, so image builds fail, and it carries the BSD-3 notice for lume-derived code. Restore it or decide otherwise.
-- **K2. TypeSafe key** at `%USERPROFILE%\.config\ferricula\typesafe_api_key`; direct vs OpenRouter; API reference, limits, retention terms (`inbox/JEV_PLAN.md`).
+- **K2. TypeSafe key.** Now entered at `/settings` (JEV built 2026-09-28: backup/primary tier for both live gates, a probe button, `private_context` off by default). Earlier ask: **K2. TypeSafe key** at `%USERPROFILE%\.config\ferricula\typesafe_api_key`; direct vs OpenRouter; API reference, limits, retention terms (`inbox/JEV_PLAN.md`).
 - **K3. nuts-auth fixes** before the UI relies on it: no issuer/audience claims, `return_url` not allowlisted, tokens logged and sent in URLs, one fixed signing key (`inbox/UI_PLAN.md` §3a).
 - **K4. Open decisions in the plans:** `inbox/PLAN_CONSOLIDATION.md` (five), `inbox/UI_PLAN.md`, `inbox/JEV_PLAN.md`, DOCUMENTS.md part two.
 - **K5.** Half done 2026-09-28: Steve superseded memory 2147483704 himself (verdict 2147483836, evidence `[doc eecee3fca20e6eb7§12]`; he read all 30 sections and identified doc `b153ba89bbbdd0fe` as the 2021 remembrance, not the eulogy). Still open: the real 2011 speech (Macography.net) is not ingested, so whether Jony said the quoted lines at the memorial is unresolved.

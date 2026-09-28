@@ -85,6 +85,9 @@ pub fn router(runtime: Arc<AgentRuntime>) -> Router {
         .route("/life/meditate", post(life_meditate))
         .route("/life/end-meditation", post(life_end_meditation))
         .route("/life/urge", post(life_urge))
+        .route("/settings", get(|| async { axum::response::Html(include_str!("settings.html")) }))
+        .route("/settings/jev", get(jev_status).post(jev_update))
+        .route("/settings/jev/probe", post(jev_probe))
         .route("/wisdom/preview", post(wisdom_preview))
         .with_state(runtime)
 }
@@ -653,6 +656,29 @@ async fn life_end_meditation(State(runtime): State<Arc<AgentRuntime>>, headers: 
     require_operator(&runtime, &headers)?;
     let entry = runtime.life_meditate(false).map_err(conflict)?;
     Ok(Json(entry))
+}
+
+/// `GET /settings/jev`: hosted JEV gate tier status (never the key).
+async fn jev_status(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    Ok(Json(runtime.jev_status()))
+}
+
+/// `POST /settings/jev`: set or clear the key and change settings.
+async fn jev_update(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    Json(update): Json<crate::jev::JevUpdate>,
+) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    runtime.jev_update(update).map(Json).map_err(bad_request)
+}
+
+/// `POST /settings/jev/probe`: one live call on fixed non-private text.
+async fn jev_probe(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    let result = tokio::task::spawn_blocking(move || runtime.jev_probe()).await.map_err(internal)?;
+    Ok(Json(result))
 }
 
 #[derive(Deserialize)]

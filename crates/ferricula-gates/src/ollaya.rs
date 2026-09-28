@@ -25,16 +25,61 @@ use crate::{Calibration, VERSION};
 /// Question-set version; bump on any question or criteria text change.
 pub const QUESTIONS_VERSION: &str = "ollaya-questions/2026-09-26.v1";
 
-#[derive(Debug, Clone)]
+/// Which decision-model wire a client speaks. Both take a state and typed
+/// questions and answer with probabilities; they differ in path, auth and
+/// cost reporting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Wire {
+    /// Local Ollaya sidecar: `POST {base}/api/decide`, no auth, free.
+    Ollaya,
+    /// Hosted JEV (TypeSafe): `POST {base}/v1/systemone`, bearer auth,
+    /// priced per input token (`usage.cost` in USD).
+    Jev,
+}
+
+impl Wire {
+    pub fn label(self) -> &'static str {
+        match self {
+            Wire::Ollaya => "ollaya",
+            Wire::Jev => "jev",
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct OllayaClient {
     pub base_url: String,
     pub model: String,
     pub timeout_ms: u64,
+    pub wire: Wire,
+    /// Bearer credential (JEV). Never logged, never echoed in errors.
+    pub api_key: Option<String>,
+}
+
+impl std::fmt::Debug for OllayaClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OllayaClient")
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field("timeout_ms", &self.timeout_ms)
+            .field("wire", &self.wire)
+            .field("api_key", &self.api_key.as_ref().map(|_| "<set>"))
+            .finish()
+    }
 }
 
 impl OllayaClient {
     pub fn new(base_url: impl Into<String>, model: impl Into<String>) -> Self {
-        Self { base_url: base_url.into(), model: model.into(), timeout_ms: 10_000 }
+        Self { base_url: base_url.into(), model: model.into(), timeout_ms: 10_000, wire: Wire::Ollaya, api_key: None }
+    }
+
+    /// Hosted JEV (TypeSafe direct, `https://api.typesafe.ai`, or OpenRouter,
+    /// `https://openrouter.ai/api`), same questions as Ollaya.
+    pub fn jev(base_url: impl Into<String>, model: impl Into<String>, api_key: impl Into<String>) -> Self {
+        Self {
+            base_url: base_url.into(), model: model.into(), timeout_ms: 5_000,
+            wire: Wire::Jev, api_key: Some(api_key.into()),
+        }
     }
 
     /// Default local sidecar with the routing `laya` model.
@@ -46,10 +91,18 @@ impl OllayaClient {
     pub fn decide(&self, state: &str, questions: Value) -> Result<Decision, AbstainReason> {
         let t0 = Instant::now();
         let agent = ureq::AgentBuilder::new().timeout(Duration::from_millis(self.timeout_ms)).build();
-        let url = format!("{}/api/decide", self.base_url.trim_end_matches('/'));
-        let res = agent.post(&url).send_json(json!({
-            "model": self.model, "state": state, "questions": questions, "keep_alive": "30m",
-        }));
+        let base = self.base_url.trim_end_matches('/');
+        let (url, body) = match self.wire {
+            Wire::Ollaya => (format!("{base}/api/decide"),
+                json!({ "model": self.model, "state": state, "questions": questions, "keep_alive": "30m" })),
+            Wire::Jev => (format!("{base}/v1/systemone"),
+                json!({ "model": self.model, "state": state, "questions": questions })),
+        };
+        let mut request = agent.post(&url);
+        if let Some(key) = &self.api_key {
+            request = request.set("Authorization", &format!("Bearer {key}"));
+        }
+        let res = request.send_json(body);
         let latency_us = t0.elapsed().as_micros() as u64;
         let body: Value = match res {
             Ok(resp) => resp.into_json().map_err(|e| AbstainReason::InvalidOutput {
@@ -57,11 +110,15 @@ impl OllayaClient {
             })?,
             Err(ureq::Error::Status(code, resp)) => {
                 let text = resp.into_string().unwrap_or_default();
+                let mut text: String = text.chars().take(160).collect();
+                if let Some(key) = &self.api_key {
+                    text = text.replace(key.as_str(), "<key>");
+                }
                 return Err(AbstainReason::ProviderError {
-                    message: format!("http {code}: {}", text.chars().take(160).collect::<String>()),
+                    message: format!("{} http {code}: {text}", self.wire.label()),
                 });
             }
-            Err(e) => return Err(AbstainReason::ProviderError { message: format!("transport: {e}") }),
+            Err(e) => return Err(AbstainReason::ProviderError { message: format!("{} transport: {e}", self.wire.label()) }),
         };
         let answers = body.get("answers").and_then(Value::as_object).cloned().ok_or_else(|| {
             AbstainReason::InvalidOutput { message: "missing answers".into() }
@@ -71,6 +128,7 @@ impl OllayaClient {
             model: body.get("model").and_then(Value::as_str).unwrap_or(&self.model).to_string(),
             state_truncated: body.get("state_truncated").and_then(Value::as_bool).unwrap_or(false),
             input_tokens: body.pointer("/usage/input_tokens").and_then(Value::as_u64).unwrap_or(0) as u32,
+            usd: body.pointer("/usage/cost").and_then(Value::as_f64),
             latency_us,
         })
     }
@@ -83,6 +141,8 @@ pub struct Decision {
     pub model: String,
     pub state_truncated: bool,
     pub input_tokens: u32,
+    /// Provider-reported cost in USD (JEV `usage.cost`); None when absent.
+    pub usd: Option<f64>,
     pub latency_us: u64,
 }
 
@@ -217,9 +277,10 @@ impl OllayaGate {
 
     fn provenance(&self, features: &[&str], decision: Option<&Decision>) -> GateProvenance {
         let model = decision.map(|d| d.model.as_str()).unwrap_or(&self.client.model);
+        let wire = self.client.wire.label();
         GateProvenance {
             gate: self.gate.to_string(),
-            gate_version: format!("{VERSION}|{QUESTIONS_VERSION}|ollaya:{model}"),
+            gate_version: format!("{VERSION}|{QUESTIONS_VERSION}|{wire}:{model}"),
             calibration_sha256: self.calibration.as_ref().map(|c| c.sha256.clone()),
             calibrated: self.calibration.as_ref().is_some_and(|c| c.lifecycle_authorized),
             features_sha256: sha256_hex(features),
@@ -228,8 +289,11 @@ impl OllayaGate {
             cost: decision.map(|d| UsageCost {
                 input_tokens: d.input_tokens,
                 output_tokens: 0,
-                usd: Some(0.0),
-                profile: format!("local:ollaya:{model}"),
+                usd: match self.client.wire { Wire::Ollaya => Some(0.0), Wire::Jev => d.usd },
+                profile: match self.client.wire {
+                    Wire::Ollaya => format!("local:ollaya:{model}"),
+                    Wire::Jev => format!("hosted:jev:{model}"),
+                },
             }),
         }
     }
@@ -412,6 +476,7 @@ mod tests {
             model: "laya:en".into(),
             state_truncated: truncated,
             input_tokens: 10,
+            usd: None,
             latency_us: 5,
         }
     }

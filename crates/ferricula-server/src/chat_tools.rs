@@ -601,21 +601,24 @@ impl AgentRuntime {
             &[("write", "leave it in writing; he can read it later"),
               ("speak", "say it aloud now instead of writing it"),
               ("both", "say it aloud now and also keep the full written reply")]) });
-        let decision = match client.decide(text, questions) {
+        let (outcome, _, route) = self.gate_decide(&client, text, questions, true);
+        let route = serde_json::to_value(&route).unwrap_or(Value::Null);
+        let decision = match outcome {
             Ok(d) => d,
-            Err(reason) => return json!({ "mode": "write", "abstain": format!("{reason:?}") }),
+            Err(reason) => return json!({ "mode": "write", "abstain": format!("{reason:?}"), "route": route }),
         };
         if decision.state_truncated {
-            return json!({ "mode": "write", "abstain": "state_truncated" });
+            return json!({ "mode": "write", "abstain": "state_truncated", "route": route });
         }
         let Some(p) = decision.choice_probs("m", &LABELS) else {
-            return json!({ "mode": "write", "abstain": "incomplete distribution" });
+            return json!({ "mode": "write", "abstain": "incomplete distribution", "route": route });
         };
         let aloud = p[1] + p[2];
         let mode = if aloud < threshold { "write" } else if p[2] > p[1] { "both" } else { "speak" };
         let round = |x: f32| (f64::from(x) * 1e4).round() / 1e4;
         json!({ "mode": mode, "p_write": round(p[0]), "p_speak": round(p[1]), "p_both": round(p[2]),
-                "p_aloud": round(aloud), "threshold": threshold, "model": decision.model })
+                "p_aloud": round(aloud), "threshold": threshold, "model": decision.model,
+                "usd": decision.usd, "route": route })
     }
 }
 

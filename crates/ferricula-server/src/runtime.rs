@@ -69,7 +69,7 @@ pub use embeddings::{EmbeddingsState, EmbeddingsStatus};
 mod meaning_plane;
 pub use meaning_plane::{BackfillStatus, MeaningStatus};
 
-fn now() -> u64 {
+pub(crate) fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -560,6 +560,7 @@ pub struct AgentRuntime {
     life: life::LifePlane,
     embeddings: embeddings::EmbeddingsPlane,
     meaning: meaning_plane::MeaningPlane,
+    pub(crate) jev: crate::jev::JevPlane,
 }
 
 impl AgentRuntime {
@@ -719,7 +720,9 @@ impl AgentRuntime {
         };
         let meaning = meaning_plane::MeaningPlane::open(&config, &memory)?;
         let auth = crate::auth::AuthManager::new(&config.auth, &config.state_dir)?;
+        let jev = crate::jev::JevPlane::open(&config.state_dir)?;
         let runtime = Arc::new(Self {
+            jev,
             auth,
             chat,
             documents,

@@ -18,6 +18,7 @@ $h = @{ Authorization = "Bearer $tok" }
 - Messages are limited to 8 KB. A browser chat page is at `http://127.0.0.1:18875/` (paste the token).
 - A turn that comes back `failed` with "model returned an empty response" means the thinking model ran out of room: raise `ollama_reasoning_tokens` in the config and restart.
 - `docker logs ferricula-steve` has one line per chat turn start and end, per model round, per tool call (name, time, result size, error), and per provider call (`model:` with duration, finish reason, tokens, or the real error). A turn that fails with "no eligible local private-context model" after about two minutes is a timeout: raise `ollama_timeout_ms`.
+- **JEV gate tier (TypeSafe).** `/settings` (operator only) sets the key, which is stored on the state volume and never shown again. "Test the key" makes one live call on fixed, non-private text. Role: `backup` (Ollaya first; JEV when Ollaya errors or the state overflows its 512-token window) or `primary` (JEV first; Ollaya if JEV fails). Both live gates read conversation, so JEV sees them only with "Allow private context" on. Every gate decision records its route (`tier`, `escalated_from`, `jev_skipped`) in the life journal and in the `gate` event on `/chat/stream`. API: `GET/POST /settings/jev`, `POST /settings/jev/probe`.
 
 ## Give him something to read
 `POST /documents` with one of:

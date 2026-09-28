@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings · Ferricula</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap">
+<style>
+:root{--paper:#F6F4EF;--ink:#1B1B19;--muted:#5E5B55;--rule:#DDD8CE;--card:#FFFFFF;--input-rule:#CFCAC0;--accent:#2A5BA8;--accent-wash:#EEF2F9;--warn:#7A3A0E;--ok:#2F6B3A;font-family:'IBM Plex Sans',system-ui,sans-serif;color:var(--ink);background:var(--paper)}
+*{box-sizing:border-box}body{margin:0}button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+header{padding:14px 32px;border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+header h1{font:500 26px 'EB Garamond',Georgia,serif;margin:0}header a{color:var(--accent);font-size:14px}
+main{max-width:720px;margin:0 auto;padding:28px 16px 64px}
+h2{font:500 22px 'EB Garamond',Georgia,serif;margin:0 0 6px}
+.fine{font-size:13px;color:var(--muted);line-height:1.55;margin:6px 0 14px}
+section{background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:20px 22px;margin-bottom:20px}
+label{display:block;font-size:12px;font-weight:500;letter-spacing:.04em;color:var(--muted);margin:14px 0 6px}
+input[type=text],input[type=password],select{width:100%;min-height:44px;padding:8px 10px;border:1px solid var(--input-rule);border-radius:8px;background:var(--card)}
+.check{display:flex;gap:10px;align-items:flex-start;margin:14px 0;font-size:14px;line-height:1.45}.check input{margin-top:3px;width:18px;height:18px}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+button{min-height:44px;border:1px solid var(--ink);border-radius:10px;background:var(--card);padding:0 16px;cursor:pointer}
+button.primary{background:var(--ink);color:var(--paper)}button:disabled{opacity:.5;cursor:not-allowed}
+dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:0;font-size:14px}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}
+.mono{font-family:'IBM Plex Mono',monospace;font-size:12px}
+.msg{min-height:22px;font-size:14px;margin-top:12px}.msg.ok{color:var(--ok)}.msg.err{color:var(--warn)}
+.badge{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;border:1px solid var(--rule)}.badge.on{background:var(--accent-wash);border-color:var(--accent)}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 'IBM Plex Mono',monospace;background:var(--paper);border-radius:8px;padding:10px;max-height:260px;overflow:auto}
+</style>
+</head>
+<body>
+<header><h1>Settings</h1><a href="/talk">Back to the conversation</a></header>
+<main>
+  <section id="auth-section" hidden>
+    <h2>Sign in</h2>
+    <p class="fine">You're not signed in as this agent's operator. <a href="/talk">Sign in on the conversation page</a>, or enter an operator bearer token below. It's used for this page only and never stored.</p>
+    <label for="bearer">Operator token</label>
+    <input id="bearer" type="password" autocomplete="off">
+    <div class="row"><button id="bearer-go" type="button">Use token</button></div>
+  </section>
+
+  <section>
+    <h2>JEV gate backup (TypeSafe)</h2>
+    <p class="fine">Gates are fast yes/no and choice judgments made before the language model is asked: whether something is worth researching, and whether to speak or write. The local Ollaya model answers them. JEV, a hosted judge, can take over when Ollaya can't judge (sidecar down, or the text is too long for its 512-token window), or answer first. Answers stay advisory until calibrated.</p>
+    <dl id="status"><dt>Status</dt><dd>Loading…</dd></dl>
+  </section>
+
+  <section>
+    <h2>API key</h2>
+    <p class="fine">Your TypeSafe key (or OpenRouter key, if you use the OpenRouter base URL below). It's stored on the agent's private state volume. It's never shown again, never logged, and never sent anywhere but the JEV endpoint.</p>
+    <label for="key">New key</label>
+    <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste the key">
+    <div class="row">
+      <button id="save-key" class="primary" type="button">Save key</button>
+      <button id="probe" type="button">Test the key</button>
+      <button id="clear-key" type="button">Remove the stored key</button>
+    </div>
+    <div id="key-msg" class="msg" role="status"></div>
+    <pre id="probe-out" hidden></pre>
+  </section>
+
+  <section>
+    <h2>How JEV is used</h2>
+    <div class="check"><input id="enabled" type="checkbox"><label for="enabled" style="margin:0;font-size:14px;color:var(--ink)">Use JEV for gates</label></div>
+    <label for="mode">Role</label>
+    <select id="mode">
+      <option value="backup">Backup: Ollaya first; JEV when Ollaya can't judge</option>
+      <option value="primary">Primary: JEV first; Ollaya if JEV fails</option>
+    </select>
+    <div class="check"><input id="private" type="checkbox"><label for="private" style="margin:0;font-size:14px;color:var(--ink)">Allow private context. Both live gates read your conversation (the curiosity seed and the reply being spoken). With this off, JEV never sees them, so it will rarely be called. TypeSafe's retention and training terms are unconfirmed.</label></div>
+    <label for="model">Model</label>
+    <input id="model" type="text" spellcheck="false">
+    <label for="base">Base URL</label>
+    <select id="base">
+      <option value="https://api.typesafe.ai">TypeSafe direct (api.typesafe.ai)</option>
+      <option value="https://openrouter.ai/api">OpenRouter (openrouter.ai)</option>
+    </select>
+    <label for="budget">Most calls per day</label>
+    <input id="budget" type="text" inputmode="numeric">
+    <div class="row"><button id="save" class="primary" type="button">Save settings</button></div>
+    <div id="save-msg" class="msg" role="status"></div>
+  </section>
+</main>
+<script>
+let bearer = '';
+const el = id => document.getElementById(id);
+async function api(path, body) {
+  const headers = {'Content-Type': 'application/json'};
+  if (bearer) headers.Authorization = 'Bearer ' + bearer;
+  const r = await fetch(path, {method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', headers,
+    body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store'});
+  if (r.status === 401 || r.status === 403) { el('auth-section').hidden = false; throw Error('Not signed in as operator.'); }
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw Error(data.error || ('HTTP ' + r.status));
+  return data;
+}
+const when = t => t ? new Date(t * 1000).toLocaleString() : 'never';
+function show(s) {
+  el('auth-section').hidden = true;
+  const rows = [
+    ['Status', `<span class="badge ${s.active ? 'on' : ''}">${s.active ? 'active' : 'inactive'}</span> ${s.enabled ? '' : '(turned off)'}`],
+    ['Key', s.key_set ? `set (${s.key_source === 'ui' ? 'from this page' : 'from the environment'}, ${when(s.key_set_at)})` : 'not set'],
+    ['Role', s.mode], ['Private context', s.private_context ? 'allowed' : 'not allowed'],
+    ['Model', `<span class="mono">${s.model}</span>`], ['Endpoint', `<span class="mono">${s.base_url}</span>`],
+    ['Calls today', `${s.calls_today} / ${s.max_calls_per_day}`], ['Cost today', '$' + (s.usd_today || 0).toFixed(6)],
+    ['Last success', when(s.last_ok_at)], ['Last error', s.last_error ? `<span class="mono">${s.last_error.replace(/</g,'&lt;')}</span>` : 'none'],
+  ];
+  el('status').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+  el('enabled').checked = s.enabled; el('mode').value = s.mode; el('private').checked = s.private_context;
+  el('model').value = s.model; el('base').value = s.base_url; el('budget').value = s.max_calls_per_day;
+}
+function msg(id, text, ok) { el(id).textContent = text; el(id).className = 'msg ' + (ok ? 'ok' : 'err'); }
+async function load() { try { show(await api('/settings/jev')); } catch (e) { el('status').innerHTML = `<dt>Status</dt><dd>${e.message}</dd>`; } }
+el('bearer-go').onclick = () => { bearer = el('bearer').value.trim(); el('bearer').value = ''; load(); };
+el('save-key').onclick = async () => {
+  const key = el('key').value.trim(); if (!key) return msg('key-msg', 'Paste a key first.', false);
+  try { show(await api('/settings/jev', {api_key: key})); el('key').value = ''; msg('key-msg', 'Key saved. Test it to confirm it works.', true); }
+  catch (e) { msg('key-msg', e.message, false); }
+};
+el('clear-key').onclick = async () => {
+  if (!confirm('Remove the stored JEV key?')) return;
+  try { show(await api('/settings/jev', {clear_key: true})); msg('key-msg', 'Stored key removed.', true); } catch (e) { msg('key-msg', e.message, false); }
+};
+el('probe').onclick = async () => {
+  el('probe').disabled = true; msg('key-msg', 'Calling JEV…', true);
+  try {
+    const r = await api('/settings/jev/probe', {});
+    el('probe-out').hidden = false; el('probe-out').textContent = JSON.stringify(r, null, 2);
+    msg('key-msg', r.ok ? `Works: p(yes) ${r.p_yes?.toFixed(3)} in ${r.latency_ms} ms.` : 'The call failed: ' + r.error, r.ok);
+    load();
+  } catch (e) { msg('key-msg', e.message, false); } finally { el('probe').disabled = false; }
+};
+el('save').onclick = async () => {
+  const budget = parseInt(el('budget').value, 10);
+  try {
+    show(await api('/settings/jev', {enabled: el('enabled').checked, mode: el('mode').value, private_context: el('private').checked,
+      model: el('model').value.trim(), base_url: el('base').value, max_calls_per_day: Number.isFinite(budget) ? budget : undefined}));
+    msg('save-msg', 'Saved.', true);
+  } catch (e) { msg('save-msg', e.message, false); }
+};
+load();
+</script>
+</body>
+</html>
