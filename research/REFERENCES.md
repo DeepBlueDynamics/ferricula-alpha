@@ -17,6 +17,8 @@ Local copies are ignored by `.gitignore` (`research/**/*.pdf`).
 | 2510.27246 | Beyond a Million Tokens: Benchmarking and Enhancing Long-Term Memory in LLMs (BEAM; Tavakoli et al., ICLR 2026) | https://arxiv.org/abs/2510.27246 |
 | 2601.01253 | Stochastic Thermodynamics of Associative Memory (Rooke, Krotov, Balasubramanian, Wolpert) | https://arxiv.org/abs/2601.01253 |
 | 2604.07401 | Geometric Entropy and Retrieval Phase Transitions in Continuous Dense Associative Memory (Petrova, Polyachenko, State) | https://arxiv.org/abs/2604.07401 |
+| 2602.22769 | AMA-Bench: Evaluating Long-Horizon Memory for Agentic Applications (Zhao et al.) | https://arxiv.org/abs/2602.22769 |
+| 2607.21604 | AgentKVShift: Efficient KV Cache Reuse for Agentic Memory Systems (Pandey et al.); notes in `2607.21604-agentkvshift.md`, PDF local only | https://arxiv.org/abs/2607.21604 |
 
 `2506.10801_extracted.md` in this directory is a text extraction of arXiv:2506.10801
 kept for citation and search.

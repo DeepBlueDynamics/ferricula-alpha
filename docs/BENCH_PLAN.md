@@ -195,6 +195,7 @@ The old B4 (30 questions in eight groups) is retired: it cannot support a claim.
 |---|---|---|---|
 | Should | **LoCoMo** | experience plane | Comparability with vendor claims only, never a headline. Report all five categories including the 446 adversarial/refusal items; publish the judge prompt; state the audit caveats (≈ 6.4% answer-key errors; 62.81% false-accept rate for the standard GPT-4o-mini judge; category 4 scored by substring). |
 | Should | MemoryAgentBench (FactConsolidation) | experience plane | Counterfactual supersession resists pretraining; reference: BM25 48.0% single-hop (secondary source, re-verify). |
+| Should | **AMA-Bench** (arXiv:2602.22769) | experience plane, verdicts | Memory QA over agent trajectories: Recall, Causal Inference, **State Updating** (tests `supersedes`/`disputes`), State Abstraction. Their published judge is an unaudited binary GPT-4o call; apply our judge rules. Companion: backlog T1, the same design on our own nemesis8 telemetry with answer keys checked by a program. |
 | Should | BEAM 128K / 1M tiers | evidence + experience | Scale where context-stuffing fails; skip 10M initially. |
 | Should | PersistBench, MemSyco-Bench | safety, gates | Memory-induced sycophancy, cross-domain leakage. |
 | Should | HaluMem | write path | Extraction should be near zero by construction (verbatim write path): a cheap differentiating result. |
