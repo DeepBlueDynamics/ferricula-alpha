@@ -31,12 +31,36 @@ decays. Recall is hybrid — word match, BM25, meaning (embeddings), and one gra
 hop — and conversations are remembered across sessions. Background drives shape the
 agent's behavior: boredom leads it to read on its own, sleep pressure leads to
 consolidation and a dream, meditation holds it, and entropy comes from an SDR radio.
-Ollaya decision gates judge whether something is worth deliberating on; they are fast
-(10–18 ms) but not yet calibrated, so they are advisory only.
+Decision gates judge whether something is worth deliberating on. They run on local Ollaya
+models (10–18 ms), with hosted JEV (TypeSafe) as a second tier (about 200–300 ms). They are
+not yet calibrated, so they are advisory only.
 
 The design follows the Abhidhamma's analysis of a moment of mind (contact, feeling-tone, recognition, investigation, a fast judgment, and only then the expensive step, thinking with an LLM). See the [white paper](paper/WHITEPAPER_V2.md) for the architecture and measured results, [inbox/PLAN_V3.md](inbox/PLAN_V3.md) and [docs/BACKLOG.md](docs/BACKLOG.md) for what is left, and [docs/HANDOFF.md](docs/HANDOFF.md) to pick up the work.
 
-## What's new in v3 (2026-09-27)
+## What's new (2026-09-28)
+
+- **The agent uses tools mid-conversation.** It can:
+  - search and read its documents end to end, and search its own memories;
+  - read a web page without keeping it, or ingest one with a stated reason.
+
+  A reply that cites a document the agent hasn't read is sent back for correction ([docs/TOOLS.md](docs/TOOLS.md)).
+- **Verdicts on its own memory.** `mark_disputed` writes a permanent `disputes` or
+  `supersedes` record with its evidence, and the verdict comes back with the memory
+  whenever it's recalled. The judged memory is never edited.
+- **JEV as a second gate tier.** TypeSafe's hosted decision model sits next to Ollaya.
+  - In *backup* mode it judges when Ollaya can't (sidecar down, or the state overflows its 512-token window); in *primary* mode it judges first.
+  - The operator sets the key on `/settings`; it's stored on the state volume and never returned or logged.
+  - States built from private conversation reach JEV only with `private_context` on.
+  - Every gate decision records which tier judged and why ([inbox/JEV_PLAN.md](inbox/JEV_PLAN.md)).
+- **`/talk` and live telemetry.** A chat page with an instruments panel and nuts.services
+  login. `POST /chat/stream` streams a turn as it happens: memory candidates, model rounds
+  (time, finish reason, tokens), tool calls, gate decisions and verdicts.
+- **Operations.**
+  - One log line per turn, model round, tool call and provider call.
+  - A configurable per-call model timeout (`ollama_timeout_ms`).
+  - Sleep pressure is capped, so one busy day can't demand days of sleep, and `/control/sleep` now runs a real sleep, with consolidation and a dream.
+
+## What was new in v3 (2026-09-27)
 
 - **Documents** — the agent can be handed text, a web page (via the grub crawler),
   or a PDF; content is kept verbatim and cited as `[doc <id>§<section> p.<page>]`;
@@ -53,8 +77,6 @@ The design follows the Abhidhamma's analysis of a moment of mind (contact, feeli
 - **Built, not yet wired** — live thermodynamics; the vīthi record with the 52
   cetasikas; Paṭṭhāna edges; meditation with a bell and breath; dream images via
   ComfyUI.
-- **Next** — the agent's own tools to search and read documents mid-conversation
-  ([docs/HANDOFF.md](docs/HANDOFF.md), [inbox/SEARCH_TOOL.md](inbox/SEARCH_TOOL.md)), per the agent's four requirements.
 - **Benchmarks** — every number lives in `audit/bench/ledger.jsonl`; the plan is in
   [docs/BENCH_PLAN.md](docs/BENCH_PLAN.md) and the v3 benchmark plan PDF.
 
@@ -75,7 +97,7 @@ The design follows the Abhidhamma's analysis of a moment of mind (contact, feeli
 | `ferricula-core` | Memory engine: records with fidelity, decay and recall strengthening; durable snapshot + WAL; roaring-bitmap tag index; graph; prime tree |
 | `ferricula-cognition` | The mind: gate contract (`Answer \| Abstain` + provenance), non-destructive consolidation (bhāvanā), read-time curator, sati monitors, **drives** (`life.rs`), entropy source, identity casting |
 | `ferricula-ingest` | The document sense door: text, web pages (via grub) and PDFs become verbatim, page-aware sections in a durable store searched with BM25 |
-| `ferricula-gates` | Gate backends: Ollaya decision models (`/api/decide`) and an Ollama-chat fallback, with calibration discipline |
+| `ferricula-gates` | Gate backends: Ollaya decision models (`/api/decide`), hosted JEV (`/v1/systemone`, bearer auth, priced per input token) on the same questions, and an Ollama-chat fallback, with calibration discipline |
 | `ferricula-episode` | Versioned episodes and the append-only memory overlay |
 | `ferricula-search` | lume: FST tagger, field-aware BM25, spelling, crawl, rerank. Also builds the standalone `lume` CLI |
 | `ferricula-semantic` | shivvr: chunker, GTR-T5 ONNX embedder, vec2text inverter (`ml` feature) |
@@ -89,6 +111,7 @@ The design follows the Abhidhamma's analysis of a moment of mind (contact, feeli
 - **Rust** 1.85+ (2024 edition). The Docker build uses `rust:1.96`.
 - **Ollama** at `127.0.0.1:11434` for thinking. Any chat model works; thinking models (e.g. `glm-5.3:cloud`) need `ollama_reasoning_tokens` set.
 - Optional: **[Ollaya](https://github.com/ollaya-dev/ollaya)** at `127.0.0.1:11435` for fast judgments (`docker run -d --gpus=all -p 127.0.0.1:11435:11435 ghcr.io/ollaya-dev/ollaya:cuda`, then pull `laya`).
+- Optional: a **TypeSafe JEV** key for the hosted gate tier, entered on the agent's `/settings` page (or `TYPESAFE_API_KEY`).
 - Optional: a **grub** crawler at `127.0.0.1:6792` so the agent can read web pages.
 - Optional: a **radio** entropy source (gnosis-radio / sdr-rand) at `RADIO_URL`; the OS is used otherwise.
 
@@ -154,6 +177,10 @@ Every route except `GET /` and `GET /health` needs `Authorization: Bearer <opera
 | Method | Endpoint | |
 |---|---|---|
 | POST | `/chat` · GET `/chat/{conversation_id}` | Conversation (persisted) |
+| POST | `/chat/stream` | The same turn as server-sent events: candidates, rounds, model calls, tools, gates, verdicts, then `done` |
+| GET | `/talk` · `/settings` | Chat page with instruments · operator settings (JEV key and routing) |
+| GET, POST | `/settings/jev` · POST `/settings/jev/probe` | JEV gate tier status and settings (never the key) · one live test call |
+| GET | `/life` · POST `/life/urge` | Drives, journal, last dream · force curiosity, sleep or a dream |
 | POST, GET | `/documents` | Ingest (`{"kind":"text"\|"url"\|"pdf",...}`) or list |
 | GET | `/documents/{doc_id}` · `/documents/{doc_id}/sections/{index}` | A document, a verbatim section |
 | POST | `/documents/search` · `/memory/recall` | Section search; hybrid recall |
@@ -172,6 +199,7 @@ Every route except `GET /` and `GET /health` needs `Authorization: Bearer <opera
 | `memory_dir` / `state_dir` | Read-only identity + memory / writable runtime state |
 | `private_context_profiles` | Model profiles allowed to see private memory. An Ollama `:cloud` model listed here sends memory off-box: that is the operator's choice |
 | `ollama_model` / `ollama_reasoning_tokens` / `ollama_context_tokens` | Local model, extra output headroom for thinking models, and its context window (default 8192; raise it for large-context models so evidence cards fit) |
+| `ollama_timeout_ms` | Per-call model timeout (default 120000). A thinking model on a long tool-loop turn can need more; the reference deployment uses 300000 |
 | `[documents]` | Ingest: `grub_base_url`, `max_bytes`, `allow_url`, `timeout_secs` |
 | `[budgets] max_model_usd_per_day` | Hard daily spend cap across all routes |
 | `[schedule]`, `[autonomy]`, `[sleep_cycle]` | Wakes, event-driven autonomy, sleep planning |
@@ -189,6 +217,9 @@ Every route except `GET /` and `GET /health` needs `Authorization: Bearer <opera
 | Document ingest (text, URL via grub, PDF), verbatim citations, hybrid recall | ✅ |
 | MCP over HTTP and stdio | ✅ |
 | Ollaya gate backends; calibration harness | ✅ built · ⚠️ not calibrated, advisory only |
+| JEV (TypeSafe) second gate tier, backup or primary, key from the UI | ✅ live on both gates (curiosity, speak/write) · ⏳ low-confidence escalation, merge gate, cascade curve |
+| In-chat tools, citation check, `mark_disputed` verdicts | ✅ |
+| `/talk` page, nuts.services login, `POST /chat/stream` | ✅ server · ◐ the page does not consume the stream yet |
 | Drives (boredom → curiosity via the web, sleep pressure → sleep → dream → wake), `[life]`, `/life`, `ferricula_life` | ✅ live-soaked on a recovered memory ([audit/life](audit/life/soak-2026-09-27.md)) · ⏳ 72-hour soak |
 | Non-destructive consolidation (bhāvanā) in the sleep cycle | ◐ runs on a scratch copy; clusters and karmic log persist, nothing written back yet |
 | Dense (embedding) recall: meaning index, backfill, dense + graph arms in hybrid recall, turns remembered across conversations | ◐ R2b recall landed; sati-recall gate, saññā tags, consolidation clusters still planned: [docs/EMBEDDINGS_PLAN.md](docs/EMBEDDINGS_PLAN.md) |
