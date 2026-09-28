@@ -58,6 +58,16 @@ pub struct Extracted {
 }
 
 pub fn extract(source: &Source, config: &ExtractConfig) -> Result<Extracted> {
+    extract_inner(source, config, true)
+}
+
+/// [`extract`] without the web-page screen: for reading a page, never for
+/// keeping it (list pages and link farms come through as they are).
+pub fn extract_unscreened(source: &Source, config: &ExtractConfig) -> Result<Extracted> {
+    extract_inner(source, config, false)
+}
+
+fn extract_inner(source: &Source, config: &ExtractConfig, screen: bool) -> Result<Extracted> {
     match source {
         Source::Text { title, text } => {
             if text.len() > config.max_bytes {
@@ -89,7 +99,9 @@ pub fn extract(source: &Source, config: &ExtractConfig) -> Result<Extracted> {
             let page = Extracted { title, origin: final_url, pages: vec![markdown], paged: false };
             // Web pages are screened: a paywall, login/cookie wall or a
             // near-empty page is an error carrying a typed `Rejected`.
-            crate::screen::screen(&page)?;
+            if screen {
+                crate::screen::screen(&page)?;
+            }
             Ok(page)
         }
     }

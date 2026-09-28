@@ -13,7 +13,7 @@ pub mod screen;
 pub mod sections;
 pub mod store;
 
-pub use extract::{ExtractConfig, Extracted, Source, extract, extract_screened};
+pub use extract::{ExtractConfig, Extracted, Source, extract, extract_screened, extract_unscreened};
 pub use screen::{RejectReason, Rejected, rejection, screen};
 pub use sections::DocSection;
 pub use store::{DocumentMeta, DocumentRecord, DocumentStore, SectionHit};

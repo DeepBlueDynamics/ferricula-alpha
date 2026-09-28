@@ -705,7 +705,7 @@ impl AgentRuntime {
         if !(url.starts_with("http://") || url.starts_with("https://")) {
             return Err(error("`url` must start with http:// or https://"));
         }
-        let page = ferricula_ingest::extract(&ferricula_ingest::Source::Url { url: url.to_string() },
+        let page = ferricula_ingest::extract_unscreened(&ferricula_ingest::Source::Url { url: url.to_string() },
             &self.config.documents.extract_config())
             .map_err(|e| error(format!("could not read {url}: {e:#}")))?;
         let full = page.pages.join("\n\n");
