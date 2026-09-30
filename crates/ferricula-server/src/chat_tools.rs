@@ -186,8 +186,9 @@ impl AgentRuntime {
             "read_web_pane" => self.tool_read_web_pane(&call.arguments, room),
             "ingest_url" => self.tool_ingest_url(&call.arguments),
             "read_url" => self.tool_read_url(&call.arguments, room),
+            "email_check" | "email_read" | "email_send" | "email_delete" | "email_label" => self.tool_email(&call.name, &call.arguments, room),
             other => Err(error(format!(
-                "unknown tool `{other}`; available: search_documents, read_section, read_document, search_memory, mark_disputed, and when enabled speak_summary, read_web_pane, read_url, ingest_url"
+                "unknown tool `{other}`; available: search_documents, read_section, read_document, search_memory, mark_disputed, and when enabled speak_summary, read_web_pane, read_url, ingest_url, email_check, email_read, email_send, email_label, email_delete"
             ))),
         };
         result.unwrap_or_else(|e| e)
@@ -842,6 +843,10 @@ pub(super) fn log_entry(call: &ToolCall, result: &Value, result_bytes: usize) ->
         "verdict_id": pick("verdict_id"),
         "page_bytes": pick("page_bytes"),
         "web_panes": pick("web_panes"),
+        "message_id": pick("message_id"),
+        "count": pick("count"),
+        "from": pick("from"),
+        "subject": pick("subject"),
     })
 }
 

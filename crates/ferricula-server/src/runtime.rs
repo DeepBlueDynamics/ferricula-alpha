@@ -561,6 +561,7 @@ pub struct AgentRuntime {
     embeddings: embeddings::EmbeddingsPlane,
     meaning: meaning_plane::MeaningPlane,
     pub(crate) jev: crate::jev::JevPlane,
+    pub(crate) email: crate::email::EmailPlane,
 }
 
 impl AgentRuntime {
@@ -723,6 +724,7 @@ impl AgentRuntime {
         let jev = crate::jev::JevPlane::open(&config.state_dir)?;
         let runtime = Arc::new(Self {
             jev,
+            email: crate::email::EmailPlane::default(),
             auth,
             chat,
             documents,

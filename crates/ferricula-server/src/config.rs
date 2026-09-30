@@ -80,6 +80,8 @@ pub struct RuntimeConfig {
     pub recall: RecallConfig,
     /// Hyperia (messaging and spoken summaries on the operator's desktop). Off by default.
     pub hyperia: HyperiaConfig,
+    /// `[email]`: AgentMail inbox tools. Active only when `AGENTMAIL_API_KEY` is set.
+    pub email: crate::email::EmailConfig,
     /// How the agent names its operator in conversation memories
     /// ("<operator_name> said: ..."). Persona-neutral default.
     pub operator_name: String,
@@ -309,6 +311,7 @@ impl Default for RuntimeConfig {
             embeddings: EmbeddingsConfig::default(),
             recall: RecallConfig::default(),
             hyperia: HyperiaConfig::default(),
+            email: crate::email::EmailConfig::default(),
             operator_name: "The operator".into(),
             auth: AuthConfig::default(),
         }

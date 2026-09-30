@@ -183,7 +183,7 @@ impl AgentRuntime {
         self.documents.experience.recall_candidates(query, limit)
     }
 
-    pub(super) fn experience(&self) -> &ExperienceStore {
+    pub(crate) fn experience(&self) -> &ExperienceStore {
         &self.documents.experience
     }
 

@@ -9,6 +9,7 @@ pub mod api;
 pub mod auth;
 pub mod harness;
 pub mod hyperia;
+pub mod email;
 pub mod jev;
 pub mod comfy;
 pub mod curation;

@@ -229,6 +229,11 @@ impl AgentRuntime {
             }
         }
         let episode_context = bounded_candidates(&Value::Array(contextual), 2400);
+        // The email line costs one blocking API call (unread count).
+        let email_prompt = {
+            let runtime = self.clone();
+            tokio::task::spawn_blocking(move || runtime.email_prompt()).await.unwrap_or_default()
+        };
         let base_system = format!(
             "{}\nYou are the software agent identified by the configured persona above, in a local operator conversation. Answer the actual question directly, usually in 2 to 5 sentences. Omit retrieved memories that do not materially help answer this question; do not introduce a catalog of memories or repeat background biography. \
             Do not claim to be a living person or to have performed actions you have not performed. \
@@ -244,7 +249,7 @@ impl AgentRuntime {
             A candidate whose `state` is forgiven or archived is a faded memory: still yours, held less firmly. A candidate with `verdicts` is one you have judged before (disputed, or superseded by evidence): when you use it, say so and give the verdict its weight. \
             Candidates with source `conversation` are what your operator told you (channel hearing) or what you answered (channel thinking) in earlier conversations; you may rely on them as what was said, not as proof it is true. \
             For episode reports, cite [episode event_id] and distinguish the attributed report from its current interpretation. Conversation history records what was said, not proof that it is true.\nRecovered metadata: {}\nEpisode candidates (whole records, omitted_count disclosed): {}\nBefore answering, check these evidence rules: an unresolved report with no supported interpretation establishes NO cause and excludes NO candidate cause. An object not named in that report is not thereby ruled out. A not_seen_in_scope result says only that the target was not seen in the named scope at that time; it cannot establish that the target was absent elsewhere, or that it did not cause an earlier event. If a later missing-object goal could fit an unexplained earlier event, offer that connection explicitly as a possibility to investigate. Do not assert the connection is true or false without evidence. State the retained observation, a possible connection, what remains unknown, and a next check outside any already inspected scope. Do not repeat an unsupported exclusion from earlier assistant messages.",
-            format!("{}{}", truncate(&self.persona.raw, 1000), chat_tools::tools_prompt(chat_tools::MAX_TOOL_CALLS) + &self.speak_prompt() + &self.web_tools_prompt()), metadata, episode_context
+            format!("{}{}", truncate(&self.persona.raw, 1000), chat_tools::tools_prompt(chat_tools::MAX_TOOL_CALLS) + &self.speak_prompt() + &self.web_tools_prompt() + &email_prompt), metadata, episode_context
         );
         let base_system = if dreams.is_empty() {
             base_system
@@ -1050,6 +1055,45 @@ mod tests {
         let status = runtime.jev_status();
         assert_eq!(status["calls_today"], 1);
         assert!(!status.to_string().contains("ts-test-key"));
+        drop(runtime);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn email_send_signs_is_capped_and_remembered() {
+        // One stub reply serves every AgentMail call (inbox list, send).
+        let (mail, seen) = stub_server(r#"{"inboxes":[{"inbox_id":"steve@agentmail.to","email":"steve@agentmail.to"}],"message_id":"m1","thread_id":"t1","count":0,"messages":[]}"#.into());
+        // SAFETY: only this test reads AGENTMAIL_API_KEY.
+        unsafe { std::env::set_var(crate::email::KEY_ENV, "am-test-key") };
+        let (hyperia, _h) = stub_server(r#"{"ok":true}"#.into());
+        let root = std::env::temp_dir().join(format!("ferricula-email-{}", Uuid::new_v4()));
+        let memory = root.join("memory");
+        fs::create_dir_all(&memory).unwrap();
+        fs::write(memory.join("identity.json"), r#"{"agent_id":"ferricula-agent","name":"T"}"#).unwrap();
+        let mut config = crate::config::RuntimeConfig::default();
+        config.memory_dir = memory.clone();
+        config.state_dir = root.join("state");
+        config.overlay.path = config.state_dir.join("overlay.json");
+        config.schedule.enabled = false;
+        config.hyperia.url = hyperia;
+        config.email.base_url = mail;
+        config.email.max_sends_per_day = 1;
+        let runtime = AgentRuntime::open(config, crate::inspect_data_dir(&memory).unwrap()).unwrap();
+        assert!(runtime.email_prompt().contains("steve@agentmail.to"));
+        let send = |to: &str| runtime.tool_email("email_send", &json!({ "to": to, "subject": "Hello", "text": "A short note." }), 20_000);
+        let out = send("kord@example.com").unwrap();
+        assert_eq!(out["ok"], true);
+        assert_eq!(out["message_id"], "m1");
+        let mut requests = Vec::new();
+        while let Ok(r) = seen.recv_timeout(std::time::Duration::from_millis(500)) { requests.push(r); }
+        let sent = requests.iter().find(|r| r.starts_with("POST /inboxes/steve@agentmail.to/messages/send")).expect("send request");
+        assert!(sent.to_ascii_lowercase().contains("authorization: bearer am-test-key"));
+        assert!(sent.contains("AI simulation"), "disclosure line appended");
+        assert!(runtime.experience().rows().iter().any(|(r, _)| r.tags.get("text").is_some_and(|t| t.contains("I sent an email to kord@example.com"))));
+        // Daily cap, and bad input, are refused before any call.
+        assert!(send("kord@example.com").unwrap_err()["error"].as_str().unwrap().contains("daily send limit"));
+        assert!(runtime.tool_email("email_send", &json!({ "to": "nobody", "text": "x" }), 20_000).is_err());
+        assert!(runtime.tool_email("email_delete", &json!({ "message_id": "m1" }), 20_000).unwrap_err()["error"].as_str().unwrap().contains("reason"));
         drop(runtime);
         let _ = fs::remove_dir_all(root);
     }
