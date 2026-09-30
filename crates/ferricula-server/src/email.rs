@@ -199,6 +199,46 @@ pub(crate) fn html_to_text(html: &str) -> String {
     text.trim().to_string()
 }
 
+/// Remove credentials that mail carries in the open: every URL loses its
+/// query string and fragment ("?…"), and any long random-looking string
+/// (24+ characters of letters and digits mixed, the shape of a login token
+/// or API key) is replaced. Applied to every body and preview the agent sees.
+pub(crate) fn redact_secrets(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut word = String::new();
+    let flush = |word: &mut String, out: &mut String| {
+        if word.is_empty() {
+            return;
+        }
+        let lower = word.to_lowercase();
+        let redacted = if lower.starts_with("http://") || lower.starts_with("https://") {
+            match word.find(['?', '#']) {
+                Some(i) => format!("{}?…", &word[..i]),
+                None => word.clone(),
+            }
+        } else {
+            let core = word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_');
+            let tokenish = core.len() >= 24
+                && core.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                && core.chars().any(|c| c.is_ascii_digit())
+                && core.chars().any(|c| c.is_ascii_alphabetic());
+            if tokenish { word.replace(core, "[secret removed]") } else { word.clone() }
+        };
+        out.push_str(&redacted);
+        word.clear();
+    };
+    for c in text.chars() {
+        if c.is_whitespace() {
+            flush(&mut word, &mut out);
+            out.push(c);
+        } else {
+            word.push(c);
+        }
+    }
+    flush(&mut word, &mut out);
+    out
+}
+
 fn decode_entities(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut rest = s;
@@ -295,7 +335,7 @@ impl crate::runtime::AgentRuntime {
                 let listing = client.get(&base, &query).map_err(|e| err(format!("{e:#}")))?;
                 let messages: Vec<Value> = listing["messages"].as_array().cloned().unwrap_or_default().iter().map(|m| json!({
                     "message_id": m["message_id"], "thread_id": m["thread_id"], "from": m["from"],
-                    "subject": m["subject"], "preview": m["preview"].as_str().map(|p| crate::recall::truncate_bytes(p, 240)),
+                    "subject": m["subject"], "preview": m["preview"].as_str().map(|p| redact_secrets(crate::recall::truncate_bytes(p, 240))),
                     "labels": m["labels"], "date": m["timestamp"],
                 })).collect();
                 Ok(json!({ "tool": "email_check", "corpus": "email", "inbox": address, "unread_only": unread_only,
@@ -315,6 +355,7 @@ impl crate::runtime::AgentRuntime {
                         _ => ("(no readable body)".to_string(), false),
                     },
                 };
+                let body = redact_secrets(&body);
                 let body = body.as_str();
                 let max = room.saturating_sub(1200).clamp(800, 20_000);
                 let text = crate::recall::truncate_bytes(body, max);
@@ -432,6 +473,17 @@ mod tests {
         assert!(text.contains("Sign in (https://auth.nuts.services/verify?…)"), "{text}");
         assert!(!text.contains("SECRET123") && !text.contains("alert") && !text.contains("color:red"), "{text}");
         assert!(text.contains("- One") && text.contains("- Two & three") && text.contains("— Nuts"), "{text}");
+    }
+
+    #[test]
+    fn plain_text_tokens_and_query_strings_are_removed() {
+        let body = "Click the link below to log in:\nhttps://auth.example.com/api/auth/token?token=zNCatgidTLM9PmtiVuv5SMPlTPE0pDRX&email=a@b.c\n\
+            For manual entry, your token is: zNCatgidTLM9PmtiVuv5SMPlTPE0pDRX\nSee https://example.com/about for more. Order 12345 ships Tuesday.";
+        let text = redact_secrets(body);
+        assert!(!text.contains("zNCatgidTLM9PmtiVuv5SMPlTPE0pDRX"), "{text}");
+        assert!(text.contains("https://auth.example.com/api/auth/token?…"), "{text}");
+        assert!(text.contains("your token is: [secret removed]"), "{text}");
+        assert!(text.contains("https://example.com/about") && text.contains("Order 12345 ships Tuesday."), "{text}");
     }
 
     #[test]
