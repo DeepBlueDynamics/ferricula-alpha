@@ -13,10 +13,13 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-/// Default strengthening weight (`s`).
-pub const DEFAULT_S: f64 = 0.15;
-/// Default fading weight (`f`).
-pub const DEFAULT_F: f64 = 0.10;
+/// Default strengthening weight (`s`), on the fusion scale: reciprocal-rank
+/// scores are about 1/61, and rank 1 vs rank 10 differ by about 0.002, so one
+/// citation (s * ln 2) moves a memory a few places, not to the top. 0.15 made
+/// the overlay the dominant term (Steve, PR #12 review).
+pub const DEFAULT_S: f64 = 0.003;
+/// Default fading weight (`f`), on the same scale; it saturates at `f`.
+pub const DEFAULT_F: f64 = 0.002;
 /// Default half-saturation age in days (`h`).
 pub const DEFAULT_H: f64 = 30.0;
 

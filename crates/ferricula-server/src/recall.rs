@@ -289,7 +289,11 @@ pub fn apply_ranking(
         let recalls = recalls_of(&key);
         let (strengthen, fade) = ranking_terms(recalls, age_days(hit.created_at, now), s, f, h);
         candidate.score += strengthen - fade;
-        candidate.effective_fidelity = Some(effective_fidelity(strengthen, fade));
+        // The displayed fidelity uses fixed unit-scale weights, independent of
+        // the (small) ranking weights: a citation adds 0.15*ln(1+n), age takes
+        // away up to 0.5 (half of that at `h` days).
+        let (shown_up, shown_down) = ranking_terms(recalls, age_days(hit.created_at, now), 0.15, 0.5, h);
+        candidate.effective_fidelity = Some(effective_fidelity(shown_up, shown_down));
     }
     candidates.sort_by(|a, b| b.score.total_cmp(&a.score));
 }
@@ -432,11 +436,10 @@ mod tests {
         let sections = vec![section("d1", 3, Some(2)), section("d1", 4, None)];
         let fused = fuse(&recovered, &experience, &sections, 10);
         assert_eq!(fused.len(), 5);
-        // Fixture rows are dated at the epoch, so fading (about `f`) sinks
-        // both memories under the undated sections. Section order is RRF order.
-        assert_eq!(fused[0].kind, CandidateKind::DocumentSection);
-        assert_eq!(fused[1].kind, CandidateKind::DocumentSection);
-        let s = fused[0].section.as_ref().unwrap();
+        // Fixture rows are dated at the epoch, so fading takes its full `f`;
+        // on the fusion scale that is a nudge, never more than `f`. Section
+        // order is RRF order.
+        let s = fused.iter().find(|c| c.kind == CandidateKind::DocumentSection).unwrap().section.as_ref().unwrap();
         assert_eq!(s.text, "verbatim 3");
         assert_eq!(s.cite, "[doc d1§3 p.2]");
         let memory = fused.iter().find(|c| c.memory.as_ref().is_some_and(|m| m.id == 1)).unwrap();
@@ -458,9 +461,8 @@ mod tests {
         lists.push(ArmList { arm: "dense", weight: 1.0, items: dense });
         lists.push(ArmList { arm: "graph", weight: 0.5, items: vec![RecallCandidate::from_memory(CandidateKind::Memory, &hit(9, 0.2), 1)] });
         let fused = fuse_arms(lists, 10);
-        // Epoch-dated memories all fade by the same amount, so their RRF
-        // order is unchanged and the undated section ranks above them.
-        assert_eq!(fused[0].kind, CandidateKind::DocumentSection);
+        // Epoch-dated memories all fade by the same small amount, so their
+        // RRF order is unchanged; memory 2 (lexical + dense) leads them.
         let best = fused.iter().find(|c| c.memory.is_some()).unwrap();
         assert_eq!(best.memory.as_ref().unwrap().id, 2);
         assert_eq!(best.arms, ["lexical", "dense"]);
