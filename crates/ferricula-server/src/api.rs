@@ -85,7 +85,7 @@ pub fn router(runtime: Arc<AgentRuntime>) -> Router {
         .route("/life/meditate", post(life_meditate))
         .route("/life/end-meditation", post(life_end_meditation))
         .route("/life/urge", post(life_urge))
-        .route("/settings", get(|| async { axum::response::Html(include_str!("settings.html")) }))
+        .route("/settings", get(settings_page))
         .route("/settings/jev", get(jev_status).post(jev_update))
         .route("/settings/jev/probe", post(jev_probe))
         .route("/settings/discord/channels", get(discord_channels))
@@ -215,7 +215,8 @@ async fn ingest_document(
     headers: HeaderMap,
     Json(body): Json<IngestBody>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     if body.note.as_ref().is_some_and(|n| n.len() > crate::runtime::MAX_NOTE_BYTES) {
         return Err(bad_request(format!("note exceeds {} bytes", crate::runtime::MAX_NOTE_BYTES)));
     }
@@ -244,7 +245,7 @@ async fn list_documents(
     State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    require_read(&runtime, &headers)?;
     Ok(Json(json!({ "documents": runtime.documents() })))
 }
 
@@ -253,7 +254,7 @@ async fn get_document(
     headers: HeaderMap,
     Path(doc_id): Path<String>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    require_read(&runtime, &headers)?;
     let Some(record) = runtime.document(&doc_id) else {
         return Err((StatusCode::NOT_FOUND, Json(json!({ "error": "document not found" }))));
     };
@@ -270,7 +271,7 @@ async fn get_section(
     headers: HeaderMap,
     Path((doc_id, index)): Path<(String, u32)>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    require_read(&runtime, &headers)?;
     let Some(section) = runtime.document_section(&doc_id, index) else {
         return Err((StatusCode::NOT_FOUND, Json(json!({ "error": "section not found" }))));
     };
@@ -295,7 +296,7 @@ async fn search_documents(
     headers: HeaderMap,
     Json(request): Json<DocumentSearchRequest>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    require_read(&runtime, &headers)?;
     if request.query.trim().is_empty() {
         return Err(bad_request("query cannot be empty"));
     }
@@ -312,7 +313,8 @@ async fn episode_commit(
     headers: HeaderMap,
     Json(item): Json<ferricula_episode::EpisodeItem>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let event_id = runtime.commit_episode(item).map_err(bad_request)?;
     Ok(Json(json!({"event_id": event_id, "source_actor_verified": false})))
 }
@@ -322,7 +324,7 @@ async fn episode_query(
     headers: HeaderMap,
     Json(request): Json<ferricula_episode::query::EpisodeQueryRequest>,
 ) -> ApiResult<ferricula_episode::query::EpisodeQueryResponse> {
-    require_operator(&runtime, &headers)?;
+    require_read(&runtime, &headers)?;
     if request.query.len() > 8192 { return Err(bad_request("query exceeds 8192 bytes")); }
     Ok(Json(runtime.query_episodes(&request)))
 }
@@ -336,7 +338,8 @@ async fn chat(
     headers: HeaderMap,
     Json(request): Json<crate::runtime::ChatRequest>,
 ) -> ApiResult<crate::runtime::ChatTurn> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     request.validate().map_err(bad_request)?;
     // The durable request must reach a terminal state even if HTTP disconnects.
     let turn = tokio::spawn(async move { runtime.converse(request).await })
@@ -357,7 +360,8 @@ async fn chat_stream(
     headers: HeaderMap,
     Json(request): Json<crate::runtime::ChatRequest>,
 ) -> Result<axum::response::sse::Sse<impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, (StatusCode, Json<Value>)> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     request.validate().map_err(bad_request)?;
     let (events, rx) = crate::runtime::TurnEvents::channel(request.request_id);
     let rejected = events.clone();
@@ -395,7 +399,7 @@ async fn status(
     State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<crate::runtime::RuntimeStatus> {
-    require_operator(&runtime, &headers)?;
+    require_read(&runtime, &headers)?;
     Ok(Json(runtime.status()))
 }
 
@@ -419,20 +423,23 @@ async fn set_mode(
     headers: HeaderMap,
     Json(request): Json<ModeRequest>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let mode = ActivityMode::parse(&request.mode).map_err(bad_request)?;
     runtime.set_mode(mode).map_err(internal)?;
     Ok(Json(json!({ "mode": mode })))
 }
 
 async fn wake(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     runtime.set_mode(ActivityMode::Engaged).map_err(internal)?;
     Ok(Json(json!({ "mode": ActivityMode::Engaged })))
 }
 
 async fn sleep(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     runtime.set_mode(ActivityMode::Asleep).map_err(internal)?;
     // The mode alone left the drives awake (phase resting, no consolidation,
     // no dream). With life on, the operator's sleep is a real sleep: the
@@ -451,7 +458,8 @@ async fn sleep(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> 
 }
 
 async fn pause(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     runtime.set_mode(ActivityMode::Paused).map_err(internal)?;
     Ok(Json(json!({ "mode": ActivityMode::Paused })))
 }
@@ -466,7 +474,8 @@ async fn set_schedule(
     headers: HeaderMap,
     Json(request): Json<ScheduleRequest>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     runtime.set_schedule(request.enabled).map_err(internal)?;
     Ok(Json(json!({ "enabled": request.enabled })))
 }
@@ -506,7 +515,8 @@ async fn enqueue(
     headers: HeaderMap,
     Json(request): Json<TaskRequest>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let task = runtime
         .enqueue(request.kind, "operator", request.payload)
         .map_err(internal)?;
@@ -517,7 +527,8 @@ async fn read_feed(
     State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let task = runtime
         .enqueue(TaskKind::ReadFeed, "operator", json!({}))
         .map_err(internal)?;
@@ -528,7 +539,8 @@ async fn read_hacker_news(
     State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let task = runtime
         .enqueue(TaskKind::ReadHackerNews, "operator", json!({}))
         .map_err(internal)?;
@@ -548,7 +560,8 @@ async fn mention(
     headers: HeaderMap,
     Json(request): Json<MentionRequest>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let text = bound_text(&request.by, 128);
     let body = bound_text(&request.text, 4_096);
     let task = runtime
@@ -636,7 +649,8 @@ async fn overlay_approve_blocked(
     headers: HeaderMap,
     Path(event_id): Path<String>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let _ = bound_text(&event_id, 128);
     Err((
         StatusCode::NOT_IMPLEMENTED,
@@ -678,7 +692,7 @@ async fn recall(
     headers: HeaderMap,
     Json(request): Json<RecallRequest>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    require_read(&runtime, &headers)?;
     if request.query.trim().is_empty() {
         return Err(bad_request("query cannot be empty"));
     }
@@ -714,15 +728,25 @@ async fn life_status(
 }
 
 async fn life_meditate(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let entry = runtime.life_meditate(true).map_err(conflict)?;
     Ok(Json(entry))
 }
 
 async fn life_end_meditation(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let entry = runtime.life_meditate(false).map_err(conflict)?;
     Ok(Json(entry))
+}
+
+async fn settings_page(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+) -> Result<axum::response::Html<&'static str>, ApiError> {
+    require_operator(&runtime, &headers)?;
+    Ok(axum::response::Html(include_str!("settings.html")))
 }
 
 /// `GET /settings/jev`: hosted JEV gate tier status (never the key).
@@ -737,7 +761,8 @@ async fn jev_update(
     headers: HeaderMap,
     Json(update): Json<crate::jev::JevUpdate>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     runtime.jev_update(update).map(Json).map_err(bad_request)
 }
 
@@ -755,7 +780,8 @@ async fn discord_channels(State(runtime): State<Arc<AgentRuntime>>, headers: Hea
 
 /// `POST /settings/jev/probe`: one live call on fixed non-private text.
 async fn jev_probe(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let result = tokio::task::spawn_blocking(move || runtime.jev_probe()).await.map_err(internal)?;
     Ok(Json(result))
 }
@@ -770,7 +796,8 @@ async fn life_urge(
     headers: HeaderMap,
     Json(request): Json<UrgeRequest>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     // Runs to completion even if the HTTP client disconnects.
     let urge = request.urge;
     let entries = tokio::spawn(async move { runtime.life_force(urge).await })
@@ -788,7 +815,8 @@ async fn embeddings_probe(
     State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<crate::runtime::EmbeddingsStatus> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let status = tokio::task::spawn_blocking(move || runtime.probe_embeddings())
         .await
         .map_err(internal)?;
@@ -812,7 +840,8 @@ async fn meaning_backfill(
     State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     if runtime.embedder().is_none() {
         return Err(conflict(format!(
             "embedder not usable (embeddings state {:?})",
@@ -992,8 +1021,36 @@ fn bound_text(s: &str, max_chars: usize) -> String {
     }
 }
 
-fn require_operator(runtime: &AgentRuntime, headers: &HeaderMap) -> Result<(), ApiError> {
-    require_operator_identity(runtime, headers).map(|_| ())
+fn require_operator(
+    runtime: &AgentRuntime,
+    headers: &HeaderMap,
+) -> Result<crate::auth::AuthIdentity, ApiError> {
+    let identity = require_operator_identity(runtime, headers)?;
+    if !identity.is_operator() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "read-only role" })),
+        ));
+    }
+    Ok(identity)
+}
+
+fn require_read(
+    runtime: &AgentRuntime,
+    headers: &HeaderMap,
+) -> Result<crate::auth::AuthIdentity, ApiError> {
+    require_operator_identity(runtime, headers)
+}
+
+fn require_write(identity: &crate::auth::AuthIdentity) -> Result<(), ApiError> {
+    if identity.is_operator() {
+        Ok(())
+    } else {
+        Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "read-only role" })),
+        ))
+    }
 }
 
 fn require_operator_identity(
@@ -1402,5 +1459,21 @@ mod tests {
         for p in paths {
             assert!(p.starts_with('/'));
         }
+    }
+
+    #[test]
+    fn session_with_non_operator_role_is_refused_on_write() {
+        let identity = crate::auth::AuthIdentity {
+            user_id: "reader-user".into(),
+            email: None,
+            name: None,
+            actor: None,
+            role: "reader".into(),
+            via: "session".into(),
+        };
+        assert!(!identity.is_operator());
+        let err = require_write(&identity).unwrap_err();
+        assert_eq!(err.0, StatusCode::FORBIDDEN);
+        assert_eq!(err.1.0["error"], "read-only role");
     }
 }

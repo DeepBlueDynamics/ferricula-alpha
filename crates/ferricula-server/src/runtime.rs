@@ -877,6 +877,18 @@ impl AgentRuntime {
         }
     }
 
+    pub fn authenticate(&self, authorization: Option<&str>) -> Option<crate::auth::AuthIdentity> {
+        if !self.config.require_operator_auth {
+            return Some(crate::auth::AuthIdentity::unauthenticated());
+        }
+        let bearer = authorization.and_then(|h| h.strip_prefix("Bearer "));
+        let expected = std::env::var(&self.config.operator_token_env).ok();
+        match self.auth.check_authorization(bearer, None, expected.as_deref()) {
+            crate::auth::AuthCheckResult::Authorized(id) => Some(id),
+            _ => None,
+        }
+    }
+
     pub fn authorize(&self, authorization: Option<&str>) -> bool {
         if !self.config.require_operator_auth {
             return true;

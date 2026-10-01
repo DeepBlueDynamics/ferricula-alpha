@@ -495,3 +495,342 @@ async fn test_auth_public_url_and_proxy_trust() {
     let proxy_cookie = res_proxy_cb.headers().get(header::SET_COOKIE).unwrap().to_str().unwrap();
     assert!(proxy_cookie.contains("; Secure"));
 }
+
+#[tokio::test]
+async fn test_reader_role_enforcement_and_operator_unchanged() {
+    let (_dir, runtime) = setup_test_runtime(AuthMode::Both);
+    let mut config = runtime.config.clone();
+    config.auth.agents = vec![
+        ferricula_server::config::AgentAuthRule {
+            actor: "test-reader-actor".to_string(),
+            role: "reader".to_string(),
+        },
+        ferricula_server::config::AgentAuthRule {
+            actor: "test-operator-actor".to_string(),
+            role: "operator".to_string(),
+        },
+    ];
+    let inspection = inspect_data_dir(&config.memory_dir).unwrap();
+    let runtime = AgentRuntime::open(config, inspection).unwrap();
+
+    let reader_token = "ahp_test_reader_token_xyz";
+    let operator_token = "ahp_test_operator_token_abc";
+
+    runtime.auth.cache_ahp_token(
+        reader_token,
+        ferricula_server::auth::AuthIdentity {
+            user_id: "".to_string(),
+            email: Some("reader@nuts.services".to_string()),
+            name: Some("Reader Agent".to_string()),
+            actor: Some("test-reader-actor".to_string()),
+            role: "reader".to_string(),
+            via: "ahp".to_string(),
+        },
+    );
+
+    runtime.auth.cache_ahp_token(
+        operator_token,
+        ferricula_server::auth::AuthIdentity {
+            user_id: "".to_string(),
+            email: Some("operator@nuts.services".to_string()),
+            name: Some("Operator Agent".to_string()),
+            actor: Some("test-operator-actor".to_string()),
+            role: "operator".to_string(),
+            via: "ahp".to_string(),
+        },
+    );
+
+    let app = api::router(runtime);
+
+    // --- 1. Reader tests ---
+
+    // 1a. Reader gets 200 OK on GET /status (read route)
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/status")
+                .header(header::AUTHORIZATION, format!("Bearer {reader_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // 1b. Reader gets 200 OK on POST /memory/recall (read route)
+    let recall_body = serde_json::json!({ "query": "memory" }).to_string();
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/memory/recall")
+                .header(header::AUTHORIZATION, format!("Bearer {reader_token}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(recall_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // 1c. Reader gets 403 Forbidden on POST /chat (mutating route)
+    let chat_body = serde_json::json!({
+        "request_id": uuid::Uuid::new_v4(),
+        "conversation_id": uuid::Uuid::new_v4(),
+        "message": "hello agent",
+        "reported_origin": "human"
+    }).to_string();
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/chat")
+                .header(header::AUTHORIZATION, format!("Bearer {reader_token}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(chat_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    let json: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["error"], "read-only role");
+
+    // 1d. Reader gets 403 Forbidden on POST /documents (ingest route)
+    let ingest_body = serde_json::json!({
+        "kind": "text",
+        "text": "Some text to ingest"
+    }).to_string();
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/documents")
+                .header(header::AUTHORIZATION, format!("Bearer {reader_token}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(ingest_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    let json: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["error"], "read-only role");
+
+    // 1e. Reader gets 403 Forbidden on a life action: POST /life/meditate
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/life/meditate")
+                .header(header::AUTHORIZATION, format!("Bearer {reader_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    let json: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["error"], "read-only role");
+
+    // 1f. Reader gets 403 Forbidden on GET /chat/{id}
+    let dummy_conv_id = uuid::Uuid::new_v4();
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/chat/{dummy_conv_id}"))
+                .header(header::AUTHORIZATION, format!("Bearer {reader_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    let json: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["error"], "read-only role");
+
+    // 1g. Reader gets 403 Forbidden on GET /life
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/life")
+                .header(header::AUTHORIZATION, format!("Bearer {reader_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    let json: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["error"], "read-only role");
+
+    // --- 2. Operator tests (operator is unchanged) ---
+
+    // 2a. Operator gets 200 OK on GET /status
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/status")
+                .header(header::AUTHORIZATION, format!("Bearer {operator_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // 2b. Operator gets 200 OK on POST /memory/recall
+    let recall_body = serde_json::json!({ "query": "memory" }).to_string();
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/memory/recall")
+                .header(header::AUTHORIZATION, format!("Bearer {operator_token}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(recall_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // 2c. Operator gets 200 OK on POST /documents
+    let ingest_body = serde_json::json!({
+        "kind": "text",
+        "text": "Valid document text"
+    }).to_string();
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/documents")
+                .header(header::AUTHORIZATION, format!("Bearer {operator_token}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(ingest_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // 2d. Static operator token still works
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/status")
+                .header(header::AUTHORIZATION, format!("Bearer {STATIC_OPERATOR_TOKEN}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // 2e. Operator gets 200 OK on GET /chat/{id}
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/chat/{dummy_conv_id}"))
+                .header(header::AUTHORIZATION, format!("Bearer {operator_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // 2f. Operator gets 200 OK on GET /life
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/life")
+                .header(header::AUTHORIZATION, format!("Bearer {operator_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_session_non_operator_refused_on_write() {
+    let (_dir, runtime) = setup_test_runtime(AuthMode::Both);
+    let app = api::router(runtime.clone());
+
+    // Create a session for a user who is NOT in the operator allowlist
+    let (raw_session_id, _session) = runtime
+        .auth
+        .create_session(
+            OTHER_USER_ID,
+            "non-operator@test.org",
+            Some("Non Operator"),
+            "nuts-auth",
+            now_secs() + 3600,
+        )
+        .unwrap();
+
+    // 1. Attempt POST /documents with the non-operator session cookie -> 403 Forbidden
+    let ingest_body = serde_json::json!({
+        "kind": "text",
+        "text": "Attempted write by non-operator session"
+    }).to_string();
+
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/documents")
+                .header(header::COOKIE, format!("ferricula_session={raw_session_id}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(ingest_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    // 2. Attempt POST /chat with the non-operator session cookie -> 403 Forbidden
+    let chat_body = serde_json::json!({
+        "request_id": uuid::Uuid::new_v4(),
+        "conversation_id": uuid::Uuid::new_v4(),
+        "message": "hello",
+        "reported_origin": "human"
+    }).to_string();
+
+    let res_chat = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/chat")
+                .header(header::COOKIE, format!("ferricula_session={raw_session_id}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(chat_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res_chat.status(), StatusCode::FORBIDDEN);
+}
