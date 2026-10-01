@@ -101,6 +101,14 @@ impl AuthIdentity {
             via: "none".to_string(),
         }
     }
+
+    pub fn is_operator(&self) -> bool {
+        self.role == "operator" || self.via == "static" || self.via == "session"
+    }
+
+    pub fn is_reader(&self) -> bool {
+        self.role == "reader" && !self.is_operator()
+    }
 }
 
 /// Hash a raw session token using SHA-256 for secure storage at rest.
@@ -565,6 +573,16 @@ impl AuthManager {
         }
 
         AuthCheckResult::Authorized(identity)
+    }
+
+    /// Cache an AHP token identity directly (useful for tests and fast-path caching).
+    pub fn cache_ahp_token(&self, token: &str, identity: AuthIdentity) {
+        let mut hasher = Sha256::new();
+        hasher.update(token.as_bytes());
+        let token_hash = format!("{:x}", hasher.finalize());
+        let mut cache = self.ahp_cache.lock().unwrap();
+        let expires_at = Instant::now() + Duration::from_secs(self.config.ahp_cache_minutes * 60);
+        cache.insert(token_hash, (identity, expires_at));
     }
 
     /// Primary authorization check for operator routes.
