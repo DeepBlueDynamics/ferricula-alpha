@@ -1,6 +1,6 @@
 # In-conversation tools
 
-_Status: shipped 2026-09-27 on `v3/r0`. Code: `crates/ferricula-server/src/chat_tools.rs` (tools, protocol) and `chat.rs` (the loop). Spec lineage: Job 1 in `docs/HANDOFF.md`; the `document`/`memory` half of `SEARCH_TOOL.md` (the `web` corpus and `ferricula_ingest` from chat are not built yet)._
+_Status: shipped 2026-09-27 on `v3/r0`. Code: `crates/ferricula-server/src/chat_tools.rs` (tools, protocol) and `chat.rs` (the loop). Spec lineage: Job 1 in `docs/HANDOFF.md`; the `document`/`memory` half of `SEARCH_TOOL.md` (`read_url`, `ingest_url` and `read_web_pane` are in the loop; only a `web` corpus inside `search_documents` is not built yet)._
 
 In a chat turn the agent can look things up before it answers: search its documents, open a section, read a whole document in order, and search its memories. It can record a verdict that one of its memories is disputed or superseded (`mark_disputed`). When email or code access is configured it can also use the `email_*` and `code_*` / `pr_*` tools below; `email_send` and `email_delete` write an experience row. Before the document tools, every turn saw one retrieval on the operator's message (the top 3 sections, cut to 1,200 bytes each) and could not look further.
 
