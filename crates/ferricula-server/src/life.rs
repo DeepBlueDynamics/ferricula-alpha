@@ -20,7 +20,7 @@
 //!
 //! Durable files under `state_dir/life/`: `drives.json` (the drives),
 //! `counters.json` (daily call count, explored conversation turns),
-//! `journal.jsonl` (append-only record of everything life did),
+//! `journal.jsonl` (append-only record of everything life did; curiosity, mail walks and dreams carry a `vithi`),
 //! `bhavana-state.json` (cluster index) and `karmic.jsonl` (bhāvanā log).
 use super::*;
 use std::collections::{BTreeMap, HashSet};
@@ -658,9 +658,12 @@ impl AgentRuntime {
             }
         }
         let mut query: Option<String> = None;
+        let mut explored_turns: Vec<String> = Vec::new();
+        let mut links: Vec<Value> = Vec::new();
 
         if let Some((thread, ids)) = self.life_open_thread() {
             self.life_mark_explored(&ids);
+            explored_turns = ids.iter().map(ToString::to_string).collect();
             let seed = choose_curiosity(std::slice::from_ref(&thread), &[], 0);
             entry["seed"] = json!(seed);
             let (gate, confident_no) = self.life_worth_researching(&thread).await;
@@ -790,12 +793,38 @@ impl AgentRuntime {
                     match self.experience().remember("thinking", call.text.trim(), tags, None, 0.5) {
                         Ok(id) => {
                             entry["reflection_id"] = json!(id);
+                            let label = LinkEvent::ReflectedOn.condition().label();
                             for page in &ingested {
+                                let url = page.get("url").cloned().unwrap_or(Value::Null);
                                 let Some(reading) = page.get("memory_id").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok()) else {
+                                    links.push(json!({
+                                        "url": url,
+                                        "condition": "purejata",
+                                        "label": label.clone(),
+                                        "written": false,
+                                        "reason": "reading has no memory id",
+                                    }));
                                     continue;
                                 };
                                 if let Err(error) = self.experience().connect_causal(id, reading, LinkEvent::ReflectedOn) {
-                                    errors.push(format!("link reflection to {reading}: {error:#}"));
+                                    let message = format!("{error:#}");
+                                    errors.push(format!("link reflection to {reading}: {message}"));
+                                    links.push(json!({
+                                        "reading": reading,
+                                        "url": url,
+                                        "condition": "purejata",
+                                        "label": label.clone(),
+                                        "written": false,
+                                        "error": message,
+                                    }));
+                                } else {
+                                    links.push(json!({
+                                        "reading": reading,
+                                        "url": url,
+                                        "condition": "purejata",
+                                        "label": label.clone(),
+                                        "written": true,
+                                    }));
                                 }
                             }
                             self.meaning_after_write().await;
@@ -811,6 +840,8 @@ impl AgentRuntime {
         entry["errors"] = json!(errors);
         entry["model_calls"] = json!(calls);
         entry["blocked"] = json!(blocked);
+        let vithi = curiosity_vithi(&entry, &explored_turns, &links);
+        entry["vithi"] = vithi;
         self.life_journal(entry)
     }
 
@@ -824,18 +855,37 @@ impl AgentRuntime {
         let mut calls: Vec<LifeCall> = Vec::new();
         let mut blocked: Vec<LifeBlock> = Vec::new();
         let mut read: Vec<Value> = Vec::new();
+        let mut steps: Vec<Value> = Vec::new();
         let identity = self.persona.identity_line();
         let system = format!("{}\n{}", identity, crate::recall::truncate_bytes(&self.persona.raw, 1000));
         let operator = self.config.operator_name.clone();
         for m in waiting.into_iter().take(self.config.email.max_read_per_walk.max(1)) {
             let Some(id) = m["message_id"].as_str().map(str::to_string) else { continue };
+            let listed_from = m.get("from").cloned().unwrap_or(Value::Null);
+            let listed_subject = m.get("subject").cloned().unwrap_or(Value::Null);
             let runtime = self.clone();
             let args = json!({ "message_id": id });
             let opened = tokio::task::spawn_blocking(move || runtime.tool_email("email_read", &args, 24_000)).await;
             let message = match opened {
                 Ok(Ok(v)) => v,
-                Ok(Err(e)) => { read.push(json!({ "message_id": id, "error": e["error"] })); continue; }
-                Err(e) => { read.push(json!({ "message_id": id, "error": format!("{e}") })); continue; }
+                Ok(Err(e)) => {
+                    let error = e.get("error").cloned().unwrap_or(Value::Null);
+                    read.push(json!({ "message_id": id, "error": error.clone() }));
+                    steps.push(json!({
+                        "message_id": id, "from": listed_from, "subject": listed_subject,
+                        "opened": false, "read_error": error,
+                    }));
+                    continue;
+                }
+                Err(e) => {
+                    let error = json!(format!("{e}"));
+                    read.push(json!({ "message_id": id, "error": error.clone() }));
+                    steps.push(json!({
+                        "message_id": id, "from": listed_from, "subject": listed_subject,
+                        "opened": false, "read_error": error,
+                    }));
+                    continue;
+                }
             };
             let from = message["from"].as_str().unwrap_or("?").to_string();
             let subject = message["subject"].as_str().unwrap_or("").to_string();
@@ -853,7 +903,13 @@ impl AgentRuntime {
             );
             let call = match self.life_model("mail_reply", system.clone(), user, 900, 0.5).await {
                 Ok(call) => call,
-                Err(block) => { blocked.push(block); break; }
+                Err(block) => {
+                    blocked.push(block);
+                    steps.push(json!({
+                        "message_id": id, "from": from, "subject": subject, "opened": true,
+                    }));
+                    break;
+                }
             };
             let text = call.text.trim().to_string();
             calls.push(call);
@@ -863,11 +919,21 @@ impl AgentRuntime {
             let mut tags = BTreeMap::new();
             tags.insert("source".to_string(), "email".to_string());
             tags.insert("via".to_string(), "agentmail".to_string());
+            let mut memory_id = Value::Null;
+            let mut remember_error = Value::Null;
+            let mut operator_copied = Value::Null;
+            let mut house_cc = Value::Null;
             if reply {
                 let runtime = self.clone();
                 let args = json!({ "reply_to_message_id": id, "text": rest.trim() });
                 match tokio::task::spawn_blocking(move || runtime.tool_email("email_send", &args, 24_000)).await {
-                    Ok(Ok(sent)) => { record["replied"] = json!(true); record["sent_id"] = sent["message_id"].clone(); }
+                    Ok(Ok(sent)) => {
+                        record["replied"] = json!(true);
+                        record["sent_id"] = sent["message_id"].clone();
+                        memory_id = sent.get("memory_id").cloned().unwrap_or(Value::Null);
+                        house_cc = sent.get("house_cc").cloned().unwrap_or(Value::Null);
+                        operator_copied = house_cc.get("copied").filter(|v| !v.is_null()).cloned().unwrap_or(json!(false));
+                    }
                     Ok(Err(e)) => record["send_error"] = e["error"].clone(),
                     Err(e) => record["send_error"] = json!(format!("{e}")),
                 }
@@ -876,14 +942,33 @@ impl AgentRuntime {
                 let note = format!("I read an email from {from}{} and chose not to answer. {}",
                     if subject.is_empty() { String::new() } else { format!(" about \"{subject}\"") },
                     crate::recall::truncate_bytes(why, 400));
-                let _ = self.experience().remember("thinking", &note, tags, None, 0.4);
+                match self.experience().remember("thinking", &note, tags, None, 0.4) {
+                    Ok(mid) => memory_id = json!(mid),
+                    Err(error) => remember_error = json!(format!("{error:#}")),
+                }
                 record["why_not"] = json!(crate::recall::truncate_bytes(why, 400));
             }
+            steps.push(json!({
+                "message_id": id,
+                "from": from,
+                "subject": subject,
+                "opened": true,
+                "replied": record.get("replied").cloned().unwrap_or(json!(false)),
+                "why_not": record.get("why_not").cloned().unwrap_or(Value::Null),
+                "send_error": record.get("send_error").cloned().unwrap_or(Value::Null),
+                "sent_id": record.get("sent_id").cloned().unwrap_or(Value::Null),
+                "memory_id": memory_id,
+                "remember_error": remember_error,
+                "operator_copied": operator_copied,
+                "house_cc": house_cc,
+            }));
             read.push(record);
         }
         entry["read"] = json!(read);
         entry["model_calls"] = json!(calls);
         entry["blocked"] = json!(blocked);
+        let vithi = mail_vithi(&steps, &entry);
+        entry["vithi"] = vithi;
         self.meaning_after_write().await;
         self.life_journal(entry)
     }
@@ -1051,11 +1136,12 @@ impl AgentRuntime {
                 if let Some(q) = &question {
                     tags.insert("question".to_string(), q.clone());
                 }
+                let mut links = Vec::new();
                 match self.experience().remember("dream", &text, tags, None, 0.3) {
                     Ok(id) => {
                         entry["memory_id"] = json!(id);
                         let mut link_errors = Vec::new();
-                        self.link_dream(id, &proposal, &mut link_errors);
+                        self.link_dream(id, &proposal, &mut link_errors, &mut links);
                         if !link_errors.is_empty() {
                             entry["link_errors"] = json!(link_errors);
                         }
@@ -1070,12 +1156,16 @@ impl AgentRuntime {
                 entry["text"] = json!(text);
                 entry["question"] = json!(question);
                 entry["model_calls"] = json!([call]);
+                let vithi = dream_vithi(&entry, &links);
+                entry["vithi"] = vithi;
                 (self.life_journal(entry), question)
             }
             Err(block) => {
                 // The sleep still completes: a dreamless night.
                 entry["skipped"] = json!(true);
                 entry["blocked"] = json!([block]);
+                let vithi = dream_vithi(&entry, &[]);
+                entry["vithi"] = vithi;
                 (self.life_journal(entry), None)
             }
         }
@@ -1086,18 +1176,69 @@ impl AgentRuntime {
     /// observation is not an edge. `m:` targets are stored on this experience
     /// graph, as a verdict already links to a recovered id. `e:` ids are not
     /// memory rows.
-    fn link_dream(&self, dream_id: u32, proposal: &ferricula_cognition::life::DreamProposal, errors: &mut Vec<String>) {
+    fn link_dream(
+        &self,
+        dream_id: u32,
+        proposal: &ferricula_cognition::life::DreamProposal,
+        errors: &mut Vec<String>,
+        links: &mut Vec<Value>,
+    ) {
         let pools = [
-            (DreamPool::Residue, proposal.residue.as_slice()),
-            (DreamPool::Distant, proposal.distant.as_slice()),
-            (DreamPool::Unresolved, proposal.unresolved.as_slice()),
+            (DreamPool::Residue, "residue", proposal.residue.as_slice()),
+            (DreamPool::Distant, "distant", proposal.distant.as_slice()),
+            (DreamPool::Unresolved, "unresolved", proposal.unresolved.as_slice()),
         ];
-        for (pool, traces) in pools {
-            let Some(event) = pool.link_event() else { continue };
+        for (pool, name, traces) in pools {
+            let Some(event) = pool.link_event() else {
+                for trace in traces {
+                    links.push(json!({
+                        "pool": name,
+                        "trace_id": trace.id,
+                        "written": false,
+                        "reason": "unresolved observations are not edges",
+                    }));
+                }
+                continue;
+            };
+            let label = event.condition().label();
+            let condition = match pool {
+                DreamPool::Residue => "purejata",
+                DreamPool::Distant => "upanissaya",
+                DreamPool::Unresolved => "none",
+            };
             for trace in traces {
-                let Some(target) = memory_id_of_trace(&trace.id) else { continue };
+                let Some(target) = memory_id_of_trace(&trace.id) else {
+                    links.push(json!({
+                        "pool": name,
+                        "trace_id": trace.id,
+                        "condition": condition,
+                        "label": label.clone(),
+                        "written": false,
+                        "reason": "not a memory row",
+                    }));
+                    continue;
+                };
                 if let Err(error) = self.experience().connect_causal(dream_id, target, event) {
-                    errors.push(format!("{}: {error:#}", trace.id));
+                    let message = format!("{error:#}");
+                    errors.push(format!("{}: {message}", trace.id));
+                    links.push(json!({
+                        "pool": name,
+                        "trace_id": trace.id,
+                        "to": target,
+                        "condition": condition,
+                        "label": label.clone(),
+                        "written": false,
+                        "error": message,
+                    }));
+                } else {
+                    links.push(json!({
+                        "pool": name,
+                        "trace_id": trace.id,
+                        "to": target,
+                        "condition": condition,
+                        "label": label.clone(),
+                        "written": true,
+                    }));
                 }
             }
         }
@@ -1381,6 +1522,368 @@ fn result_links(
         }
     }
     out
+}
+
+/// One stage of a life vīthi. An unmeasured stage stays in the array.
+fn vithi_stage(stage: &str, pali: &str, measured: bool, summary: impl Into<String>, detail: Value, advisory: bool) -> Value {
+    let detail = if detail.is_object() { detail } else { json!({}) };
+    json!({
+        "stage": stage,
+        "pali": pali,
+        "measured": measured,
+        "summary": summary.into(),
+        "detail": detail,
+        "advisory": advisory,
+    })
+}
+
+fn vithi_line(text: &str) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut out: String = flat.chars().take(180).collect();
+    if flat.chars().count() > 180 {
+        out.push('…');
+    }
+    out
+}
+
+fn curiosity_vithi(entry: &Value, turn_ids: &[String], links: &[Value]) -> Value {
+    let seed = entry.get("seed").cloned().filter(|s| !s.is_null());
+    let from = seed.as_ref().and_then(|s| s.get("from")).and_then(Value::as_str).unwrap_or("").to_string();
+    let memory_id = seed.as_ref()
+        .and_then(|s| s.pointer("/trace/id"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let (contact_measured, contact_summary, contact_detail) = match from.as_str() {
+        "open_thread" => (
+            true,
+            "open thread".to_string(),
+            json!({ "from": "open_thread", "id": Value::Null, "turn_ids": turn_ids, "seed": seed }),
+        ),
+        "memory" => (
+            true,
+            format!("memory {}", memory_id.as_deref().unwrap_or("without an id")),
+            json!({
+                "from": "memory",
+                "id": memory_id,
+                "turn_ids": turn_ids,
+                "seed": seed,
+                "thread_seed": entry.get("thread_seed").cloned().unwrap_or(Value::Null),
+            }),
+        ),
+        _ => {
+            let why = entry.get("note").and_then(Value::as_str).unwrap_or("no seed");
+            (false, vithi_line(why), json!({ "seed": Value::Null, "turn_ids": turn_ids }))
+        }
+    };
+
+    let feeling = vithi_stage(
+        "feeling",
+        "vedanā",
+        false,
+        "feeling-tone: uncalibrated, not shown",
+        json!({ "reason": "no calibrated feeling-tone gate" }),
+        true,
+    );
+
+    let (recog_measured, recog_summary, recog_detail) = if let Some(selection) = entry.get("seed_selection") {
+        let method = selection.get("method").and_then(Value::as_str).unwrap_or("unknown");
+        let summary = if let Some(note) = selection.get("note").and_then(Value::as_str) {
+            format!("seed selection ({method}): {note}")
+        } else if method == "outlier" {
+            let pool = selection.get("pool").and_then(Value::as_u64).unwrap_or(0);
+            let kept = selection.get("kept").and_then(Value::as_u64).unwrap_or(0);
+            format!("outliers kept {kept} of {pool}")
+        } else {
+            format!("seed selection ({method})")
+        };
+        (true, summary, selection.clone())
+    } else {
+        (false, "no seed selection recorded".to_string(), json!({}))
+    };
+
+    let (det_measured, det_summary, det_detail, det_advisory) = if let Some(gate) = entry.get("gate") {
+        let tier = gate.pointer("/route/tier").cloned().unwrap_or(Value::Null);
+        let p = gate.pointer("/verdict/answer/p").cloned().unwrap_or(Value::Null);
+        let skip = gate.get("skip").cloned().unwrap_or(json!(false));
+        let advisory = gate.get("advisory").and_then(Value::as_bool).unwrap_or(false);
+        let summary = if let Some(error) = gate.get("error").and_then(Value::as_str) {
+            format!("curiosity gate failed: {}", vithi_line(error))
+        } else if skip.as_bool() == Some(true) {
+            "curiosity gate skipped the search".to_string()
+        } else if let Some(tier) = tier.as_str() {
+            format!("curiosity gate did not skip ({tier})")
+        } else {
+            "curiosity gate did not skip".to_string()
+        };
+        (true, summary, json!({ "tier": tier, "p": p, "skip": skip, "gate": gate }), advisory)
+    } else {
+        (false, "no curiosity gate on this walk".to_string(), json!({}), false)
+    };
+
+    let query = entry.get("query").cloned().unwrap_or(Value::Null);
+    let urls = entry.get("urls").and_then(Value::as_array).cloned().unwrap_or_default();
+    let ingested = entry.get("ingested").and_then(Value::as_array).cloned().unwrap_or_default();
+    let errors: Vec<String> = entry.get("errors").and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    let search_error = errors.iter().find_map(|e| e.strip_prefix("search: ").map(str::to_string));
+    let mut pages = Vec::new();
+    for url in &urls {
+        let url_s = url.as_str().unwrap_or("");
+        if let Some(page) = ingested.iter().find(|p| p.get("url").and_then(Value::as_str) == Some(url_s)) {
+            pages.push(json!({
+                "url": url,
+                "read": true,
+                "doc_id": page.get("doc_id").cloned().unwrap_or(Value::Null),
+                "title": page.get("title").cloned().unwrap_or(Value::Null),
+                "duplicate": page.get("duplicate").cloned().unwrap_or(Value::Null),
+                "memory_id": page.get("memory_id").cloned().unwrap_or(Value::Null),
+            }));
+        } else {
+            let prefix = format!("{url_s}: ");
+            let error = errors.iter().find_map(|e| e.strip_prefix(&prefix)).unwrap_or("not ingested; no error recorded");
+            pages.push(json!({ "url": url, "read": false, "error": error }));
+        }
+    }
+    let failed = pages.iter().filter(|p| p.get("read").and_then(Value::as_bool) == Some(false)).count();
+    let (inv_measured, inv_summary) = if !query.as_str().is_some_and(|q| !q.is_empty()) {
+        (false, "no search query".to_string())
+    } else if let Some(error) = search_error.as_deref() {
+        (true, format!("search failed: {}", vithi_line(error)))
+    } else if pages.is_empty() {
+        (true, "search returned no pages".to_string())
+    } else if failed > 0 {
+        (true, format!("read {} of {} pages; {failed} failed", pages.len() - failed, pages.len()))
+    } else {
+        (true, format!("read {} pages", pages.len()))
+    };
+
+    let calls = entry.get("model_calls").and_then(Value::as_array).cloned().unwrap_or_default();
+    let blocked = entry.get("blocked").and_then(Value::as_array).cloned().unwrap_or_default();
+    let (imp_measured, imp_summary) = if calls.is_empty() && blocked.is_empty() {
+        (false, "no model call".to_string())
+    } else if calls.is_empty() {
+        let reason = blocked.first().and_then(|b| b.get("reason")).and_then(Value::as_str).unwrap_or("blocked");
+        (false, format!("no model call: {}", vithi_line(reason)))
+    } else if blocked.is_empty() {
+        (true, format!("{} model call{}", calls.len(), if calls.len() == 1 { "" } else { "s" }))
+    } else {
+        let reason = blocked.first().and_then(|b| b.get("reason")).and_then(Value::as_str).unwrap_or("blocked");
+        (true, format!("{} model call{}, {} blocked: {}", calls.len(), if calls.len() == 1 { "" } else { "s" }, blocked.len(), vithi_line(reason)))
+    };
+
+    let reflection_id = entry.get("reflection_id").cloned().unwrap_or(Value::Null);
+    let doc_ids = entry.get("doc_ids").cloned().unwrap_or(json!([]));
+    let doc_n = doc_ids.as_array().map(|a| a.len()).unwrap_or(0);
+    let written = links.iter().filter(|l| l.get("written").and_then(Value::as_bool) == Some(true)).count();
+    let link_failed = links.len().saturating_sub(written);
+    let (reg_measured, reg_summary) = if reflection_id.is_null() && doc_n == 0 && links.is_empty() {
+        (false, "nothing stored".to_string())
+    } else if let Some(id) = reflection_id.as_u64() {
+        (true, format!("reflection {id}; {written} purejāta links, {link_failed} failed"))
+    } else {
+        let store = errors.iter().find_map(|e| e.strip_prefix("store reflection: ")).unwrap_or("reflection was not stored");
+        (doc_n > 0, format!("{doc_n} documents ingested; {}", vithi_line(store)))
+    };
+
+    json!([
+        vithi_stage("contact", "phassa", contact_measured, contact_summary, contact_detail, false),
+        feeling,
+        vithi_stage("recognition", "saññā", recog_measured, recog_summary, recog_detail, false),
+        vithi_stage("determining", "voṭṭhapana", det_measured, det_summary, det_detail, det_advisory),
+        vithi_stage("investigation", "santīraṇa", inv_measured, inv_summary, json!({
+            "query": query,
+            "search_url": entry.get("search_url").cloned().unwrap_or(Value::Null),
+            "pages": pages,
+            "search_error": search_error,
+        }), false),
+        vithi_stage("impulsion", "javana", imp_measured, imp_summary, json!({ "calls": calls, "blocked": blocked }), false),
+        vithi_stage("registration", "tadārammaṇa", reg_measured, reg_summary, json!({
+            "reflection_id": reflection_id,
+            "doc_ids": doc_ids,
+            "links": links,
+        }), false),
+    ])
+}
+
+fn mail_vithi(steps: &[Value], entry: &Value) -> Value {
+    let calls = entry.get("model_calls").and_then(Value::as_array).cloned().unwrap_or_default();
+    let blocked = entry.get("blocked").and_then(Value::as_array).cloned().unwrap_or_default();
+    let (contact_measured, contact_summary) = if steps.is_empty() {
+        (false, "no messages".to_string())
+    } else {
+        let unopened = steps.iter().filter(|s| s.get("opened").and_then(Value::as_bool) != Some(true)).count();
+        let summary = if unopened == 0 {
+            format!("{} message{}", steps.len(), if steps.len() == 1 { "" } else { "s" })
+        } else {
+            format!("{} message{}, {unopened} not opened", steps.len(), if steps.len() == 1 { "" } else { "s" })
+        };
+        (true, summary)
+    };
+    let messages = steps.iter().map(|s| json!({
+        "message_id": s.get("message_id").cloned().unwrap_or(Value::Null),
+        "from": s.get("from").cloned().unwrap_or(Value::Null),
+        "subject": s.get("subject").cloned().unwrap_or(Value::Null),
+        "opened": s.get("opened").cloned().unwrap_or(json!(false)),
+        "read_error": s.get("read_error").cloned().unwrap_or(Value::Null),
+    })).collect::<Vec<_>>();
+    let decisions: Vec<&Value> = steps.iter().filter(|s| s.get("replied").is_some()).collect();
+    let (det_measured, det_summary) = if decisions.is_empty() {
+        let why = blocked.first().and_then(|b| b.get("reason")).and_then(Value::as_str)
+            .or_else(|| steps.iter().find_map(|s| s.get("read_error")).and_then(Value::as_str).filter(|s| !s.is_empty()))
+            .unwrap_or("no message was opened");
+        (false, format!("no reply decision: {}", vithi_line(why)))
+    } else {
+        let replied = decisions.iter().filter(|s| s.get("replied").and_then(Value::as_bool) == Some(true)).count();
+        (true, format!("replied to {replied} of {}", decisions.len()))
+    };
+    let decisions_detail = steps.iter().map(|s| json!({
+        "message_id": s.get("message_id").cloned().unwrap_or(Value::Null),
+        "replied": s.get("replied").cloned().unwrap_or(Value::Null),
+        "why_not": s.get("why_not").cloned().unwrap_or(Value::Null),
+        "send_error": s.get("send_error").cloned().unwrap_or(Value::Null),
+        "read_error": s.get("read_error").cloned().unwrap_or(Value::Null),
+    })).collect::<Vec<_>>();
+    let (imp_measured, imp_summary) = if calls.is_empty() && blocked.is_empty() {
+        (false, "no model call".to_string())
+    } else if calls.is_empty() {
+        let reason = blocked.first().and_then(|b| b.get("reason")).and_then(Value::as_str).unwrap_or("blocked");
+        (false, format!("no model call: {}", vithi_line(reason)))
+    } else if blocked.is_empty() {
+        (true, format!("{} model call{}", calls.len(), if calls.len() == 1 { "" } else { "s" }))
+    } else {
+        (true, format!("{} model call{}, {} blocked", calls.len(), if calls.len() == 1 { "" } else { "s" }, blocked.len()))
+    };
+    let memory_ids: Vec<Value> = steps.iter().filter_map(|s| s.get("memory_id").filter(|v| !v.is_null()).cloned()).collect();
+    let sent_ids: Vec<Value> = steps.iter().filter_map(|s| s.get("sent_id").filter(|v| !v.is_null()).cloned()).collect();
+    let copies: Vec<Value> = steps.iter().filter_map(|s| {
+        let copied = s.get("operator_copied")?;
+        if copied.is_null() { return None; }
+        Some(json!({
+            "message_id": s.get("message_id").cloned().unwrap_or(Value::Null),
+            "operator_copied": copied,
+            "house_cc": s.get("house_cc").cloned().unwrap_or(Value::Null),
+        }))
+    }).collect();
+    let remember_errors: Vec<Value> = steps.iter().filter_map(|s| {
+        let err = s.get("remember_error")?;
+        if err.is_null() { return None; }
+        Some(json!({ "message_id": s.get("message_id").cloned().unwrap_or(Value::Null), "error": err.clone() }))
+    }).collect();
+    let (reg_measured, reg_summary) = if memory_ids.is_empty() && sent_ids.is_empty() {
+        let extra = remember_errors.first().and_then(|e| e.get("error")).and_then(Value::as_str)
+            .map(|e| format!(" ({})", vithi_line(e))).unwrap_or_default();
+        (false, format!("nothing stored{extra}; the operator was not copied"))
+    } else {
+        let copied_n = copies.iter().filter(|c| c.get("operator_copied").and_then(Value::as_bool) == Some(true)).count();
+        let copy_line = if copies.is_empty() {
+            "operator copy not recorded".to_string()
+        } else if copied_n > 0 {
+            format!("operator copied on {copied_n}")
+        } else {
+            "operator not copied".to_string()
+        };
+        (true, format!("{} memories, {} sent; {copy_line}", memory_ids.len(), sent_ids.len()))
+    };
+    json!([
+        vithi_stage("contact", "phassa", contact_measured, contact_summary, json!({ "messages": messages }), false),
+        vithi_stage("determining", "voṭṭhapana", det_measured, det_summary, json!({ "messages": decisions_detail }), false),
+        vithi_stage("impulsion", "javana", imp_measured, imp_summary, json!({ "calls": calls, "blocked": blocked }), false),
+        vithi_stage("registration", "tadārammaṇa", reg_measured, reg_summary, json!({
+            "memory_ids": memory_ids,
+            "sent_ids": sent_ids,
+            "operator_copied": copies,
+            "remember_errors": remember_errors,
+        }), false),
+    ])
+}
+
+fn dream_vithi(entry: &Value, links: &[Value]) -> Value {
+    let entropy = entry.get("entropy_source").cloned().unwrap_or(Value::Null);
+    let seed = entry.get("seed").cloned().unwrap_or(Value::Null);
+    let contact_measured = entropy.as_str().is_some() && seed.as_str().is_some();
+    let contact_summary = match (entropy.as_str(), seed.as_str()) {
+        (Some(src), Some(seed)) => format!("entropy {src}, seed {seed}"),
+        _ => "entropy source or seed missing".to_string(),
+    };
+    let ids = entry.get("trace_ids").and_then(Value::as_array).cloned().unwrap_or_default();
+    let n_r = entry.get("residue").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let n_d = entry.get("distant").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let n_u = entry.get("unresolved").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let residue: Vec<Value> = ids.iter().take(n_r).cloned().collect();
+    let distant: Vec<Value> = ids.iter().skip(n_r).take(n_d).cloned().collect();
+    let unresolved: Vec<Value> = ids.iter().skip(n_r + n_d).take(n_u).cloned().collect();
+    let mut empty = Vec::new();
+    if residue.is_empty() { empty.push("residue"); }
+    if distant.is_empty() { empty.push("distant"); }
+    if unresolved.is_empty() { empty.push("unresolved"); }
+    let recog_summary = if empty.is_empty() {
+        format!("residue {}, distant {}, unresolved {}", residue.len(), distant.len(), unresolved.len())
+    } else {
+        format!(
+            "residue {}, distant {}, unresolved {}; empty: {}",
+            residue.len(), distant.len(), unresolved.len(), empty.join(", ")
+        )
+    };
+    let calls = entry.get("model_calls").and_then(Value::as_array).cloned().unwrap_or_default();
+    let blocked = entry.get("blocked").and_then(Value::as_array).cloned().unwrap_or_default();
+    let (imp_measured, imp_summary) = if !calls.is_empty() {
+        (true, format!("{} model call{}", calls.len(), if calls.len() == 1 { "" } else { "s" }))
+    } else if let Some(reason) = blocked.first().and_then(|b| b.get("reason")).and_then(Value::as_str) {
+        (false, format!("no model call: {}", vithi_line(reason)))
+    } else {
+        (false, "no model call".to_string())
+    };
+    let memory_id = entry.get("memory_id").cloned().unwrap_or(Value::Null);
+    let question = entry.get("question").cloned().unwrap_or(Value::Null);
+    let mut grouped = json!({ "residue": [], "distant": [], "unresolved": [] });
+    for link in links {
+        if let Some(pool) = link.get("pool").and_then(Value::as_str) {
+            if let Some(arr) = grouped.get_mut(pool).and_then(Value::as_array_mut) {
+                arr.push(link.clone());
+            }
+        }
+    }
+    let (res_w, res_n, dist_w, dist_n, unresolved_n) = {
+        let pool_counts = |pool: &str| -> (usize, usize) {
+            let rows = grouped.get(pool).and_then(Value::as_array);
+            let n = rows.map(|a| a.len()).unwrap_or(0);
+            let written = rows.map(|a| a.iter().filter(|l| l.get("written").and_then(Value::as_bool) == Some(true)).count()).unwrap_or(0);
+            (written, n)
+        };
+        let (res_w, res_n) = pool_counts("residue");
+        let (dist_w, dist_n) = pool_counts("distant");
+        let unresolved_n = pool_counts("unresolved").1;
+        (res_w, res_n, dist_w, dist_n, unresolved_n)
+    };
+    let (reg_measured, reg_summary) = if let Some(id) = memory_id.as_u64() {
+        let q = question.as_str().unwrap_or("none");
+        (true, vithi_line(&format!(
+            "dream {id}; question {q}; purejāta {res_w}/{res_n}, upanissaya {dist_w}/{dist_n}, unresolved {unresolved_n} not edges",
+        )))
+    } else {
+        let why = entry.get("error").and_then(Value::as_str)
+            .or_else(|| blocked.first().and_then(|b| b.get("reason")).and_then(Value::as_str))
+            .unwrap_or("nothing stored");
+        (false, format!("nothing stored: {}", vithi_line(why)))
+    };
+    json!([
+        vithi_stage("contact", "phassa", contact_measured, contact_summary, json!({
+            "entropy_source": entropy, "seed": seed,
+        }), false),
+        vithi_stage("recognition", "saññā", contact_measured, recog_summary, json!({
+            "residue": residue,
+            "distant": distant,
+            "unresolved": unresolved,
+            "distant_selection": entry.get("distant_selection").cloned().unwrap_or(Value::Null),
+        }), false),
+        vithi_stage("impulsion", "javana", imp_measured, imp_summary, json!({ "calls": calls, "blocked": blocked }), false),
+        vithi_stage("registration", "tadārammaṇa", reg_measured, reg_summary, json!({
+            "memory_id": memory_id,
+            "question": question,
+            "links": grouped,
+        }), false),
+    ])
 }
 
 #[cfg(test)]
@@ -1832,4 +2335,120 @@ mod tests {
         assert_eq!(url_decode("a%2Fb+c%zz%"), "a/b c%zz%");
         assert_eq!(parse_query(&strip_thinking("<think>a</think> \"Jony Ive\"")).as_deref(), Some("Jony Ive"));
     }
+    fn vithi_stages(entry: &Value) -> Vec<String> {
+        entry["vithi"].as_array().expect("vithi").iter()
+            .map(|s| s["stage"].as_str().expect("stage name").to_string())
+            .collect()
+    }
+
+    fn assert_stage_shape(entry: &Value) {
+        for stage in entry["vithi"].as_array().expect("vithi") {
+            for key in ["stage", "pali", "measured", "summary", "detail", "advisory"] {
+                assert!(stage.get(key).is_some(), "{key} missing in {stage}");
+            }
+            assert!(stage["summary"].as_str().is_some_and(|s| !s.is_empty()), "{stage}");
+            assert!(stage["detail"].is_object(), "{stage}");
+            assert!(stage["measured"].is_boolean() && stage["advisory"].is_boolean(), "{stage}");
+        }
+    }
+
+    #[tokio::test]
+    async fn curiosity_vithi_stages_are_present_and_in_order() {
+        let f = fixture(|_| {});
+        chat(&f.runtime, "Did you hear Jony Ive is working with OpenAI on a new device?").await;
+        let entries = f.runtime.life_force(LifeUrgeRequest::FollowCuriosity).await.unwrap();
+        let curiosity = entries.iter().find(|e| e["kind"] == "curiosity").expect("curiosity ran");
+        assert_eq!(
+            vithi_stages(curiosity),
+            ["contact", "feeling", "recognition", "determining", "investigation", "impulsion", "registration"]
+        );
+        assert_stage_shape(curiosity);
+        let vithi = curiosity["vithi"].as_array().unwrap();
+        let pali = ["phassa", "vedanā", "saññā", "voṭṭhapana", "santīraṇa", "javana", "tadārammaṇa"];
+        for (stage, name) in vithi.iter().zip(pali) {
+            assert_eq!(stage["pali"], name, "{stage}");
+        }
+        assert_eq!(vithi[1]["measured"], false);
+        assert_eq!(vithi[1]["advisory"], true);
+        assert_eq!(vithi[1]["summary"], "feeling-tone: uncalibrated, not shown");
+        assert!(vithi[1]["detail"].get("valence").is_none());
+        assert_eq!(vithi[0]["measured"], true);
+        assert_eq!(vithi[0]["detail"]["from"], "open_thread");
+        assert_eq!(vithi[2]["measured"], false);
+        assert_eq!(vithi[3]["measured"], true);
+        assert_eq!(vithi[3]["advisory"], true);
+        assert_eq!(vithi[3]["detail"]["skip"], false);
+        assert!(vithi[3]["detail"].get("tier").is_some());
+        assert!(vithi[3]["detail"].get("p").is_some());
+        assert_eq!(vithi[4]["detail"]["query"], "Jony Ive OpenAI device");
+        assert_eq!(vithi[5]["detail"]["calls"].as_array().unwrap().len(), 2);
+        assert_eq!(vithi[6]["detail"]["reflection_id"], curiosity["reflection_id"]);
+        assert!(vithi[6]["detail"]["links"].as_array().unwrap().iter().any(|l| l["written"] == true && l["condition"] == "purejata"));
+        assert_eq!(curiosity["query"], "Jony Ive OpenAI device");
+        assert_eq!(curiosity["seed"]["from"], "open_thread");
+    }
+
+    #[tokio::test]
+    async fn mail_walk_vithi_stages_are_present_and_in_order() {
+        let f = fixture(|_| {});
+        let entry = f.runtime.life_mail_walk(vec![json!({
+            "message_id": "msg-1",
+            "from": "ada@example.com",
+            "subject": "the harbor",
+        })]).await;
+        assert_eq!(entry["kind"], "mail_walk");
+        assert_eq!(vithi_stages(&entry), ["contact", "determining", "impulsion", "registration"]);
+        assert_stage_shape(&entry);
+        let vithi = entry["vithi"].as_array().unwrap();
+        assert_eq!(vithi[0]["pali"], "phassa");
+        assert_eq!(vithi[1]["pali"], "voṭṭhapana");
+        assert_eq!(vithi[2]["pali"], "javana");
+        assert_eq!(vithi[3]["pali"], "tadārammaṇa");
+        assert_eq!(vithi[0]["measured"], true);
+        assert_eq!(vithi[0]["detail"]["messages"][0]["from"], "ada@example.com");
+        assert_eq!(vithi[0]["detail"]["messages"][0]["subject"], "the harbor");
+        assert_eq!(vithi[0]["detail"]["messages"][0]["opened"], false);
+        assert!(vithi[0]["summary"].as_str().unwrap().contains("not opened"));
+        for stage in vithi.iter().skip(1) {
+            assert_eq!(stage["measured"], false, "{stage}");
+        }
+        assert!(vithi[3]["summary"].as_str().unwrap().contains("operator was not copied"));
+        assert!(entry["read"][0]["error"].as_str().is_some());
+        assert!(entry["model_calls"].as_array().unwrap().is_empty());
+        assert!(entry.get("blocked").unwrap().as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn dream_vithi_stages_are_present_and_in_order() {
+        let f = fixture(|c| c.life.drives.boredom_per_min = 0.0);
+        f.runtime.experience().remember("thinking", "A thought about calligraphy.", BTreeMap::new(), None, 0.5).unwrap();
+        let entries = f.runtime.life_force(LifeUrgeRequest::Dream).await.unwrap();
+        let dream = entries.iter().find(|e| e["kind"] == "dream").expect("dream");
+        assert_eq!(vithi_stages(dream), ["contact", "recognition", "impulsion", "registration"]);
+        assert_stage_shape(dream);
+        let vithi = dream["vithi"].as_array().unwrap();
+        assert_eq!(vithi[0]["pali"], "phassa");
+        assert_eq!(vithi[1]["pali"], "saññā");
+        assert_eq!(vithi[2]["pali"], "javana");
+        assert_eq!(vithi[3]["pali"], "tadārammaṇa");
+        assert_eq!(vithi[0]["measured"], true);
+        assert_eq!(vithi[0]["detail"]["entropy_source"], dream["entropy_source"]);
+        assert_eq!(vithi[0]["detail"]["seed"], dream["seed"]);
+        let recog = &vithi[1]["detail"];
+        assert_eq!(recog["residue"].as_array().unwrap().len(), dream["residue"].as_u64().unwrap() as usize);
+        assert_eq!(recog["distant"].as_array().unwrap().len(), dream["distant"].as_u64().unwrap() as usize);
+        assert_eq!(recog["unresolved"].as_array().unwrap().len(), dream["unresolved"].as_u64().unwrap() as usize);
+        assert_eq!(vithi[2]["measured"], true);
+        assert_eq!(vithi[3]["measured"], true);
+        assert_eq!(vithi[3]["detail"]["memory_id"], dream["memory_id"]);
+        assert_eq!(vithi[3]["detail"]["question"], dream["question"]);
+        let links = &vithi[3]["detail"]["links"];
+        assert_eq!(links["residue"].as_array().unwrap().len(), dream["residue"].as_u64().unwrap() as usize);
+        assert_eq!(links["distant"].as_array().unwrap().len(), dream["distant"].as_u64().unwrap() as usize);
+        assert_eq!(links["unresolved"].as_array().unwrap().len(), dream["unresolved"].as_u64().unwrap() as usize);
+        assert!(dream["text"].as_str().unwrap().contains("garage"));
+        assert_eq!(dream["question"], "what does a device without a screen owe you?");
+    }
+
 }
+
