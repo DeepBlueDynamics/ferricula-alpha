@@ -37,9 +37,9 @@ Those edges say what the dream was built from. They are not a verdict about whet
 
 After the dream, `Stimulus::Dreamed` stores the question and sets `dreamed_this_sleep` (`cognition life.rs:248-258`). A wake for that question is pushed only when `wake_on_dream_question` is true. The default is false (`cognition life.rs:84`), and `config/agent.example.toml:247` leaves it false. Live `config/steve.toml` is not in the repo, so an override there is unchecked. The wake arm itself (`server life.rs:344-349`) sets the mode to engaged and journals `{kind: wake, reason, drives}`. It does not read the question, search, or write a verdict.
 
-`mark_disputed` is a chat tool (`crates/ferricula-server/src/chat_tools.rs:184`, implemented at `chat_tools.rs:450-499`). Nothing in the life loop calls it. `remember_verdict` (`crates/ferricula-server/src/memory.rs:495-538`) writes a new keystone row on channel `verdict` and one causal edge to the target. The target row is not modified. Recall shows that verdict beside the target (`chat.rs:1926-1932`). The tool's kinds are `disputes` and `supersedes`, not supported / contradicted / unresolved. `supersedes` requires a document cite that was shown in that chat turn (`chat_tools.rs:466-476`) and the edge is `paccaya:adhipati`, which predominates (`memory.rs:536`, `patthana.rs:155-159`). `disputes` needs no evidence handle.
+`mark_disputed` is a chat tool (`crates/ferricula-server/src/chat_tools.rs:184`, implemented at `chat_tools.rs:450-499`). The dream path never calls it. `remember_verdict` (`crates/ferricula-server/src/memory.rs:495-538`) writes a new keystone row on channel `verdict` and one causal edge to the target. The target row is not modified. Recall shows that verdict beside the target (`chat.rs:1926-1932`). The tool's kinds are `disputes` and `supersedes`, not supported / contradicted / unresolved. `supersedes` requires a document cite that was shown in that chat turn (`chat_tools.rs:466-476`) and the edge is `paccaya:adhipati`, which predominates (`memory.rs:536`, `patthana.rs:156-160`). `disputes` takes the memory as its object and the edge is arammana (`patthana.rs:155`). It does not predominate.
 
-Search already refuses to treat dreams as evidence unless a chat tool asks for them (`chat_tools.rs:356-368`). `hybrid_recall` excludes dreams from the dense arm (`documents.rs:194-198`).
+Search already refuses to treat dreams as evidence unless a chat tool asks for them (`chat_tools.rs:356-368`). `hybrid_recall` (`crates/ferricula-server/src/documents.rs:199`) excludes dreams from the dense arm (`crates/ferricula-server/src/documents.rs:194-198`).
 
 ## 2. The claim
 
@@ -48,27 +48,29 @@ Two dreams, on purpose:
 - Scene. He dreams he is eaten by a huge muffin. The prompt already asked for sensation and scene. `QUESTION: none`, or no question line, means there is nothing to check. The dream is stored as it is today and fades.
 - Claim. He dreams his ex-wife was manipulative, which he did not see at the time. The closing line is a question about a past person. That question is not yet a statement, and it is not knowledge.
 
-At wake, one short pass reads the question and does only this:
+At wake, the first of two model calls reads the question and does only this. It does not search, and it does not choose a verdict.
 
-- If it cannot be restated as a proposition about a past person, event, or relationship, the dream stays a scene. "Why was the muffin huge?" is a scene.
-- If it can, the pass writes the proposition beside the question. "Was she manipulative?" becomes "She was manipulative toward me." The dream row's text is not rewritten. The proposition lives on the check record.
+- If it cannot be restated as a proposition about a past person, event, or relationship, the dream stays a scene. "Why was the muffin huge?" is a scene. That call is the only one. There is no judging call.
+- If it can, the pass writes the proposition beside the question. "Was she manipulative?" becomes "She was manipulative toward me." The dream row's text is not rewritten. The proposition lives on the check record. Judging is the second model call, after recall, in §3.
 
 The dream's own traces (the purejāta and upanissaya edges) are the material the scene was made from. They are not the evidence that the proposition is true.
 
 ## 3. The waking check
 
-The check runs on the wake that follows a dream, using the dream journal entry already written (`question`, `memory_id`). It does not add a store. It uses `hybrid_recall` (`documents.rs:194-199`), the same search the chat tool uses, with dreams excluded.
+The check runs on the wake that follows a dream, using the dream journal entry already written (`question`, `memory_id`). It does not add a store. It uses `hybrid_recall` (`crates/ferricula-server/src/documents.rs:199`), the same search the chat tool uses. Dreams are excluded from what may be cited.
 
-1. No question: stop. Scene.
-2. The pass in §2 marks it a scene: journal that and stop. No verdict.
-3. Otherwise recall the proposition. Steve may cite only ids that call returned. He labels each cited id as for the proposition or against it. He does not invent an id, and he does not open `include_dreams`.
-4. Verdict, from those labels only:
+A dream with no question spends no model call. A question spends the restatement call in §2. Only a question that restates as a proposition spends one `hybrid_recall` and the second model call, which is the judging below. Recall is not a model call.
+
+1. No question: stop. Scene. No model call.
+2. The pass in §2 marks it a scene: journal that and stop. No verdict, and no second call.
+3. Otherwise recall the proposition. Steve may cite only ids that call returned. He drops dream rows and prior verdict rows (channel `verdict`) before he cites, so a later check of the same claim cannot cite an earlier verdict. He labels each remaining id as for the proposition or against it. He does not invent an id, and he does not open `include_dreams`.
+4. Verdict, from those labels only. This is the second model call:
    - **supported** — at least one cited memory bears it out, and none contradict it
    - **contradicted** — at least one cited memory contradicts it, and none bear it out
    - **unresolved** — recall was empty, the hits do not decide, or both sides are present
-5. Write a new experience row for the verdict. Link it to the dream row and to each evidence id. Record the evidence as those ids. Do not change the text, tags, or edges of the dream or of any past memory.
+5. Write a new experience row for the verdict. Link it to the dream row and to each evidence id. The links to the evidence memories are arammana: the verdict takes them as its object, the same condition Disputes uses (`crates/ferricula-cognition/src/patthana.rs:155`). The link to the dream row is arammana for the same reason. Never adhipati. Record the evidence as those ids. Do not change the text, tags, or edges of the dream or of any past memory.
 
-Do not call `mark_disputed` for this. Its settled kind requires a document the chat turn showed him, and that edge predominates over the memory. A dream check must not predominate. The discipline to copy is the one `remember_verdict` already has: a new row, a link, the earlier memory left as it was (`memory.rs:495-499`).
+Do not call `mark_disputed` for this. Its settled kind requires a document the chat turn showed him, and that edge is adhipati, which predominates over the memory. A dream check must not predominate. The discipline to copy is the one `remember_verdict` already has: a new row, a link, the earlier memory left as it was (`memory.rs:495-499`). The condition to copy is Disputes' arammana, not Supersedes' adhipati.
 
 ## 4. The judge
 
@@ -80,10 +82,10 @@ Audit line, a journal entry of its own (the wake entry stays the mode change it 
 
 - dream `memory_id`, the question as dreamed, the proposition or `scene`
 - recall query
-- evidence ids, each marked for or against, and only ids recall returned
+- evidence ids, each marked for or against; only ids recall returned, and not a dream row and not a prior verdict row
 - verdict
 - gate record: route, tier, `p`, `advisory: true`, or unreachable
-- the model call's purpose, not the bodies of the past memories
+- each model call's purpose (restatement, then judging when there is a proposition), not the bodies of the past memories
 
 The journal already stores the dream text. It should not gain a second copy of anyone's older memory.
 
@@ -102,9 +104,9 @@ Report recall of those ids before and after, and how often the verdict was unres
 ## 6. Open questions for Kord
 
 1. Is "no question" enough to mark a scene, or do you also want the waking pass to reject questions that are not about the past?
-2. When both sides come back, this note says unresolved. Do you want contradicted to win instead?
-3. Chat verdicts are keystones and never decay (`memory.rs:495-532`). A waking check can be wrong. Should version one fade, like the dream, until you have seen a few?
-4. Should the check wait for the ordinary rested wake (the default), or should `wake_on_dream_question` turn on so a claim wakes him immediately?
-5. One recall and one judging call per dream is the whole budget proposed here. Do you want a daily cap besides the life model cap that already exists?
+2. When both sides come back, this note says unresolved. Do you want contradicted to win instead? Steve's leaning: unresolved, not contradicted.
+3. Chat verdicts are keystones and never decay (`memory.rs:495-532`). A waking check can be wrong. Should version one fade, like the dream, until you have seen a few? Steve's leaning: the verdict fades and is never keystone.
+4. Should the check wait for the ordinary rested wake (the default), or should `wake_on_dream_question` turn on so a claim wakes him immediately? Steve's leaning: check at the rested wake, never wake mid-sleep.
+5. The budget in §§2–3 is two model calls and one recall when the question restates as a proposition: the restatement call, then `hybrid_recall`, then the judging call. A question that stays a scene spends the restatement call only. No question spends none. Do you want a daily cap besides the life model cap that already exists?
 6. An unresolved claim is only in the journal. Do you want it told to you as well?
-7. `Supersedes` still emits adhipati, with a TODO in your name (`patthana.rs:155-159`). This design does not use that edge. If you later want a supported claim to predominate over an older memory, that is a separate decision, and it still would not edit the older text.
+7. `Supersedes` still emits adhipati, with a TODO in your name (`patthana.rs:156-160`). This design does not use that edge. If you later want a supported claim to predominate over an older memory, that is a separate decision, and it still would not edit the older text. Steve leaves this deferred to you.
