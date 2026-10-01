@@ -731,13 +731,13 @@ mod tests {
 
         // Ingest embeds sections at write time and records near duplicates.
         let text = "# Garage\nTomas built the board in the garage and we sold fifty of them.\n\n# Shop\nThe shop wanted assembled computers.";
-        let first = runtime.ingest_blocking(ferricula_ingest::Source::Text { title: Some("One".into()), text: text.into() }, None).unwrap();
+        let first = runtime.ingest_blocking(ferricula_ingest::Source::Text { title: Some("One".into()), text: text.into(), origin: None }, None).unwrap();
         assert!(first.near_duplicate_of.is_none());
         let status = runtime.meaning_status().counts;
         assert_eq!(status.sections_embedded, status.sections_total);
         assert!(status.sections_total >= 1);
         let copy = format!("{text}\n");
-        let second = runtime.ingest_blocking(ferricula_ingest::Source::Text { title: Some("Two".into()), text: copy }, None).unwrap();
+        let second = runtime.ingest_blocking(ferricula_ingest::Source::Text { title: Some("Two".into()), text: copy, origin: None }, None).unwrap();
         assert!(!second.duplicate);
         assert_eq!(second.near_duplicate_of.as_deref(), Some(first.doc_id.as_str()));
         assert!(second.near_duplicate_cosine.unwrap() >= 0.97);

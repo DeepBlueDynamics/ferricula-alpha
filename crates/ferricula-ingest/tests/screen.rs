@@ -7,7 +7,7 @@ use ferricula_ingest::{
 fn page(fixture: &str) -> Extracted {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(fixture);
     let text = std::fs::read_to_string(path).unwrap();
-    extract(&Source::Text { title: None, text }, &ExtractConfig::default()).unwrap()
+    extract(&Source::Text { title: None, text, origin: None }, &ExtractConfig::default()).unwrap()
 }
 
 fn rejected(fixture: &str) -> Rejected {
@@ -39,14 +39,14 @@ fn real_article_passes_despite_subscribe_and_cookie_chrome() {
 fn cookie_interstitial_is_rejected() {
     let text = "# We value your privacy\n\nWe and our partners use cookies to store and access information on your device.\n\n\
                 [Accept all](#a) [Reject all](#r)\n\nManage preferences\n\nNecessary cookies are always on.\n";
-    let doc = extract(&Source::Text { title: None, text: text.into() }, &ExtractConfig::default()).unwrap();
+    let doc = extract(&Source::Text { title: None, text: text.into(), origin: None }, &ExtractConfig::default()).unwrap();
     assert_eq!(screen(&doc).unwrap_err().reason, RejectReason::CookieWall);
 }
 
 #[test]
 fn thin_page_is_too_thin() {
     let text = "# Home\n\n- [About](/about)\n- [Blog](/blog)\n\nWelcome to my site. More soon.\n";
-    let doc = extract(&Source::Text { title: None, text: text.into() }, &ExtractConfig::default()).unwrap();
+    let doc = extract(&Source::Text { title: None, text: text.into(), origin: None }, &ExtractConfig::default()).unwrap();
     assert_eq!(screen(&doc).unwrap_err().reason, RejectReason::TooThin);
 }
 
@@ -54,7 +54,7 @@ fn thin_page_is_too_thin() {
 fn rejection_is_typed_through_anyhow() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/nature_access_options.md");
     let text = std::fs::read_to_string(path).unwrap();
-    let err = extract_screened(&Source::Text { title: None, text }, &ExtractConfig::default()).unwrap_err();
+    let err = extract_screened(&Source::Text { title: None, text, origin: None }, &ExtractConfig::default()).unwrap_err();
     let r = rejection(&err).expect("typed rejection");
     assert_eq!(r.reason, RejectReason::Paywall);
     assert!(err.to_string().starts_with("rejected: paywall"), "{err}");
@@ -66,7 +66,7 @@ fn rejection_is_typed_through_anyhow() {
 #[test]
 fn inline_text_is_not_screened_by_plain_extract() {
     // Operators hand over short notes on purpose; only web pages are screened.
-    let src = Source::Text { title: None, text: "# Note\nshort".into() };
+    let src = Source::Text { title: None, text: "# Note\nshort".into(), origin: None };
     assert!(extract(&src, &ExtractConfig::default()).is_ok());
     assert!(extract_screened(&src, &ExtractConfig::default()).is_err());
 }

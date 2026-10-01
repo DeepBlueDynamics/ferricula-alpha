@@ -690,7 +690,7 @@ impl AgentRuntime {
         Ok(json!({
             "tool": "read_web_pane",
             "corpus": "web",
-            "pane": &id[..id.len().min(8)],
+            "pane": id,
             "source": page["title"],
             "url": page["url"],
             "date": utc_date(now()),
@@ -835,6 +835,7 @@ pub(super) fn log_entry(call: &ToolCall, result: &Value, result_bytes: usize) ->
         "corpus": pick("corpus"),
         "source": pick("source"),
         "url": pick("url"),
+        "pane": pick("pane"),
         "date": pick("date"),
         "doc_id": pick("doc_id"),
         "sections": pick("sections"),

@@ -164,8 +164,16 @@ async function api(path, body, statusProbe = false, signal) {
     body:body === undefined ? undefined : JSON.stringify(body), cache:'no-store', redirect:'error', signal});
   if (statusProbe && response.status === 404) return {login_enabled:false,signed_in:false,user_id:null};
   if (response.status === 401 || response.status === 403) authFailure(response.status);
-  if (!response.ok) throw Error(response.status === 403 ? 'Signed in, but not an operator for this agent.' :
-    response.status === 401 ? 'Authentication required. Use an enabled login method above.' : 'Request failed (HTTP ' + response.status + ').');
+  if (!response.ok) {
+    let detail = '';
+    try {
+      const payload = await response.json();
+      if (payload && typeof payload.error === 'string' && payload.error.trim()) detail = payload.error.trim();
+    } catch { /* The failure body was not JSON. */ }
+    if (!detail) detail = response.status === 403 ? 'Signed in, but not an operator for this agent.' :
+      response.status === 401 ? 'Authentication required. Use an enabled login method above.' : 'Request failed (HTTP ' + response.status + ').';
+    throw Error(detail);
+  }
   return response.json();
 }
 async function refreshAuth() {
@@ -395,6 +403,11 @@ async function refreshDocuments() {
   } catch { /* Optional metadata; records still render without it. */ }
 }
 function webKey(turn, index) { return text(turn.request?.request_id) + ':' + index; }
+function recordedPane(call) {
+  const fromResult = typeof call?.pane === 'string' ? call.pane.trim() : '';
+  const argued = call?.arguments && typeof call.arguments.pane === 'string' ? call.arguments.pane.trim() : '';
+  return fromResult || argued;
+}
 function webStatus(turn,call,index) {
   const url=safeUrl(call.url),decision=webDecisions.get(webKey(turn,index));
   if(call.error)return 'Read failed';
@@ -406,7 +419,7 @@ function webStatus(turn,call,index) {
 function renderWebReads(parent,turn) {
   array(turn.tool_calls).forEach((call,index)=>{
     if(!call || call.name!=='read_web_pane' || call.error || Array.isArray(call.web_panes))return;
-    const url=safeUrl(call.url),box=node('section',null,'web-reading'),key=webKey(turn,index);
+    const url=safeUrl(call.url),pane=recordedPane(call),box=node('section',null,'web-reading'),key=webKey(turn,index);
     box.append(node('p','Web / '+(url?url.hostname:'URL not recorded')+' · read-only','web-source'));
     if(call.source)box.append(node('p',call.source,'fine'));
     const status=webStatus(turn,call,index);
@@ -417,23 +430,25 @@ function renderWebReads(parent,turn) {
     }
     if(!status.startsWith('Kept') && !webDecisions.has(key)){
       const actions=node('div',null,'row'),keep=node('button','Keep as a document','web-decision'),leave=node('button','Leave it','web-decision');
-      keep.type=leave.type='button';keep.dataset.unavailable=String(!url);keep.disabled=!url||busy||!connected;leave.disabled=busy||!connected;
+      keep.type=leave.type='button';keep.dataset.unavailable=String(!pane);keep.disabled=!pane||busy||!connected;leave.disabled=busy||!connected;
       keep.onclick=()=>keepWeb(turn,call,index);
       leave.onclick=()=>{webDecisions.set(key,{label:'Left as read-only · nothing saved by this choice'});render();controls();notice('Left it as read-only. No document was saved.');};
       actions.append(keep,leave);box.append(actions);
-      if(!url)box.append(node('p','Keeping this page is unavailable because its URL was not recorded.','fine'));
+      if(!pane)box.append(node('p','Keeping this page is unavailable because its pane id was not recorded.','fine'));
     }
     parent.append(box);
   });
 }
 async function keepWeb(turn,call,index) {
-  const url=safeUrl(call.url);
-  if(!url||busy||!connected)return;
+  const pane=recordedPane(call),url=safeUrl(call.url),fromPane=call.name==='read_web_pane';
+  if(busy||!connected||(fromPane?!pane:!url))return;
   busy=true;controls();notice('Keeping the page as a document…');
   try {
-    const result=await api('/documents',{kind:'url',url:url.href,note:'Kept by the operator clicking Keep as a document in chat; conversation '+conversationId});
+    const note='Kept by the operator clicking Keep as a document in chat; conversation '+conversationId;
+    const body=fromPane?{kind:'pane',pane,note}:{kind:'url',url:url.href,note};
+    const result=await api('/documents',body);
     if(!result.doc_id)throw Error('Document response was not recognized.');
-    if(result.duplicate===false)sessionIngestNotes.set(result.doc_id,'Kept by the operator clicking Keep as a document in chat; conversation '+conversationId);
+    if(result.duplicate===false)sessionIngestNotes.set(result.doc_id,note);
     webDecisions.set(webKey(turn,index),{label:'Kept as a document · '+result.doc_id});
     await refreshDocuments();render();notice('Page kept as a document.');
   } catch(error) { notice(error.message+' Keeping was not confirmed. Check the documents before trying again.',true); }

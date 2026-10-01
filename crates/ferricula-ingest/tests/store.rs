@@ -73,7 +73,7 @@ fn pdf_ingest_is_paged_searchable_durable_and_deduped() {
 fn markdown_text_ingest_keeps_headings() {
     let dir = tempfile::tempdir().unwrap();
     let text = "# Sense doors\nSix doors admit contact with objects.\n\n# Gates\nA judge answers yes, no, or abstains.\n";
-    let extracted = extract(&Source::Text { title: None, text: text.into() }, &ExtractConfig::default()).unwrap();
+    let extracted = extract(&Source::Text { title: None, text: text.into(), origin: None }, &ExtractConfig::default()).unwrap();
     let mut store = DocumentStore::open(dir.path()).unwrap();
     store.ingest(&extracted, "text").unwrap();
     let hits = store.search("judge abstains", 1, None);

@@ -10,8 +10,15 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Source {
-    /// Inline text or markdown.
-    Text { title: Option<String>, text: String },
+    /// Inline text or markdown. `origin` is the page URL when this text was
+    /// read from a web pane; absent means the document origin is `inline`.
+    Text {
+        #[serde(default)]
+        title: Option<String>,
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin: Option<String>,
+    },
     /// A web page or remote PDF.
     Url { url: String },
     /// PDF bytes (the API layer decodes base64).
@@ -69,13 +76,16 @@ pub fn extract_unscreened(source: &Source, config: &ExtractConfig) -> Result<Ext
 
 fn extract_inner(source: &Source, config: &ExtractConfig, screen: bool) -> Result<Extracted> {
     match source {
-        Source::Text { title, text } => {
+        Source::Text { title, text, origin } => {
             if text.len() > config.max_bytes {
                 bail!("text exceeds {} bytes", config.max_bytes);
             }
             let title = title.clone().filter(|t| !t.trim().is_empty())
                 .unwrap_or_else(|| first_heading(text).unwrap_or_else(|| "Untitled text".into()));
-            Ok(Extracted { title, origin: "inline".into(), pages: vec![text.clone()], paged: false })
+            let origin = origin.clone().filter(|o| !o.trim().is_empty())
+                .map(|o| o.trim().to_string())
+                .unwrap_or_else(|| "inline".into());
+            Ok(Extracted { title, origin, pages: vec![text.clone()], paged: false })
         }
         Source::Pdf { name, bytes } => {
             if bytes.len() > config.max_bytes {
@@ -180,6 +190,9 @@ fn grub_markdown(url: &str, config: &ExtractConfig) -> Result<(String, String)> 
         let reason = body.get("block_reason").and_then(|v| v.as_str())
             .or_else(|| body.get("error").and_then(|v| v.as_str()))
             .unwrap_or("unknown");
+        if body.get("blocked").and_then(|v| v.as_bool()) == Some(true) {
+            bail!("blocked by {reason}");
+        }
         bail!("grub could not read {url}: {reason}");
     }
     let markdown = body.get("markdown").and_then(|v| v.as_str()).unwrap_or_default().to_string();
@@ -199,12 +212,25 @@ mod tests {
 
     #[test]
     fn text_title_falls_back_to_heading() {
-        let src = Source::Text { title: None, text: "intro\n# The Title\nbody".into() };
+        let src = Source::Text { title: None, text: "intro\n# The Title\nbody".into(), origin: None };
         let out = extract(&src, &ExtractConfig::default()).unwrap();
         assert_eq!(out.title, "The Title");
         assert!(!out.paged);
+        assert_eq!(out.origin, "inline");
     }
 
+    #[test]
+    fn text_origin_records_a_page_url_when_one_is_carried() {
+        let src = Source::Text {
+            title: Some("A Times Article".into()),
+            text: "# A Times Article\nThe rendered paragraph.".into(),
+            origin: Some("  https://www.nytimes.com/2026/10/01/example.html  ".into()),
+        };
+        let out = extract(&src, &ExtractConfig::default()).unwrap();
+        assert_eq!(out.title, "A Times Article");
+        assert_eq!(out.origin, "https://www.nytimes.com/2026/10/01/example.html");
+        assert!(out.pages[0].contains("The rendered paragraph."));
+    }
     #[test]
     fn rejects_non_pdf_bytes() {
         assert!(pdf_pages(b"hello").is_err());

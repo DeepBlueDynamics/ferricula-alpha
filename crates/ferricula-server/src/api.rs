@@ -110,6 +110,9 @@ pub enum IngestSourceBody {
     Text { #[serde(default)] title: Option<String>, text: String },
     Url { url: String },
     Pdf { name: String, base64: String },
+    /// A page already read from a Hyperia web pane. The server fetches the
+    /// rendered markdown the way `read_web_pane` does and stores that text.
+    Pane { pane: String },
 }
 
 /// Validate sizes before decoding, then decode into an extraction source.
@@ -128,7 +131,7 @@ pub fn decode_source(
             if title.as_ref().is_some_and(|t| t.len() > 1024) {
                 return Err((StatusCode::BAD_REQUEST, "title exceeds 1024 bytes".into()));
             }
-            Ok(ferricula_ingest::Source::Text { title, text })
+            Ok(ferricula_ingest::Source::Text { title, text, origin: None })
         }
         IngestSourceBody::Url { url } => {
             if url.len() > 4096 { return Err((StatusCode::BAD_REQUEST, "url exceeds 4096 bytes".into())); }
@@ -147,10 +150,63 @@ pub fn decode_source(
             if compact.len() > config.max_base64_len() { return Err(too_large("pdf")); }
             let bytes = base64::engine::general_purpose::STANDARD.decode(compact.as_bytes())
                 .map_err(|e| (StatusCode::BAD_REQUEST, format!("invalid base64: {e}")))?;
-            if bytes.len() > config.max_bytes { return Err(too_large("pdf")); }
             Ok(ferricula_ingest::Source::Pdf { name, bytes })
         }
+        IngestSourceBody::Pane { .. } => {
+            Err((StatusCode::BAD_REQUEST, "pane sources are resolved by POST /documents".into()))
+        }
     }
+}
+
+/// Fetch one open web pane through Hyperia and carry its URL as the
+/// document origin. The token and the `web_nav` grant are the same ones
+/// `read_web_pane` uses; a missing grant surfaces as the Hyperia error.
+fn pane_source(runtime: &AgentRuntime, pane: &str) -> Result<ferricula_ingest::Source, String> {
+    let pane = pane.trim();
+    if pane.is_empty() {
+        return Err("pane id is empty".into());
+    }
+    if pane.len() > 128 {
+        return Err("pane id exceeds 128 bytes".into());
+    }
+    if !runtime.config.documents.enabled {
+        return Err("document ingestion is disabled ([documents] enabled = false)".into());
+    }
+    if !runtime.config.hyperia.enabled {
+        return Err("keeping a web pane needs Hyperia, and it is not enabled for this agent".into());
+    }
+    let Some(token) = crate::hyperia::token() else {
+        return Err("keeping a web pane needs the Hyperia token, and this agent has none".into());
+    };
+    let base = runtime.config.hyperia.url.as_str();
+    let panes = crate::hyperia::web_panes(base, &token).map_err(|error| format!("{error:#}"))?;
+    let needle = pane.to_lowercase();
+    let matches: Vec<&(String, String)> = panes.iter()
+        .filter(|(id, name)| id.to_lowercase().starts_with(&needle) || name.to_lowercase().contains(&needle))
+        .collect();
+    let id = match matches.as_slice() {
+        [one] => one.0.as_str(),
+        [] => return Err(format!("no open web pane matches `{pane}`")),
+        many => return Err(format!("`{pane}` matches {} panes; use a pane id", many.len())),
+    };
+    let page = crate::hyperia::web_pane_content(base, &token, id).map_err(|error| format!("{error:#}"))?;
+    let markdown = page["markdown"].as_str().unwrap_or("").to_string();
+    if markdown.trim().is_empty() {
+        return Err("the pane's page had no text".into());
+    }
+    let max = runtime.config.documents.max_bytes;
+    if markdown.len() > max {
+        return Err(format!("text exceeds documents.max_bytes ({max} bytes)"));
+    }
+    let url = page["url"].as_str().unwrap_or("").trim().to_string();
+    if url.is_empty() {
+        return Err("the pane did not report the page URL".into());
+    }
+    if url.len() > 4096 {
+        return Err("url exceeds 4096 bytes".into());
+    }
+    let title = page["title"].as_str().map(str::trim).filter(|t| !t.is_empty() && t.len() <= 1024).map(str::to_string);
+    Ok(ferricula_ingest::Source::Text { title, text: markdown, origin: Some(url) })
 }
 
 async fn ingest_document(
@@ -162,8 +218,17 @@ async fn ingest_document(
     if body.note.as_ref().is_some_and(|n| n.len() > crate::runtime::MAX_NOTE_BYTES) {
         return Err(bad_request(format!("note exceeds {} bytes", crate::runtime::MAX_NOTE_BYTES)));
     }
-    let source = decode_source(body.source, &runtime.config.documents)
-        .map_err(|(status, error)| (status, Json(json!({ "error": error }))))?;
+    let source = match body.source {
+        IngestSourceBody::Pane { pane } => {
+            let worker = runtime.clone();
+            tokio::task::spawn_blocking(move || pane_source(&worker, &pane))
+                .await
+                .map_err(internal)?
+                .map_err(|error| (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": error }))))?
+        }
+        other => decode_source(other, &runtime.config.documents)
+            .map_err(|(status, error)| (status, Json(json!({ "error": error }))))?,
+    };
     let note = body.note;
     // Complete the ingest even if the HTTP client disconnects mid-fetch.
     let worker = runtime.clone();

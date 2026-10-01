@@ -989,7 +989,7 @@ mod tests {
         assert_eq!(runtime.chat_input_budget(), 21_000);
         let body = |n: usize| format!("# Part {n}\n{}\n", "memory paging tiers ".repeat(90));
         let text = (0..3).map(body).collect::<String>();
-        runtime.ingest_blocking(ferricula_ingest::Source::Text { title: Some("Doc".into()), text }, None).unwrap();
+        runtime.ingest_blocking(ferricula_ingest::Source::Text { title: Some("Doc".into()), text, origin: None }, None).unwrap();
         let cards = Value::Array(document_cards(&runtime.search_documents("memory paging tiers", 3, None)));
         assert_eq!(cards.as_array().unwrap().len(), 3);
 
@@ -1057,7 +1057,7 @@ mod tests {
         let inspection = crate::inspect_data_dir(&memory).unwrap();
         let runtime = AgentRuntime::open_with_transport(config, inspection, model.clone()).unwrap();
         let text = "# Opening\nThe fence has a back side nobody sees.\n\n# Middle\nCare is the one thing you cannot fake.\n\n# Close\nWe miss him every day.\n".to_string();
-        let doc = runtime.ingest_blocking(ferricula_ingest::Source::Text { title: Some("Eulogy".into()), text }, None).unwrap();
+        let doc = runtime.ingest_blocking(ferricula_ingest::Source::Text { title: Some("Eulogy".into()), text, origin: None }, None).unwrap();
         (runtime, model, root, doc.doc_id)
     }
 

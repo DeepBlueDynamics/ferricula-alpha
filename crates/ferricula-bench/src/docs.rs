@@ -80,7 +80,7 @@ pub fn run(ctx: &RunContext, args: &DocsArgs) -> Result<()> {
             let source = if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf")) {
                 Source::Pdf { name: path.file_name().unwrap().to_string_lossy().to_string(), bytes }
             } else {
-                Source::Text { title: Some(stem.clone()), text: String::from_utf8_lossy(&bytes).to_string() }
+                Source::Text { title: Some(stem.clone()), text: String::from_utf8_lossy(&bytes).to_string(), origin: None }
             };
             let extracted = match extract(&source, &config) {
                 Ok(e) => e,
