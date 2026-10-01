@@ -1078,10 +1078,11 @@ mod tests {
         config.hyperia.url = hyperia;
         config.email.base_url = mail;
         config.email.max_sends_per_day = 1;
-        config.email.always_cc = vec!["kord@example.com".into()];
+        config.email.house_cc = vec!["kord@example.com".into()];
+        config.life.ollaya_url = "http://127.0.0.1:9".into();
         let runtime = AgentRuntime::open(config, crate::inspect_data_dir(&memory).unwrap()).unwrap();
         assert!(runtime.email_prompt().contains("steve@agentmail.to"));
-        let send = |to: &str| runtime.tool_email("email_send", &json!({ "to": to, "subject": "Hello", "text": "A short note." }), 20_000);
+        let send = |to: &str| runtime.tool_email("email_send", &json!({ "to": to, "subject": "Hello", "text": "A short note about Ferricula." }), 20_000);
         let out = send("friend@example.com").unwrap();
         assert_eq!(out["ok"], true);
         assert_eq!(out["message_id"], "m1");
@@ -1090,7 +1091,8 @@ mod tests {
         let sent = requests.iter().find(|r| r.starts_with("POST /inboxes/steve@agentmail.to/messages/send")).expect("send request");
         assert!(sent.to_ascii_lowercase().contains("authorization: bearer am-test-key"));
         assert!(sent.contains("AI simulation"), "disclosure line appended");
-        assert!(sent.contains(r#""cc":["kord@example.com"]"#), "operator always copied: {sent}");
+        assert!(sent.contains(r#""cc":["kord@example.com"]"#), "a house term copies the operator: {sent}");
+        assert_eq!(out["house_cc"]["why"]["by"], "term");
         assert!(runtime.experience().rows().iter().any(|(r, _)| r.tags.get("text").is_some_and(|t| t.contains("I sent an email to friend@example.com"))));
         // Daily cap, and bad input, are refused before any call.
         assert!(send("friend@example.com").unwrap_err()["error"].as_str().unwrap().contains("daily send limit"));
