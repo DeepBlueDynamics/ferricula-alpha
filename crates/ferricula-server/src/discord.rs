@@ -35,6 +35,9 @@ pub struct DiscordConfig {
     /// Where page reads are posted (a room name or a channel id); empty turns
     /// read notices off.
     pub reads_channel: String,
+    /// The name used on cards; empty uses the first word of the persona name
+    /// ("Steve", not "Steve Jobs").
+    pub display_name: String,
 }
 
 impl Default for DiscordConfig {
@@ -44,6 +47,7 @@ impl Default for DiscordConfig {
             api_base: "https://discord.com/api/v10".into(),
             channels: BTreeMap::new(),
             reads_channel: "random".into(),
+            display_name: String::new(),
         }
     }
 }
@@ -110,6 +114,47 @@ fn resolve(cfg: &DiscordConfig, cache: &Mutex<HashMap<String, String>>, room: &s
     Ok(found)
 }
 
+/// A card title from the link itself when it names the page (extractors
+/// often return a section heading such as "History"), else the page title,
+/// else the host.
+fn card_title(url: &str, title: &str) -> String {
+    let without_scheme = url.split("://").nth(1).unwrap_or(url);
+    let path = without_scheme.split(['?', '#']).next().unwrap_or("");
+    let host = path.split('/').next().unwrap_or("");
+    let slug = path.split('/').filter(|seg| !seg.is_empty()).skip(1).last().unwrap_or("");
+    let slug = slug.rsplit_once('.').map_or(slug, |(stem, ext)| if ext.len() <= 5 { stem } else { slug });
+    let decoded = percent_decode(slug).replace(['_', '-', '+'], " ");
+    let words = decoded.split_whitespace().collect::<Vec<_>>().join(" ");
+    let named = words.chars().filter(|c| c.is_alphabetic()).count() >= 3
+        && !matches!(words.to_lowercase().as_str(), "index" | "home" | "default" | "article" | "articles" | "news" | "post" | "page")
+        && !words.chars().all(|c| c.is_ascii_digit() || c == ' ');
+    let mut chars = words.chars();
+    let pretty = chars.next().map(|c| c.to_uppercase().collect::<String>() + chars.as_str()).unwrap_or_default();
+    match (named, title.trim().is_empty()) {
+        (true, _) => format!("{pretty} · {host}"),
+        (false, false) => format!("{} · {host}", title.trim()),
+        (false, true) => host.to_string(),
+    }
+}
+
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() + 0 && i + 2 <= bytes.len() - 1 {
+            if let Ok(b) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                out.push(b);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 fn clip(s: &str, max: usize) -> String {
     if s.chars().count() <= max { s.to_string() } else { format!("{}…", s.chars().take(max - 1).collect::<String>()) }
 }
@@ -127,28 +172,36 @@ impl crate::runtime::AgentRuntime {
         }
         let cfg = self.config.discord.clone();
         let cache = self.discord.resolved.clone();
-        let agent = self.persona().name.clone();
+        let agent = if self.config.discord.display_name.trim().is_empty() {
+            self.persona().name.split_whitespace().next().unwrap_or("The agent").to_string()
+        } else {
+            self.config.discord.display_name.trim().to_string()
+        };
         let (how, title, url, note) = (how.to_string(), title.to_string(), url.to_string(), note.map(str::to_string));
         std::thread::spawn(move || {
             let result = (|| -> Result<()> {
                 let token = token().context("no token")?;
                 let channel = resolve(&cfg, &cache, &cfg.reads_channel)?;
-                let verb = match how.as_str() {
-                    "ingest_url" => "kept",
-                    "curiosity" => "read on his own",
-                    "read_web_pane" => "looked at a page open on the operator's screen",
-                    _ => "read",
+                let did = match how.as_str() {
+                    "ingest_url" => format!("{agent} read this page through grub and kept it in his document memory."),
+                    "curiosity" => format!("Nobody was talking to {agent}, so he followed his curiosity: he searched the web, read this page through grub, and kept it."),
+                    "read_web_pane" => format!("{agent} looked at this page, open on the operator's screen, through Hyperia."),
+                    _ => format!("{agent} read this page through grub and moved on. Nothing was kept."),
                 };
-                let mut fields = vec![json!({ "name": "How", "value": how, "inline": true })];
+                let mut fields = Vec::new();
                 if let Some(note) = note.as_deref().filter(|n| !n.trim().is_empty()) {
-                    fields.push(json!({ "name": "Why", "value": clip(note, 900), "inline": false }));
+                    let label = if how == "curiosity" { "What he was looking for" } else { "Why he kept it" };
+                    fields.push(json!({ "name": label, "value": clip(note, 900), "inline": false }));
                 }
                 let mut embed = json!({
-                    "title": clip(if title.trim().is_empty() { &url } else { &title }, 240),
-                    "description": format!("{agent} {verb}."),
+                    "title": clip(&card_title(&url, &title), 240),
+                    "description": did,
                     "color": 2775208,
                     "fields": fields,
                 });
+                if !title.trim().is_empty() {
+                    embed["footer"] = json!({ "text": clip(&format!("Page heading: {}", title.trim()), 200) });
+                }
                 if url.starts_with("http://") || url.starts_with("https://") {
                     embed["url"] = json!(url);
                 }
@@ -167,5 +220,20 @@ impl crate::runtime::AgentRuntime {
                 eprintln!("discord: page-read notice not posted: {error:#}");
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn titles_come_from_the_link_when_it_names_the_page() {
+        assert_eq!(card_title("https://en.wikipedia.org/wiki/Fresnel_lens", "History"), "Fresnel lens · en.wikipedia.org");
+        assert_eq!(card_title("https://example.com/2026/09/what-is-known-about-openai-device.html", "x"), "What is known about openai device · example.com");
+        assert_eq!(card_title("https://news.ycombinator.com/", "Hacker News"), "Hacker News · news.ycombinator.com");
+        assert_eq!(card_title("https://example.com/index.html", ""), "example.com");
+        assert_eq!(card_title("https://example.com/item?id=123", "A story"), "Item · example.com");
+        assert_eq!(card_title("https://de.wikipedia.org/wiki/Fresnel-Linse%C3%A9", "x"), "Fresnel Linseé · de.wikipedia.org");
     }
 }
