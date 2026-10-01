@@ -1,6 +1,8 @@
 #!/bin/sh
 # scripts/life-vithi-check.sh: read-only check of Steve's newest life vithi records.
 # Reads only state_dir/life/journal.jsonl. Does not write, and does not open memory.
+# Stage order is life's. Curiosity puts determining before investigation.
+# A feeling summary must be exactly "feeling-tone: uncalibrated, not shown".
 set -eu
 
 SELF_TEST=0
@@ -85,6 +87,16 @@ import sys
 
 KINDS = ("curiosity", "mail_walk", "dream")
 FIELDS = ("stage", "pali", "measured", "summary", "detail", "advisory")
+# Life's order, not the chat turn's. curiosity puts determining before investigation.
+EXPECTED = {
+    "curiosity": (
+        "contact", "feeling", "recognition", "determining",
+        "investigation", "impulsion", "registration",
+    ),
+    "mail_walk": ("contact", "determining", "impulsion", "registration"),
+    "dream": ("contact", "recognition", "impulsion", "registration"),
+}
+FEELING_SUMMARY = "feeling-tone: uncalibrated, not shown"
 
 
 def has_key(obj, key):
@@ -135,8 +147,14 @@ def check_entry(kind, entry):
                 return "FAIL %s: feeling measured is not false" % kind
             if has_key(stage, "valence"):
                 return "FAIL %s: feeling has valence" % kind
+            if summary != FEELING_SUMMARY:
+                return "FAIL %s: feeling summary is not the uncalibrated line" % kind
     if kind == "curiosity" and not saw_feeling:
         return "FAIL %s: feeling stage missing" % kind
+    names = tuple(item.get("stage") for item in vithi)
+    expected = EXPECTED[kind]
+    if names != expected:
+        return "FAIL %s: stages %s, expected %s" % (kind, list(names), list(expected))
     return "PASS %s" % kind
 
 
@@ -194,10 +212,14 @@ def self_test():
         detail={"reason": "no calibrated feeling-tone gate"},
         advisory=True,
     )
+    def vithi_for(kind, names=None):
+        chosen = EXPECTED[kind] if names is None else names
+        return [feeling if name == "feeling" else stage(name) for name in chosen]
+
     good = [
-        {"kind": "curiosity", "vithi": [stage("contact"), feeling, stage("registration")]},
-        {"kind": "mail_walk", "vithi": [stage("contact"), stage("registration")]},
-        {"kind": "dream", "vithi": [stage("contact"), stage("registration")]},
+        {"kind": "curiosity", "vithi": vithi_for("curiosity")},
+        {"kind": "mail_walk", "vithi": vithi_for("mail_walk")},
+        {"kind": "dream", "vithi": vithi_for("dream")},
     ]
     # An older broken curiosity must not hide the newest good one.
     older = {"kind": "curiosity", "vithi": [stage("contact")]}
@@ -223,6 +245,22 @@ def self_test():
         ([curiosity, {"kind": "mail_walk"}, dream], "mail_walk"),
         ([curiosity, mail, broken_dream], "dream"),
         ([curiosity, {"kind": "mail_walk", "vithi": [stage("feeling", measured=True, summary="shown")]}, dream], "mail_walk"),
+        ([
+            {
+                "kind": "curiosity",
+                "vithi": vithi_for("curiosity", (
+                    "contact", "feeling", "recognition", "investigation",
+                    "determining", "impulsion", "registration",
+                )),
+            },
+            mail,
+            dream,
+        ], "curiosity"),
+        ([
+            curiosity,
+            mail,
+            {"kind": "dream", "vithi": vithi_for("dream", ("contact", "impulsion", "registration"))},
+        ], "dream"),
     ]
     for entries, kind in cases:
         bad_lines, bad_failed = report(dump(entries))
