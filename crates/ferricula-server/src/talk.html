@@ -74,6 +74,7 @@
 <section class="panel-section"><button id="documents-panel" type="button">Documents</button><p class="fine">Browse the documents held verbatim. Read-only; documents never decay.</p></section>
 <section class="panel-section"><h3>Moments of this turn</h3><div class="moments" id="moments"></div></section>
 <div id="turn-instruments"></div>
+<section class="panel-section"><h3>Life moments</h3><div id="life-moments"></div></section>
 <div class="drives-grid">
 <section class="panel-section"><h3>Drives</h3>
 <div class="instrument"><div class="gauge-label"><span>Boredom</span><span id="bored" class="mono">Unavailable</span></div><div class="gauge" aria-hidden="true" hidden><div class="fill" id="bored-fill"></div></div></div>
@@ -146,7 +147,7 @@ function controls() {
   el('login').hidden = !auth.login_enabled;
 }
 function unavailableLife() {
-  latestLife = null; renderDay(); renderCuriosity();
+  latestLife = null; renderDay(); renderCuriosity(); renderLifeMoments();
   el('phase').textContent = 'Phase unavailable';
   for (const key of ['bored','tired']) showDrive(key, null, false);
 }
@@ -497,6 +498,22 @@ function renderCuriosity() {
     details(row,'Recorded excursion',e);root.append(row);
   }
 }
+function renderLifeMoments() {
+  const root=el('life-moments'),opened=new Set(Array.from(root.children).filter(n=>n.open).map(n=>n.dataset.entry));
+  root.replaceChildren();
+  if(!latestLife){root.append(node('p','Life readings unavailable.','fine'));return;}
+  const entries=array(latestLife.journal).map((entry,index)=>({entry,index})).filter(({entry})=>['curiosity','mail_walk','dream'].includes(entry.kind));
+  if(!entries.length){root.append(node('p','No excursions, mail walks or dreams in the returned journal.','fine'));return;}
+  for(const {entry,index} of entries.reverse()){
+    const row=node('details',null,'record'),key=text(entry.ts)+'-'+entry.kind+'-'+index;
+    row.dataset.entry=key;row.open=opened.has(key);
+    row.append(node('summary',dateText(entry.ts,true)+' · '+({curiosity:'Curiosity excursion',mail_walk:'Mail walk',dream:'Dream'})[entry.kind]));
+    const stages=node('div',null,'moments');momentRows(entry,stages,true);row.append(stages);
+    if(entry.error)row.append(node('p',entry.error,'error'));
+    for(const error of array(entry.errors))row.append(node('p',error,'error'));
+    details(row,'Recorded journal entry',entry);root.append(row);
+  }
+}
 function renderDay() {
   const root = el('day-events');root.replaceChildren();
   const today = new Date();
@@ -641,16 +658,16 @@ function render() {
   renderInstruments();
 }
 let liveTurn = null;
-function momentRows(turn) {
-  const root=el('moments');root.replaceChildren();
+function momentRows(turn, root=el('moments'), isLife=false) {
+  root.replaceChildren();
   const stages=array(turn?.vithi).filter(e=>e.stage);
-  if(!stages.length){root.append(node('p',turn === liveTurn && liveTurn ? 'Waiting for the moment record (server side in progress).' : 'No moment record for this turn (recorded before 2026-10-01).','fine'));return;}
+  if(!stages.length){root.append(node('p',isLife ? 'No moment record for this journal entry.' : turn === liveTurn && liveTurn ? 'Waiting for the moment record (server side in progress).' : 'No moment record for this turn (recorded before 2026-10-01).','fine'));return;}
   const pali={contact:'phassa',feeling:'vedanā',recognition:'saññā',investigation:'santīraṇa',determining:'voṭṭhapana',impulsion:'javana',registration:'tadārammaṇa'};
   for(const e of stages){
     const row=node('div',null,'record'),d=e.detail??{};
     row.append(node('p',e.stage+' · '+text(e.pali??pali[e.stage])+' · measured: '+(e.measured===true?'yes':'no')+(e.advisory||e.stage==='feeling'?' · advisory':'')));
     row.append(node('p',e.summary,e.measured===true?'':'fine'));
-    if(e.stage==='contact'){
+    if(e.stage==='contact'&&!isLife){
       row.append(node('p',d.message??turn.request?.message,'candidate-text'));
       row.append(node('p','origin: '+text(d.reported_origin??d.origin??turn.request?.reported_origin)+' · verified: '+text(d.origin_verified??turn.request?.origin_verified??'not recorded'),'metadata'));
     }
@@ -668,7 +685,10 @@ function momentRows(turn) {
 function eventSections(section,turn) {
   const events=turn._events ? array(turn._events) : array(turn.vithi).flatMap(e=>{
     const d=e.detail??{},entries=[e];
-    if(e.stage==='impulsion')for(const r of array(d.rounds))entries.push({...r,event:'round'});
+    if(e.stage==='impulsion')for(const r of array(d.rounds)){
+      for(const call of array(r.model_calls))entries.push({...call,round:r.round,event:'model_call'});
+      entries.push({...r,event:'round'});
+    }
     if(e.stage==='investigation')for(const t of array(d.tools??d.tool_calls))entries.push({...t,event:'tool_result'});
     if(e.stage==='determining')for(const g of array(d.gates))entries.push({...g,event:'gate'});
     return entries;
@@ -683,7 +703,10 @@ function eventSections(section,turn) {
         row.append(node('p','round '+e.round+(ended?' · started':' · running '+Math.max(0,Math.floor((Date.now()-(e._received??Date.now()))/1000))+'s')));
       }else if(e.event==='round')row.append(node('p','round '+e.round+' · '+text(e.secs)+'s · finish: '+text(e.finish)+' · output tokens: '+text(e.output_tokens)));
       else row.append(node('p',text(e.name??e.gate??e.event)+(e.advisory?' · advisory':'')));
-      if(e.event==='model_call'&&e.attempt===2)row.append(node('p','retry: ran out of reasoning room'));
+      if(e.event==='model_call'&&e.attempt===2){
+        const previous=events.findLast(x=>x.event==='model_call'&&x.round===e.round&&x.attempt===1);
+        row.append(node('p','round '+text(e.round)+', attempt 2 (previous attempt finished: '+text(previous?.finish)+')'));
+      }
       details(row,'Recorded event',e);root.append(row);
     }
   });
@@ -839,7 +862,7 @@ async function pollLife() {
   try {
     const life = await api('/life?journal=200');
     if (!connected || epoch !== authEpoch) return;
-    latestLife = life; renderDay(); renderCuriosity();
+    latestLife = life; renderDay(); renderCuriosity(); renderLifeMoments();
     el('phase').textContent = phaseLabel(life);
     for (const [key, value] of [['bored',life.boredom],['tired',life.sleep_pressure]]) showDrive(key, value, life.enabled);
   } catch { unavailableLife(); } finally { lifeBusy = false; }
