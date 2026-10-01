@@ -77,6 +77,10 @@ ollama_model = "gemma4:e2b"
 # on a long tool-loop turn can need more; Steve uses 300000.
 # ollama_timeout_ms = 300000
 
+# Tool calls allowed in one chat message. Default 4, clamped to 1..=16.
+# A code review (the diff plus the files it touches) needs more than 4.
+# max_tool_calls = 8
+
 # Mode on FIRST boot with an empty state volume: paused | asleep |
 # peripheral | engaged | deliberative. After first boot the persisted mode
 # in runtime-state.json wins across restarts. "asleep" means: no active
@@ -266,7 +270,10 @@ url = "http://127.0.0.1:8085"
 space = "gtr-t5-base@768"
 batch = 32
 timeout_secs = 30
-# (probe = true by default.) After a passing probe, embed every memory,
+# Probe is on by default. Set it explicitly so this file matches the struct
+# (the field is [embeddings] probe, not [recall]).
+probe = true
+# After a passing probe, embed every memory,
 # experience row and document section without a vector, in the background
 # (sidecars under state_dir/meaning/; /status -> meaning shows progress).
 backfill = true
@@ -281,7 +288,45 @@ graph_weight = 0.5
 lexical_weight = 0.5             # lexical memory arms while dense is present
 dense_guarantee = 2              # best dense hits kept at fused ranks 2, 4
 remember_turns = true            # chat turns become recallable experience
-probe = true
+# Ranking overlay, read from state_dir/overlay/recall-stats.json.
+# A cited memory gains s * ln(1 + recalls). Age subtracts
+# f * age_days / (age_days + h), which saturates at f.
+# Rank only: text is not changed and nothing is deleted.
+# Fused scores are about 1/61. Do not raise s or f onto a 0–1 scale.
+# s = 0.003
+# f = 0.002
+# h = 30.0
+
+# [email]
+# AgentMail. Active only when AGENTMAIL_API_KEY is set (entrypoint:
+# AGENTMAIL_API_KEY_FILE, the file ~/.config/ferricula/agentmail_api_key).
+# Names only. No key in this file.
+# enabled = true
+# inbox = "agent@example.com"
+# max_sends_per_day = 10
+# signature = "\n\n--\nSent by {name}, an AI simulation built from recovered memory. Not the living person."
+# timeout_secs = 15
+# house_cc = ["operator@example.com"]
+# house_terms = ["deepblue", "deep blue dynamics", "ferricula"]
+# house_statement = "This email is about the company DeepBlue Dynamics LLC or its product Ferricula."
+# watch = true
+# check_every_secs = 120
+# max_read_per_walk = 3
+
+# [discord]
+# Page-read cards. Active only when DISCORD_BOT_TOKEN is set (entrypoint:
+# DISCORD_BOT_TOKEN_FILE, a file outside the repo). No token in this file.
+# enabled = true
+# reads_channel = "random"
+# display_name = ""
+# channels = { random = "000000000000000000" }
+
+# [code]
+# Read-only source. root empty turns code_tree/code_search/code_read off.
+# github_repo empty turns pr_list/pr_diff off. The PR API takes no token.
+# root = "/repo"
+# github_repo = "owner/name"
+# github_api = "https://api.github.com"
 
 # Model routing defaults are supplied by ModelRoutingConfig when no [models]
 # table is present: mechanical work uses no model; scan/social/deliberation

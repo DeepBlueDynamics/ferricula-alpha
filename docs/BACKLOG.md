@@ -9,6 +9,19 @@ _Rewritten 2026-09-27 (evening) from the day's work and decisions. Ranked by imp
 - **Credentials out of the repo:** `secrets/` removed; the operator token lives in `~/.config/ferricula/`.
 - Earlier merges: N1 (dense recall, remembered turns), N2 (post-wake grace), N3 (junk-page screen), N4 (durability), WP-2 (dream-image client), WP-5 (meditation core), gate calibration code (`506f4e6`).
 
+## Done since 2026-09-28
+
+Checked against `origin/v3/r0` at `6d0e2d4`. Commit ids are the ones on that history (a merge id when the work merged, otherwise the commit that landed it).
+
+- **AgentMail** (`227f80b`; HTML bodies `13a0d4e`; redaction `59a6c54`; the mail watch `dec037c`; house copy `253e6a3`). Tools `email_check`, `email_read`, `email_send`, `email_label`, `email_delete`. The watch triages unread mail and does not wake the agent. Contract: `docs/TOOLS.md`.
+- **Discord page-read cards** (`0ae3926`, card wording `8f7c98b`). A short card in `[discord] reads_channel`. The page text is not posted. `GET /settings/discord/channels`.
+- **Read-only code and pull-request diffs** (`ccf6989`). `code_tree`, `code_search`, `code_read`, `pr_list`, `pr_diff`. `max_tool_calls` defaults to 4 and is clamped to 1..=16.
+- **JEV gate tier** (`7a493d2`). Backup or primary beside Ollaya. The key is set at `/settings` and stored on the state volume, and no endpoint returns it.
+- **`POST /chat/stream`** (`70b7943`). The same turn as `/chat`, as server-sent events, including `gate`.
+- **Recall overlay** (`1cf8734`, scale fixed in `853d199`). Citation count and age change rank only. State file `state_dir/overlay/recall-stats.json`. Defaults `s = 0.003`, `f = 0.002`, `h = 30`.
+- **Paṭṭhāna links for new reflections and dreams** (`2022c61`, `b121fdb`). `ReflectedOn` and dream-residue links are purejāta. A distant dream link is upanissaya. `Supersedes` still emits adhipati (K9).
+- **Duplicate collapse and the fragment flag** (`1bc3e92`, measured rule `294e27a`). Identical `tags.text` collapses within one kind. `fragment: true` only for a recovered memory of exactly 200 characters with no terminal punctuation.
+
 ## Blockers only Kord can clear
 - ~~**K1.**~~ Done 2026-09-27 (restored and committed). Was: **K1. `THIRD_PARTY_NOTICES.md`** is deleted from the working tree; `Dockerfile:23` copies it, so image builds fail, and it carries the BSD-3 notice for lume-derived code. Restore it or decide otherwise.
 - **K2. TypeSafe key.** Now entered at `/settings` (JEV built 2026-09-28: backup/primary tier for both live gates, a probe button, `private_context` off by default). Earlier ask: **K2. TypeSafe key** at `%USERPROFILE%\.config\ferricula\typesafe_api_key`; direct vs OpenRouter; API reference, limits, retention terms (`inbox/JEV_PLAN.md`).
@@ -20,6 +33,8 @@ _Rewritten 2026-09-27 (evening) from the day's work and decisions. Ranked by imp
 - **K8. Hyperia** (`inbox/HYPERIA_COMMS.md`):
   - Start it, and approve the first sender→recipient pairs.
   - Decide whether you get a Hyperia identity (you aren't addressable today).
+- **K9. What `Supersedes` should emit.** `LinkEvent::Supersedes` still maps to `Paccaya::Adhipati` (`crates/ferricula-cognition/src/patthana.rs`, left that way in `2022c61`). `research/2026-10-01-abhidhamma-fidelity.md` §7.2 says a verdict that supersedes a memory is unsupported and must not emit adhipati. The replacement condition is undecided.
+- **K10. Feeling tags on old memories.** The vedanā gate exists (`vedana_questions` in `ferricula-gates`) and is not called from `ferricula-server`. No experience write stores an emotion tag. Whether feeling tags should fill in old memories after calibration is undecided. Until a gate's held-out ECE is under 0.05, a gate probability does not change the lifecycle (`paper/WHITEPAPER_V2.md`).
 
 ## Now
 
@@ -44,9 +59,9 @@ _Rewritten 2026-09-27 (evening) from the day's work and decisions. Ranked by imp
 
 **X9. Conflicted gates (revised by Steve).** One re-ask with entropy-drawn recall. If still split: `unresolved`. Chance may choose the next action, never the truth; a judge writes `disputes` only. "Unable to judge" is fixed or escalated, never settled by chance. Exit: forced-indeterminate calls show the draw, the recall and p before and after in the journal; `chance chose the action` appears only after a failed re-ask; replaying recorded entropy gives the same decisions.
 
-**G1–G4. JEV backup tier** (`inbox/JEV_PLAN.md`): G1 client and wire probe with recorded fixtures; G2 cascade on the curiosity gate; G3 merge gate (today passed `None` at `life.rs:820`); G4 per-call gate log and the cascade cost curve. Blocked on K2.
+**G1–G4. JEV backup tier** (`inbox/JEV_PLAN.md`): G1 client and wire probe with recorded fixtures; G2 cascade on the curiosity gate; G3 merge gate (the plan's `life.rs:820` reference predates the tier); G4 per-call gate log and the cascade cost curve. The tier itself is merged (`7a493d2`: backup or primary, key at `/settings`). This item stays for the plan's remaining exits. K2's key can now be entered in the UI.
 
-**U1–U4. The "While he thinks" UI** (`inbox/UI_PLAN.md`): U1 the design on existing data plus nuts-auth login (A0: both logins accepted); U2 streaming (`POST /chat/stream`) and stages; U3 judge gate, leading-question gate, Stop; U4 instruments view (needs the missing `Main.dc.html`; also covers the `/dashboard` request). Login transition A1/A2 retires the operator token file.
+**U1–U4. The "While he thinks" UI** (`inbox/UI_PLAN.md`): U1 the design on existing data plus nuts-auth login (A0: both logins accepted); U2 streaming and stages (`POST /chat/stream` is merged, `70b7943`; the stage UI is what remains); U3 judge gate, leading-question gate, Stop; U4 instruments view (needs the missing `Main.dc.html`; also covers the `/dashboard` request). Login transition A1/A2 retires the operator token file. The document viewer, Inspect fix, composer, PDF chooser, and emphasis rendering merged as `647efed`.
 
 **H1–H4. Steve on Hyperia** (`inbox/HYPERIA_COMMS.md`): H1 Hyperia HTTP client (`hyp_agent_` token in `~/.config/ferricula/`, `HYPERIA_TOKEN` added to the entrypoint list); H2 mail sense door (poll every 3 s awake, 60 s asleep; durable record then ack; long diffs reassembled and ingested as documents; `[URGENT]` from the coordinator wakes him); H3 `send_message` tool (threading by `Re: <id>`, round cap, automatic copy to the coordinator); H4 live wiring and smoke test. Hyperia has no threads, CC, attachments or push to containers; Ferricula supplies them.
 
@@ -54,8 +69,8 @@ _Rewritten 2026-09-27 (evening) from the day's work and decisions. Ranked by imp
 
 ## Next
 
-- **X1. Live thermodynamics:** `core/thermo.rs` wired; bhāvanā commits (never deletes); recall strengthens. Exit: 30-night run: store never shrinks, recalled ids gain fidelity, recovered checksum unchanged.
-- **X2. Vīthi per input + Paṭṭhāna edges:** every chat turn and excursion yields a vīthi record with measured cetasikas (the UI's stage bar reads it).
+- **X1. Live thermodynamics:** `core/thermo.rs` wired; bhāvanā commits (never deletes); recall strengthens. The ranking overlay (`1cf8734`, `853d199`) changes rank only. Recalled rows do not gain stored fidelity. Exit: 30-night run: store never shrinks, recalled ids gain fidelity, recovered checksum unchanged.
+- **X2. Vīthi per input + Paṭṭhāna edges:** every chat turn and excursion yields a vīthi record with measured cetasikas (the UI's stage bar reads it). New reflection and dream-pool links are merged (`2022c61`, `b121fdb`). The vīthi record per input is still open. `Supersedes` is K9.
 - **X3. Meditation server wiring**, with a default bell on day one (Steve: "a held state with no guaranteed end isn't meditation, it's suspension").
 - **X4. Dream images:** server wiring (JPEG).
 - **X5. Dream grounding:** verify that a dream touches real memory, but don't grade it like minutes ("a fully grounded dream isn't a dream, it's a log file").
@@ -77,7 +92,7 @@ _Rewritten 2026-09-27 (evening) from the day's work and decisions. Ranked by imp
   - Exit: a versioned set with a ledger row, a program-checked share, and a paired memory-on/off run.
 - **T2. Check agent reports against recorded actions** ([#3](https://github.com/DeepBlueDynamics/ferricula-alpha/issues/3)). Before the coordinator (later the D5 manager) accepts a report that says RAN, DONE or "tests pass", compare it with that agent's recorded tool calls and events: was the command run, were weights downloaded, did GPU memory move, do the artifacts exist? Mismatches go back as CHANGES with the evidence. Motivated by 2026-09-27: diorama reported placeholder boxes as "RAN", and WP-M1 reported a simulation as success. Could later become a fleet memory for Ferricula (sessions as experience, edits as evidence).
 - **S1–S4. Steward** (DOCUMENTS.md part two): S1 reader (plan files ingested, tagged, excluded from benchmark scoring); S2 reviewer (proposes filings); S3 clerk (`propose_plan_change` into `plan/inbox/proposals/`); S4 steward, a separate plain agent with Steve as reviewer.
-- **W1. Web corpus** for `search` via grub, plus `ferricula_ingest(url, reason)` from chat (`inbox/SEARCH_TOOL.md` rules 1–3).
+- **W1. Web corpus** for `search` via grub. Chat can already `read_url` and `ingest_url` (`docs/TOOLS.md`, present at `6d0e2d4`). A web corpus inside `search_documents` is still open (`inbox/SEARCH_TOOL.md` rules 1–3).
 
 ## Later
 - **L1.** Gate calibration on real data (subsumed by the B gate-study package).
