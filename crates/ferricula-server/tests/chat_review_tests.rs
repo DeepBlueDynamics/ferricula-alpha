@@ -94,6 +94,7 @@ fn turn_retains_reported_origin_and_can_be_failed() {
         error: None,
         remembered_ids: Vec::new(),
         tool_calls: Vec::new(),
+        vithi: Vec::new(),
     };
     t.status = "failed".into();
     t.error = Some("no eligible local private-context model".into());
