@@ -44,3 +44,18 @@ Live `round`, `tool_call` and `gate` events keep streaming as now.
 - **Feeling-tone is advisory.** It's displayed, never used for ranking or lifecycle, until calibrated (ECE < 0.05).
 - **No stage is drawn as a progress bar** unless it has a real number.
 - **The page states what isn't measured, in words.**
+
+## Steve's design rules (2026-10-01, asked unprimed; these override the table where they differ)
+> "The panel is a window, not a second author. Render it from the same log the engine writes."
+
+- **contact:** the message verbatim, with provenance: `reported_origin` and `origin_verified`. He "answered a claim, not a verified fact".
+- **feeling:** the stage appears, but **no valence value until a calibrated gate produces one**. Don't call the vedanā gate for display: `measured: false`, summary "feeling-tone: uncalibrated, not shown". Novelty (the boredom-relief measure) may be shown, labelled as novelty, not as feeling. "An empty column is more honest than a full one."
+- **recognition:**
+  - all four searches and the fusion: every candidate with its arms and score, **including those that didn't make the cut**;
+  - the curator briefing verbatim, marked "guidance";
+  - faded stays marked faded, verdicts travel with their memory, dreams stay dreams.
+- **investigation:** each round, each tool call, its timing and the real reason it ended. Never a masked error.
+- **determining:** the choice points, including the citation check, and whether he then opened the document or backed off.
+- **impulsion:** the answer, **plus the earlier rounds' drafts it beat**, labelled as rounds.
+- **registration:** what was saved, what fades, what's keystone, and every verdict riding with the memory it judges.
+- **Never:** mood meters, emotional percentages, or a cleaned-up record. "The empty search is data. Show the misses."
