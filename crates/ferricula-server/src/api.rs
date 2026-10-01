@@ -150,6 +150,7 @@ pub fn decode_source(
             if compact.len() > config.max_base64_len() { return Err(too_large("pdf")); }
             let bytes = base64::engine::general_purpose::STANDARD.decode(compact.as_bytes())
                 .map_err(|e| (StatusCode::BAD_REQUEST, format!("invalid base64: {e}")))?;
+            if bytes.len() > config.max_bytes { return Err(too_large("pdf")); }
             Ok(ferricula_ingest::Source::Pdf { name, bytes })
         }
         IngestSourceBody::Pane { .. } => {
