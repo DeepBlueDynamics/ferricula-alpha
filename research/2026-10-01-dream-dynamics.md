@@ -29,7 +29,7 @@ let mut skg = SkgState::default();
 let prime_tree = PrimeTree::default();
 ```
 - `MemoryGraph::new()` (`crates/ferricula-core/src/graph.rs:64-67`) instantiates an empty graph with `edge_dynamics: HashMap::new()`.
-- While `graph.load_edges()` populates topological edges (`crates/ferricula-core/src/graph.rs:73-94`), it **does not load edge dynamics history**. As explicitly documented in `crates/ferricula-core/src/graph.rs:59-60`:
+- While `graph.load_edges()` populates topological edges (`crates/ferricula-core/src/graph.rs:241-245`), it **does not load edge dynamics history**. As explicitly documented in `crates/ferricula-core/src/graph.rs:59-60`:
   > `/// NOT currently persisted across snapshots (cleared on restart; treat as recovered after a few dream cycles).`
 - `let mut skg = SkgState::default();` at `crates/ferricula-server/src/life.rs:1012` is also fresh scratch every cycle: term pair dynamics are similarly discarded upon cycle completion unless persisted into `bhavana-state.json`. Same problem, same fix.
 - Because `graph` is a scratch local variable dropped at the conclusion of `life_bhavana` (`crates/ferricula-server/src/life.rs:1049`), all observations recorded during a dream cycle are discarded. In the running server, edge history **never exceeds 1 observation**.
