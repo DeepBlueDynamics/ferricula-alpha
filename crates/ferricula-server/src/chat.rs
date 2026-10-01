@@ -728,24 +728,26 @@ fn bounded_candidates(value: &Value, byte_budget: usize) -> String {
 }
 
 /// Display ranking for memory-hit JSON already built for this turn.
-/// Identical `tags.text` keeps the first (best-ranked) row and lists the
-/// dropped ids. A recovered memory (`kind` `memory`) whose text is 195 to
-/// 203 characters and does not end in `.` `!` `?` or a closing quote is
+/// Identical `tags.text` within one `kind` keeps the first (best-ranked)
+/// row and lists each dropped row as `{ "id", "kind" }`. A recovered
+/// memory of exactly 200 characters with no terminal punctuation is
 /// marked `fragment`. This does not read or write stored memories.
 fn prepare_memory_hits(hits: Vec<Value>) -> Vec<Value> {
     let mut kept: Vec<Value> = Vec::new();
     for hit in hits {
         let text = hit.get("tags").and_then(|tags| tags.get("text")).and_then(Value::as_str);
+        let kind = hit.get("kind").and_then(Value::as_str).map(str::to_string);
         if let Some(text) = text {
             if let Some(existing) = kept.iter_mut().find(|row| {
                 row.get("tags").and_then(|tags| tags.get("text")).and_then(Value::as_str) == Some(text)
+                    && row.get("kind").and_then(Value::as_str) == kind.as_deref()
             }) {
-                if let Some(id) = hit.get("id").cloned() {
+                if let (Some(id), Some(kind)) = (hit.get("id").cloned(), kind.as_deref()) {
                     if existing.get("duplicates").is_none() {
                         existing["duplicates"] = json!([]);
                     }
-                    if let Some(ids) = existing["duplicates"].as_array_mut() {
-                        ids.push(id);
+                    if let Some(dropped) = existing["duplicates"].as_array_mut() {
+                        dropped.push(json!({"id": id, "kind": kind}));
                     }
                 }
                 continue;
@@ -761,6 +763,14 @@ fn prepare_memory_hits(hits: Vec<Value>) -> Vec<Value> {
     kept
 }
 
+/// `fragment: true` for a recovered memory cut at v1's length.
+///
+/// Measured on the recovered store (3,362 rows): 2,214 are exactly 200
+/// characters, v1's cut length, and 2,169 of those end without terminal
+/// punctuation. Every unpunctuated row in 195 to 203 characters is exactly
+/// 200. The rows at 195 to 199 all end with punctuation. So the flag is
+/// exact length 200 with no terminal punctuation, not a window around 200.
+/// Experience rows are not recovered-store cuts and are not flagged.
 fn recovered_memory_fragment(hit: &Value) -> bool {
     if hit.get("kind").and_then(Value::as_str) != Some("memory") {
         return false;
@@ -768,11 +778,8 @@ fn recovered_memory_fragment(hit: &Value) -> bool {
     let Some(text) = hit.get("tags").and_then(|tags| tags.get("text")).and_then(Value::as_str) else {
         return false;
     };
-    let n = text.chars().count();
-    if !(195..=203).contains(&n) {
-        return false;
-    }
-    !matches!(text.chars().next_back(), Some('.' | '!' | '?' | '"' | '\'' | '\u{201D}' | '\u{2019}'))
+    text.chars().count() == 200
+        && !matches!(text.chars().next_back(), Some('.' | '!' | '?' | '"' | '\'' | '\u{201D}' | '\u{2019}'))
 }
 
 fn input_envelope(request: &ChatRequest) -> String {
@@ -798,12 +805,16 @@ mod tests {
             ranked_hit(8, "a different sentence.", "memory"),
             ranked_hit(9, "the same recovered sentence.", "memory"),
             ranked_hit(11, "the same recovered sentence.", "experience"),
+            ranked_hit(12, "the same recovered sentence.", "experience"),
         ]);
-        assert_eq!(out.len(), 2);
+        assert_eq!(out.len(), 3);
         assert_eq!(out[0]["id"], json!(7));
-        assert_eq!(out[0]["duplicates"], json!([9, 11]));
+        assert_eq!(out[0]["duplicates"], json!([{"id": 9, "kind": "memory"}]));
         assert!(out[1].get("duplicates").is_none());
         assert_eq!(out[1]["id"], json!(8));
+        assert_eq!(out[2]["id"], json!(11));
+        assert_eq!(out[2]["kind"], json!("experience"));
+        assert_eq!(out[2]["duplicates"], json!([{"id": 12, "kind": "experience"}]));
     }
 
     #[test]
@@ -816,11 +827,19 @@ mod tests {
     }
 
     #[test]
-    fn no_fragment_flag_on_a_120_character_sentence_ending_in_a_period() {
-        let text = format!("{}.", "b".repeat(119));
-        assert_eq!(text.chars().count(), 120);
+    fn no_fragment_flag_on_197_characters_without_terminal_punctuation() {
+        let text = "a".repeat(197);
+        assert_eq!(text.chars().count(), 197);
+        let out = prepare_memory_hits(vec![ranked_hit(3, &text, "memory")]);
+        assert!(out[0].get("fragment").is_none());
+    }
+
+    #[test]
+    fn no_fragment_flag_on_two_hundred_characters_ending_in_a_period() {
+        let text = format!("{}.", "b".repeat(199));
+        assert_eq!(text.chars().count(), 200);
         assert!(text.ends_with('.'));
-        let out = prepare_memory_hits(vec![ranked_hit(2, &text, "memory")]);
+        let out = prepare_memory_hits(vec![ranked_hit(4, &text, "memory")]);
         assert!(out[0].get("fragment").is_none());
     }
 
