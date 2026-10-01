@@ -76,10 +76,10 @@
 <div id="turn-instruments"></div>
 <div class="drives-grid">
 <section class="panel-section"><h3>Drives</h3>
-<div class="instrument"><div class="gauge-label"><span>Boredom</span><span id="bored" class="mono">Unavailable</span></div><div class="gauge" aria-hidden="true"><div class="fill" id="bored-fill"></div></div></div>
-<div class="instrument"><div class="gauge-label"><span>Sleep pressure</span><span id="tired" class="mono">Unavailable</span></div><div class="gauge" aria-hidden="true"><div class="fill" id="tired-fill"></div></div></div>
+<div class="instrument"><div class="gauge-label"><span>Boredom</span><span id="bored" class="mono">Unavailable</span></div><div class="gauge" aria-hidden="true" hidden><div class="fill" id="bored-fill"></div></div></div>
+<div class="instrument"><div class="gauge-label"><span>Sleep pressure</span><span id="tired" class="mono">Unavailable</span></div><div class="gauge" aria-hidden="true" hidden><div class="fill" id="tired-fill"></div></div></div>
 </section>
-<section class="panel-section"><h3>Mindfulness</h3><p class="fine">Recall chain · not yet measured</p><p class="fine">Valence skew · not yet measured</p></section>
+<section class="panel-section"><h3>Mindfulness</h3><p class="fine">Not measured yet: recall chain and valence skew.</p></section>
 </div>
 <div class="panel-counts"><span><span id="recalled" class="mono">—</span> recalled</span><span><span id="searches" class="mono">—</span> searches</span></div>
 </aside>
@@ -148,7 +148,7 @@ function controls() {
 function unavailableLife() {
   latestLife = null; renderDay(); renderCuriosity();
   el('phase').textContent = 'Phase unavailable';
-  for (const key of ['bored','tired']) { el(key).textContent = 'Unavailable'; el(key + '-fill').style.width = '0'; }
+  for (const key of ['bored','tired']) showDrive(key, null, false);
 }
 function authFailure(status) {
   if (el('documents-dialog').open) el('documents-dialog').close();
@@ -366,6 +366,27 @@ function jumpDocumentSection() {
 function safeUrl(value) {
   try { const u=new URL(value);return ['http:','https:'].includes(u.protocol)&&!u.username&&!u.password ? u : null; } catch { return null; }
 }
+function pageLink(title, url, suffix) {
+  const parsed = safeUrl(typeof url === 'string' ? url : '');
+  const name = typeof title === 'string' && title.trim() ? title : '';
+  const p = node('p');
+  if (parsed) {
+    const a = node('a', name || parsed.href);
+    a.href = parsed.href;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    p.append(a);
+  } else p.append(document.createTextNode(name || 'Title not recorded'));
+  if (suffix) p.append(document.createTextNode(suffix));
+  return p;
+}
+function showDrive(key, value, enabled) {
+  const valid = enabled !== false && typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+  el(key).textContent = valid ? value.toFixed(2) : 'Unavailable';
+  const fill = el(key + '-fill');
+  fill.style.width = valid ? value * 100 + '%' : '0';
+  fill.parentElement.hidden = !valid;
+}
 function savedDocument(url) { return documentCatalog.find(d=>d.origin===url); }
 async function refreshDocuments() {
   try {
@@ -456,7 +477,7 @@ function renderCuriosity() {
     if(e.query)row.append(node('p',e.query));
     const kept=array(e.ingested);
     row.append(node('p',Array.isArray(e.ingested)?kept.length?kept.length+' documents kept':'Nothing saved':'Retention not recorded','fine'));
-    for(const item of kept)row.append(node('p',text(item.title)+' · '+text(item.sections)+' sections kept'));
+    for(const item of kept)row.append(pageLink(item.title,item.url,' · '+text(item.sections)+' sections kept'));
     for(const error of array(e.errors))row.append(node('p',error,'error'));
     details(row,'Recorded excursion',e);root.append(row);
   }
@@ -479,7 +500,7 @@ function renderDay() {
     if(e.reason)li.append(node('p',e.reason));
     if(e.kind==='curiosity') {
       li.append(node('p',Array.isArray(e.ingested) ? e.ingested.length+' documents kept' : 'Retention not recorded','fine'));
-      for(const item of array(e.ingested))li.append(node('p',text(item.title)+' · '+text(item.sections)+' sections'));
+      for(const item of array(e.ingested))li.append(pageLink(item.title,item.url,' · '+text(item.sections)+' sections'));
     }
     for(const error of array(e.errors))li.append(node('p',error,'error'));
     if(e.error)li.append(node('p',e.error,'error'));
@@ -642,10 +663,13 @@ function renderInstruments() {
   section('Searches & reading', activity => {
   for(const call of array(turn.tool_calls).filter(c=>c.name!=='speak_summary')){
     const record=node('div',null,'record');
-    const label=({search_documents:'Searched documents',search_memory:'Searched memories',read_document:'Read document',read_section:'Read section',read_web_pane:'Read web pane',ingest_url:'Keep web page',mark_disputed:'Memory verdict',citation_check:'Citation check',empty_reply_nudge:'Reply retry'})[call.name] || text(call.name);
+    const label=({search_documents:'Searched documents',search_memory:'Searched memories',read_document:'Read document',read_section:'Read section',read_web_pane:'Read web pane',read_url:'Read page',ingest_url:'Keep web page',mark_disputed:'Memory verdict',citation_check:'Citation check',empty_reply_nudge:'Reply retry'})[call.name] || text(call.name);
     record.append(node('p',label),node('p',call.ts ? dateText(call.ts,true) : 'time not recorded','metadata'));
     if(call.arguments?.query)record.append(node('p',call.arguments.query));
-    if(call.source)record.append(node('p',call.source));
+    if(['read_url','ingest_url','read_web_pane'].includes(call.name)){
+      const raw=typeof call.url==='string'?call.url:call.arguments?.url;
+      if((typeof call.source==='string'&&call.source.trim())||safeUrl(typeof raw==='string'?raw:''))record.append(pageLink(call.source,raw));
+    }else if(call.source)record.append(node('p',call.source));
     if(call.name==='read_web_pane')record.append(node('p',webStatus(turn,call,array(turn.tool_calls).indexOf(call)),'fine'));
     else if(call.name==='ingest_url')record.append(node('p',call.error?'Keeping failed · check the recorded error':call.ok===true?'Kept as a document':'Retention not recorded','fine'));
     else if(['read_document','read_section','search_memory','search_documents'].includes(call.name))record.append(node('p','Read-only · nothing saved by this call','fine'));
@@ -668,7 +692,9 @@ function renderInstruments() {
   });
   }
   section('Recorded details', record => {
-  if(turn.evidence_cards)details(record,'Recorded episode evidence',turn.evidence_cards);
+  const cards=turn.evidence_cards;
+  if(Array.isArray(cards)?cards.length:cards)details(record,'Recorded episode evidence',cards);
+  else record.append(node('p','No episodes recorded yet.','fine'));
   details(record,'Turn record',turn);
   });
   el('recalled').textContent=array(turn.memory_candidates).length;
@@ -694,11 +720,7 @@ async function pollLife() {
     if (!connected || epoch !== authEpoch) return;
     latestLife = life; renderDay(); renderCuriosity();
     el('phase').textContent = phaseLabel(life);
-    for (const [key, value] of [['bored',life.boredom],['tired',life.sleep_pressure]]) {
-      const valid = life.enabled !== false && typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
-      el(key).textContent = valid ? value.toFixed(2) : 'Unavailable';
-      el(key + '-fill').style.width = valid ? value * 100 + '%' : '0';
-    }
+    for (const [key, value] of [['bored',life.boredom],['tired',life.sleep_pressure]]) showDrive(key, value, life.enabled);
   } catch { unavailableLife(); } finally { lifeBusy = false; }
 }
 async function connect() {
@@ -820,9 +842,7 @@ el('close-settings').onclick = () => el('connection-dialog').close();
 el('instruments-toggle').onclick = () => { const open=el('instruments').hidden; setInstruments(open,open&&matchMedia('(max-width:760px)').matches); };
 setInstruments(matchMedia('(min-width:761px)').matches);
 el('date-line').textContent = new Date().toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'});
-for (const stage of ['contact','feeling-tone','recognition','investigate','judge','speech','registered']) {
-  const row=node('div',null,'moment');row.append(node('span',stage),node('span','not yet measured'));el('moments').append(row);
-}
+el('moments').append(node('p',"Not measured yet: the moment-by-moment record (vīthi) isn't wired into chat turns (backlog X2).",'fine'));
 showId(); render(); controls();
 connect();
 setInterval(pollLife, 30000);
