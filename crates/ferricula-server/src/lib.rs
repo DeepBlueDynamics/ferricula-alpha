@@ -32,6 +32,7 @@ pub mod nutnews;
 pub mod nutnews_events;
 pub mod persona;
 pub mod recall;
+pub mod recall_overlay;
 pub mod runtime;
 pub mod sleep_cycle;
 

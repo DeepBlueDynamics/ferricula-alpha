@@ -74,6 +74,7 @@ impl ChatStore {
             }
         }
         let store = Self { path, turns: Mutex::new(turns), admission: Arc::new(Semaphore::new(1)) };
+        crate::recall_overlay::install(crate::recall_overlay::RecallOverlay::open(state_dir)?);
         if store.path.exists() {
             store.save(&store.turns.lock().expect("chat store poisoned"))?;
         }
@@ -154,6 +155,9 @@ impl AgentRuntime {
             v["arms"] = json!(c.arms);
             if let Some(d) = c.dense_score {
                 v["dense_score"] = json!((d * 1e4).round() / 1e4);
+            }
+            if let Some(fid) = c.effective_fidelity {
+                v["effective_fidelity"] = json!((fid * 1e4).round() / 1e4);
             }
             v
         }).collect());
@@ -477,6 +481,11 @@ impl AgentRuntime {
                         Err(error) => eprintln!("chat: remembering the turn failed: {error:#}"),
                     }
                 }
+                if let Some(overlay) = crate::recall_overlay::installed() {
+                    if let Err(error) = record_cited_recalls(&overlay, &reply, &turn.memory_candidates, now()) {
+                        eprintln!("chat: recall overlay: {error:#}");
+                    }
+                }
                 turn.reply = Some(reply);
             }
             failure => {
@@ -727,6 +736,68 @@ fn bounded_candidates(value: &Value, byte_budget: usize) -> String {
     json!({"omitted_count": items.len() - selected.len(), "candidates": selected}).to_string()
 }
 
+/// Ids named as `[memory N]` in a completed reply, in order, once each.
+fn cited_memory_ids(reply: &str) -> Vec<u32> {
+    let mut ids = Vec::new();
+    let mut rest = reply;
+    while let Some(at) = rest.find("[memory ") {
+        rest = &rest[at + "[memory ".len()..];
+        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if digits.is_empty() || !rest[digits.len()..].starts_with(']') {
+            continue;
+        }
+        if let Ok(id) = digits.parse::<u32>() {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+    }
+    ids
+}
+
+/// `m:<id>` or `x:<id>` when this turn showed that candidate. A cited id
+/// the model was not shown, or a document, is not a recall.
+fn overlay_key_for(candidates: &Value, id: u32) -> Option<String> {
+    let items = candidates.as_array()?;
+    let want = u64::from(id);
+    for item in items {
+        if item.get("id").and_then(Value::as_u64) == Some(want) {
+            return key_for_kind(item.get("kind").and_then(Value::as_str), id);
+        }
+        if let Some(dups) = item.get("duplicates").and_then(Value::as_array) {
+            for dup in dups {
+                if dup.get("id").and_then(Value::as_u64) == Some(want) {
+                    return key_for_kind(dup.get("kind").and_then(Value::as_str), id);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn key_for_kind(kind: Option<&str>, id: u32) -> Option<String> {
+    match kind {
+        Some("memory") => Some(format!("m:{id}")),
+        Some("experience") => Some(format!("x:{id}")),
+        _ => None,
+    }
+}
+
+/// Record each memory this reply actually cited. Showing a candidate is
+/// not a recall. The overlay file is the only write.
+fn record_cited_recalls(
+    overlay: &crate::recall_overlay::RecallOverlay,
+    reply: &str,
+    candidates: &Value,
+    now: u64,
+) -> Result<()> {
+    for id in cited_memory_ids(reply) {
+        let Some(key) = overlay_key_for(candidates, id) else { continue };
+        overlay.record(&key, now)?;
+    }
+    Ok(())
+}
+
 /// Display ranking for memory-hit JSON already built for this turn.
 /// Identical `tags.text` within one `kind` keeps the first (best-ranked)
 /// row and lists each dropped row as `{ "id", "kind" }`. A recovered
@@ -815,6 +886,32 @@ mod tests {
         assert_eq!(out[2]["id"], json!(11));
         assert_eq!(out[2]["kind"], json!("experience"));
         assert_eq!(out[2]["duplicates"], json!([{"id": 12, "kind": "experience"}]));
+    }
+
+    #[test]
+    fn a_citation_is_a_recall_and_a_shown_candidate_is_not() {
+        let root = std::env::temp_dir().join(format!("ferricula-cite-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let overlay = crate::recall_overlay::RecallOverlay::open(&root).unwrap();
+        let candidates = json!([
+            {"id": 3, "kind": "memory", "duplicates": [{"id": 9, "kind": "memory"}]},
+            {"id": 2147483649u64, "kind": "experience"},
+            {"id": 4, "kind": "document_section"}
+        ]);
+        let reply = "See [memory 3] and again [memory 3], plus [memory 9] and [memory 2147483649]. Not [memory 4] or [memory 99].";
+        record_cited_recalls(&overlay, reply, &candidates, 1_700_000_000).unwrap();
+        record_cited_recalls(&overlay, reply, &candidates, 1_700_000_050).unwrap();
+        assert_eq!(overlay.get("m:3").unwrap().recalls, 2);
+        assert_eq!(overlay.get("m:9").unwrap().recalls, 2);
+        assert_eq!(overlay.get("x:2147483649").unwrap().last_recalled, 1_700_000_050);
+        assert!(overlay.get("m:4").is_none());
+        assert!(overlay.get("m:99").is_none());
+        assert_eq!(cited_memory_ids("no cite"), Vec::<u32>::new());
+        assert_eq!(cited_memory_ids("[memory] [memory x] [memory 12]"), vec![12]);
+        drop(overlay);
+        let again = crate::recall_overlay::RecallOverlay::open(&root).unwrap();
+        assert_eq!(again.recalls("m:3"), 2);
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

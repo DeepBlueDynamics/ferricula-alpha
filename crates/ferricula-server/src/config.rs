@@ -701,11 +701,29 @@ pub struct RecallConfig {
     /// (`hearing`: what the operator said; `thinking`: what the agent
     /// said), so later conversations can recall it.
     pub remember_turns: bool,
+    /// Strengthening. A cited memory's fused score gains `s * ln(1 + recalls)`.
+    pub s: f64,
+    /// Fading. A memory's fused score loses `f * age_days / (age_days + h)`.
+    /// This changes rank only. It never changes text and never deletes.
+    pub f: f64,
+    /// Age in days at which fading is halfway to `f`. The term saturates at `f`.
+    pub h: f64,
 }
 
 impl Default for RecallConfig {
     fn default() -> Self {
-        Self { include_faded_recovered: false, dense_k: 24, graph_seeds: 3, graph_weight: 0.5, lexical_weight: 0.5, dense_guarantee: 2, remember_turns: true }
+        Self {
+            include_faded_recovered: false,
+            dense_k: 24,
+            graph_seeds: 3,
+            graph_weight: 0.5,
+            lexical_weight: 0.5,
+            dense_guarantee: 2,
+            remember_turns: true,
+            s: crate::recall_overlay::DEFAULT_S,
+            f: crate::recall_overlay::DEFAULT_F,
+            h: crate::recall_overlay::DEFAULT_H,
+        }
     }
 }
 
@@ -726,6 +744,16 @@ impl RecallConfig {
         if !(0.0..=1.0).contains(&self.graph_weight) {
             bail!("recall.graph_weight must be in 0..=1");
         }
+        if !self.s.is_finite() || self.s < 0.0 {
+            bail!("recall.s must be a finite number >= 0");
+        }
+        if !self.f.is_finite() || self.f < 0.0 {
+            bail!("recall.f must be a finite number >= 0");
+        }
+        if !self.h.is_finite() || self.h <= 0.0 {
+            bail!("recall.h must be a finite number > 0");
+        }
+        crate::recall_overlay::set_strength(self.s, self.f, self.h);
         Ok(())
     }
 }
