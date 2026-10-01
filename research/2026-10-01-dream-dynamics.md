@@ -3,7 +3,7 @@
 **Date:** 2026-10-01  
 **Base:** `v3/r0` at `b22fcbd`  
 **Scope:** Architectural research note evaluating V-JEPA 2 (arXiv:2506.09985) style forecasting over memory graph edge dynamics during dream cycles.  
-**Deliverable:** Specification and decision brief for Kord and Steve. Incorporates fleet critiques and Astra's refinements. No code changes in this branch.
+**Deliverable:** Specification and decision brief for Kord and Steve. Incorporates fleet critiques, Astra's refinements, and Steve's review. No code changes in this branch.
 
 ---
 
@@ -31,6 +31,7 @@ let prime_tree = PrimeTree::default();
 - `MemoryGraph::new()` (`crates/ferricula-core/src/graph.rs:64-67`) instantiates an empty graph with `edge_dynamics: HashMap::new()`.
 - While `graph.load_edges()` populates topological edges (`crates/ferricula-core/src/graph.rs:73-94`), it **does not load edge dynamics history**. As explicitly documented in `crates/ferricula-core/src/graph.rs:59-60`:
   > `/// NOT currently persisted across snapshots (cleared on restart; treat as recovered after a few dream cycles).`
+- `let mut skg = SkgState::default();` at `crates/ferricula-server/src/life.rs:1012` is also fresh scratch every cycle: term pair dynamics are similarly discarded upon cycle completion unless persisted into `bhavana-state.json`. Same problem, same fix.
 - Because `graph` is a scratch local variable dropped at the conclusion of `life_bhavana` (`crates/ferricula-server/src/life.rs:1049`), all observations recorded during a dream cycle are discarded. In the running server, edge history **never exceeds 1 observation**.
 - In `crates/ferricula-core/src/skg.rs:103-149`:
   - `velocity()` requires $\ge 2$ entries (`skg.rs:104`).
@@ -107,8 +108,14 @@ For any predictive forecaster to be meaningful, the observation series $s(t)$ mu
 | **D. Thermodynamic Fidelity Decay ($s \cdot \sqrt{f_a f_b}$)** | Bookkeeping (Thermodynamics) | $\hat{s}_{t+1}$ predicts compound relational survival of memories under differential decay ($\alpha$) and consolidation depth. | Negligible: evaluate $s(t) = s_{\text{cos}} \cdot \sqrt{f_a(t) f_b(t)}$ where $f_i$ is `MemoryRecord.fidelity` (`crates/ferricula-core/src/memory.rs:24`). Fully deterministic kinetics. |
 | **E. Re-Embedding / Representation Drift** | Representation Dynamics | $\hat{s}_{t+1}$ predicts drift in semantic representation space (e.g. fine-tuning, adapter updates, embedding model migrations). | High: periodic forward passes through local embedders. With frozen upstream models, representation drift is zero. |
 
-### Crucial Insight
-A predictor trained on (C) or (D) does **not** learn semantic latent physics (like V-JEPA does on video patches); it learns the mathematical consequences of Ferricula's own scoring and decay formulas.
+### Crucial Insight: What Stochasticity Justifies Learning?
+Fidelity decay (Option D) is a closed-form formula written into code ($\text{fidelity} \times e^{-\alpha}$). A purely deterministic signal admits a closed-form analytical forecaster (Taylor / exponential); training a learned neural head on it is pure "jewelry."
+
+Only genuinely stochastic inputs justify a learned model:
+- **Radio entropy fluctuations** driving candidate sampling (`crates/ferricula-cognition/src/clock.rs` / `dream.rs:276-293`).
+- **Operator conversational recall patterns** and emergent co-activations (Option C).
+
+If there is no stochastic driver in the dynamics, skip the learned head entirely and retain the closed-form predictor.
 
 ---
 
@@ -123,7 +130,7 @@ Following the critique and Astra's refinements, we establish a strict 4-phase ev
 
 ### 3.1 Phase A: Confirm and Ground Dynamic Observations
 1. **Hydrate vectors in `life.rs`**: In `crates/ferricula-server/src/life.rs:1004-1009`, look up vectors in `self.meaning.index` so `engine` receives non-empty vectors for experience rows.
-2. **Persist edge history**: In `crates/ferricula-server/src/life.rs:1015-1027`, include `edge_dynamics` in `BhavanaState` (`life/bhavana-state.json`) so histories accumulate across dream cycles up to `HISTORY_CAP = 16` (`crates/ferricula-core/src/skg.rs:40`).
+2. **Persist edge history**: In `crates/ferricula-server/src/life.rs:1015-1027`, include `edge_dynamics` and `skg` in `BhavanaState` (`life/bhavana-state.json`) so histories accumulate across dream cycles up to `HISTORY_CAP = 16` (`crates/ferricula-core/src/skg.rs:40`).
 3. **Define a dynamic observation**: In `crates/ferricula-cognition/src/dream.rs:335-342`, make `sim` dynamic by folding in fidelity or co-activation:
    $$s_{\text{observed}}(t) = s_{\text{cosine}}(a, b) \times \sqrt{f_a(t) \cdot f_b(t)}$$
 4. **Log coverage and missingness**: Record whether an observation was taken, skipped (not sampled), or right-censored (`edges_created >= max_edges`).
@@ -177,22 +184,27 @@ The dream cycle may only consult forecasters for structural graph decisions afte
 
 These architectural decisions govern the scope and philosophy of dream dynamics; they are highlighted for decision, not decided here:
 
-1. **Representation Drift vs. Cognitive Bookkeeping**:
-   - *Question:* Should Ferricula's dream predictor aim to forecast shifts in semantic representation space (which requires periodically re-embedding text or training dynamic adapters), or should it explicitly forecast the dynamics of the agent's cognitive graph (Hebbian co-activation, retrieval priority, and thermodynamic decay)?
-   - *Context:* If the latter, framing this as "V-JEPA 2" is an analogy to visual patch latents; in practice, it is an autoregressive forecaster over a scalar relational graph.
+### Decision 0 (Gating Decision): Durable Consolidation Write-Back
+- *Question:* Should consolidation and edge discovery have a durable write path at all?
+- *Context:* Today, the dream phase discards everything it discovers: `crates/ferricula-server/src/life.rs:1041` explicitly reports `"committed_to_store": false`, and line 1047 reports `"edges_created_in_scratch": report.edges_created`. Edges discovered during Phase 3.5 are born and die in a single scratch cycle. If discovered edges are never committed back to durable storage (`self.experience().edges()`), forecasting and actuating on them is moot. Resolving durable write-back is the prerequisite gating decision before any predictive actuation phase.
 
-2. **Durable Home for Edge Dynamics**:
-   - *Question:* Should `edge_dynamics` history be persisted inside `life/bhavana-state.json` (as part of the cognition/life runtime state), or should it be stored in `MemoryGraph` inside the core database / engine persistence (`crates/ferricula-core/src/persist.rs`)?
-   - *Trade-off:* State JSON keeps it isolated to cognitive dreaming without modifying the core storage format; core persistence ensures edge history survives across all client types and CLI tools.
+### Decision 1: What Stochasticity Justifies Learning?
+- *Question:* What stochastic dynamics exist in the agent that justify a learned predictor over a closed-form Taylor or exponential model?
+- *Context:* If edge variance is driven solely by deterministic fidelity decay formulas, closed-form extrapolation is exact. Only stochastic drivers (operator conversational recall patterns, unpredictable task co-occurrences, or entropy seeds) justify training a learned head. If those are absent, skip the learned head.
 
-3. **Hydration Path for Dream Vectors**:
-   - *Question:* How should `life_bhavana` obtain vectors for experience rows?
-   - *Option A:* Populate `engine.vector` directly from `MeaningPlane::index` during the scratch setup in `life.rs:1001-1009`.
-   - *Option B:* Refactor `bhavana_cycle` to take `&MeaningIndex` directly as an explicit sense door parameter rather than relying on `Engine`'s internal vector table.
+### Decision 2: Durable Home for Edge Dynamics
+- *Question:* Should `edge_dynamics` history be persisted inside `life/bhavana-state.json` (as part of the cognition/life runtime state), or should it be stored in `MemoryGraph` inside the core database / engine persistence (`crates/ferricula-core/src/persist.rs`)?
+- *Trade-off:* State JSON keeps it isolated to cognitive dreaming without modifying the core storage format; core persistence ensures edge history survives across all client types and CLI tools.
 
-4. **Time Metric for Edge Velocity ($\Delta t$)**:
-   - *Question:* In `crates/ferricula-core/src/skg.rs:109,126`, $\Delta t$ is computed from `u64` tick timestamps (`dt = t2 - t1`). When dream cycles occur at irregular wall-clock intervals (or during catch-up wakeups), should $\Delta t$ be measured in wall-clock seconds (`now_epoch()`), or in integer dream cycle ordinal counts ($k, k+1, k+2$)?
-   - *Trade-off:* Wall-clock seconds accurately reflect real-world decay intervals; discrete cycle counts prevent numerical instability when dream cycles run in rapid succession during testing or catch-up.
+### Decision 3: Hydration Path for Dream Vectors
+- *Question:* How should `life_bhavana` obtain vectors for experience rows?
+- *Option A:* Populate `engine.vector` directly from `MeaningPlane::index` during the scratch setup in `life.rs:1001-1009`.
+- *Option B:* Refactor `bhavana_cycle` to take `&MeaningIndex` directly as an explicit sense door parameter rather than relying on `Engine`'s internal vector table.
+- *Steve's leaning:* Steve favours **Option B**, making the sense door dependency explicit and avoiding hidden hydration mutations inside `Engine`.
 
-5. **Threshold and Outcome Criterion for Predictive Actuation**:
-   - *Question:* What specific metric and statistical threshold over the Taylor baseline ($s + v\Delta t + \frac{1}{2}a\Delta t^2$) will be required, and what downstream evaluation task will serve as the separate outcome criterion before learned forecasts can drive edge creation?
+### Decision 4: Time Metric for Edge Velocity ($\Delta t$)
+- *Question:* In `crates/ferricula-core/src/skg.rs:109,126`, $\Delta t$ is computed from `u64` tick timestamps (`dt = t2 - t1`). When dream cycles occur at irregular wall-clock intervals (or during catch-up wakeups), should $\Delta t$ be measured in wall-clock seconds (`now_epoch()`), or in integer dream cycle ordinal counts ($k, k+1, k+2$)?
+- *Steve's leaning:* Steve favours **cycle ordinals**, because `skg.rs:110-111, 128` explicitly returns `None` whenever $\Delta t < \epsilon$, which routinely occurs with wall-clock seconds during rapid test runs, bursts, or catch-up cycles.
+
+### Decision 5: Threshold and Outcome Criterion for Predictive Actuation
+- *Question:* What specific metric and statistical threshold over the Taylor baseline ($s + v\Delta t + \frac{1}{2}a\Delta t^2$) will be required, and what downstream evaluation task will serve as the separate outcome criterion before learned forecasts can drive edge creation?
