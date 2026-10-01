@@ -103,11 +103,11 @@ impl AuthIdentity {
     }
 
     pub fn is_operator(&self) -> bool {
-        self.role == "operator" || self.via == "static" || self.via == "session"
+        self.role == "operator"
     }
 
     pub fn is_reader(&self) -> bool {
-        self.role == "reader" && !self.is_operator()
+        self.role == "reader"
     }
 }
 
