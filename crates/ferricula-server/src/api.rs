@@ -91,6 +91,9 @@ pub fn router(runtime: Arc<AgentRuntime>) -> Router {
         .route("/settings/jev/probe", post(jev_probe))
         .route("/settings/discord/channels", get(discord_channels))
         .route("/wisdom/preview", post(wisdom_preview))
+        // Guard the layer: all routes MUST be registered above this csrf_middleware layer.
+        // In axum, Router::layer() only wraps routes added prior to the layer call.
+        // Any route registered after this layer would bypass CSRF protection.
         .layer(from_fn_with_state(runtime.clone(), csrf_middleware))
         .with_state(runtime)
 }

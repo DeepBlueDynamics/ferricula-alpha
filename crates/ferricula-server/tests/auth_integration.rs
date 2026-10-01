@@ -1232,4 +1232,70 @@ async fn test_csrf_protection_for_cookie_session_and_bearer_exemption() {
         .await
         .unwrap();
     assert_eq!(res_get_talk.status(), StatusCode::OK);
+
+    // 9. Pin the auth ordering: valid session cookie + junk Bearer + evil Origin on a POST gives 403.
+    // The defence depends on check_authorization evaluating the cookie branch before the bearer branch.
+    let res_junk_bearer_evil = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/mode")
+                .header(header::COOKIE, format!("ferricula_session={nav_session_id}"))
+                .header(header::AUTHORIZATION, "Bearer junk-unauthorized-bearer-token")
+                .header(header::HOST, "127.0.0.1:18875")
+                .header(header::ORIGIN, "http://evil.com")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::json!({"mode": "awake"}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_junk_bearer_evil.status(), StatusCode::FORBIDDEN);
+    let body_bytes = axum::body::to_bytes(res_junk_bearer_evil.into_body(), usize::MAX).await.unwrap();
+    let body_json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(body_json["error"], "cross-origin request forbidden");
+
+    // 10. Guard the layer: a POST to a sample of routes (including /mcp and /auth/logout)
+    // with a cookie and an evil Origin gets 403, verifying that all routes are wrapped by csrf_middleware.
+    let sample_routes = [
+        "/mcp",
+        "/auth/logout",
+        "/control/mode",
+        "/chat",
+        "/documents",
+        "/memory/recall",
+        "/life/meditate",
+        "/settings/jev",
+    ];
+
+    for route in sample_routes {
+        let res_sampled = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(route)
+                    .header(header::COOKIE, format!("ferricula_session={nav_session_id}"))
+                    .header(header::HOST, "127.0.0.1:18875")
+                    .header(header::ORIGIN, "http://evil.com")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            res_sampled.status(),
+            StatusCode::FORBIDDEN,
+            "route {route} must be protected by csrf_middleware"
+        );
+        let bytes = axum::body::to_bytes(res_sampled.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            json["error"],
+            "cross-origin request forbidden",
+            "route {route} must return cross-origin request forbidden"
+        );
+    }
 }

@@ -624,6 +624,10 @@ impl AuthManager {
                 }
 
                 // 2. Session cookie match
+                // Auth ordering note: cookie authentication MUST be evaluated before the
+                // bearer JWT/AHP branch (step 3). If bearer was evaluated first, an attacker
+                // forging a cross-origin request could bypass CSRF protection on a valid cookie
+                // session simply by supplying a junk Bearer token.
                 if let Some(session_id) = cookie_session_id {
                     if let Some(session) = self.sessions.get_session(session_id) {
                         if self.is_operator(&session.user_id) {
@@ -655,6 +659,10 @@ impl AuthManager {
             }
             AuthMode::Nuts => {
                 // Static token disabled
+                // Auth ordering note: cookie authentication MUST be evaluated before the
+                // bearer JWT/AHP branch. If bearer was evaluated first, an attacker
+                // forging a cross-origin request could bypass CSRF protection on a valid cookie
+                // session simply by supplying a junk Bearer token.
                 if let Some(session_id) = cookie_session_id {
                     if let Some(session) = self.sessions.get_session(session_id) {
                         if self.is_operator(&session.user_id) {
