@@ -74,7 +74,7 @@ COPY --from=builder /usr/local/bin/ferricula-server /usr/local/bin/ferricula-ser
 COPY <<'EOF' /usr/local/bin/ferricula-entrypoint
 #!/bin/sh
 set -eu
-for name in FERRICULA_OPERATOR_TOKEN NUTNEWS_TOKEN ANTHROPIC_API_KEY OPENAI_API_KEY HYPERIA_TOKEN AGENTMAIL_API_KEY ${FERRICULA_SECRET_ENV:-}; do
+for name in FERRICULA_OPERATOR_TOKEN NUTNEWS_TOKEN ANTHROPIC_API_KEY OPENAI_API_KEY HYPERIA_TOKEN AGENTMAIL_API_KEY DISCORD_BOT_TOKEN ${FERRICULA_SECRET_ENV:-}; do
     case "$name" in
         *[!A-Za-z0-9_]*|[0-9]*) echo "refusing to start: invalid secret variable name $name" >&2; exit 1 ;;
     esac

@@ -82,6 +82,8 @@ pub struct RuntimeConfig {
     pub hyperia: HyperiaConfig,
     /// `[email]`: AgentMail inbox tools. Active only when `AGENTMAIL_API_KEY` is set.
     pub email: crate::email::EmailConfig,
+    /// `[discord]`: notices to Discord rooms. Active only when `DISCORD_BOT_TOKEN` is set.
+    pub discord: crate::discord::DiscordConfig,
     /// How the agent names its operator in conversation memories
     /// ("<operator_name> said: ..."). Persona-neutral default.
     pub operator_name: String,
@@ -312,6 +314,7 @@ impl Default for RuntimeConfig {
             recall: RecallConfig::default(),
             hyperia: HyperiaConfig::default(),
             email: crate::email::EmailConfig::default(),
+            discord: crate::discord::DiscordConfig::default(),
             operator_name: "The operator".into(),
             auth: AuthConfig::default(),
         }

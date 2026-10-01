@@ -719,6 +719,8 @@ impl AgentRuntime {
                                 let novelty = if outcome.duplicate { 0.2 } else { 1.0 };
                                 self.life_apply(&Stimulus::Sense { novelty });
                                 doc_ids.push(outcome.doc_id.clone());
+                                self.discord_page_read("curiosity", &outcome.title, &url,
+                                    Some(&format!("Following his curiosity: searched for \"{query}\"")));
                                 ingested.push(json!({
                                     "url": url, "doc_id": outcome.doc_id, "title": outcome.title,
                                     "sections": outcome.sections, "duplicate": outcome.duplicate,

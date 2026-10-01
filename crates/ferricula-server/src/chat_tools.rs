@@ -684,6 +684,7 @@ impl AgentRuntime {
         };
         let page = crate::hyperia::web_pane_content(&cfg.url, &token, id).map_err(|e| error(format!("{e:#}")))?;
         let markdown = page["markdown"].as_str().unwrap_or("");
+        self.discord_page_read("read_web_pane", page["title"].as_str().unwrap_or(""), page["url"].as_str().unwrap_or(""), None);
         let text = crate::recall::truncate_bytes(markdown, READ_WEB_PANE_BYTES.min(room.saturating_sub(600)).max(400));
         Ok(json!({
             "tool": "read_web_pane",
@@ -714,6 +715,7 @@ impl AgentRuntime {
             .map_err(|e| error(format!("could not read {url}: {e:#}")))?;
         let full = page.pages.join("\n\n");
         let text = crate::recall::truncate_bytes(&full, READ_WEB_PANE_BYTES.min(room.saturating_sub(600)).max(400));
+        self.discord_page_read("read_url", &page.title, &page.origin, None);
         Ok(json!({
             "tool": "read_url",
             "corpus": "web",
@@ -743,6 +745,7 @@ impl AgentRuntime {
         let outcome = self.ingest_blocking(ferricula_ingest::Source::Url { url: url.to_string() },
             Some(format!("I chose to read this: {reason}")))
             .map_err(|e| error(format!("could not ingest {url}: {e:#}")))?;
+        self.discord_page_read("ingest_url", &outcome.title, url, Some(reason));
         Ok(json!({
             "tool": "ingest_url",
             "ok": true,

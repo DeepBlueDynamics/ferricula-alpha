@@ -88,6 +88,7 @@ pub fn router(runtime: Arc<AgentRuntime>) -> Router {
         .route("/settings", get(|| async { axum::response::Html(include_str!("settings.html")) }))
         .route("/settings/jev", get(jev_status).post(jev_update))
         .route("/settings/jev/probe", post(jev_probe))
+        .route("/settings/discord/channels", get(discord_channels))
         .route("/wisdom/preview", post(wisdom_preview))
         .with_state(runtime)
 }
@@ -672,6 +673,18 @@ async fn jev_update(
 ) -> ApiResult<Value> {
     require_operator(&runtime, &headers)?;
     runtime.jev_update(update).map(Json).map_err(bad_request)
+}
+
+/// `GET /settings/discord/channels`: every text channel the bot can see,
+/// with ids, for the `[discord] channels` map (never the token).
+async fn discord_channels(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    let cfg = runtime.config.discord.clone();
+    let listed = tokio::task::spawn_blocking(move || crate::discord::list_channels(&cfg)).await.map_err(internal)?;
+    match listed {
+        Ok(rows) => Ok(Json(json!({ "channels": rows.into_iter().map(|(server, name, id)| json!({ "server": server, "channel": name, "id": id })).collect::<Vec<_>>() }))),
+        Err(error) => Ok(Json(json!({ "error": format!("{error:#}") }))),
+    }
 }
 
 /// `POST /settings/jev/probe`: one live call on fixed non-private text.

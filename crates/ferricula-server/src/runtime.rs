@@ -562,6 +562,7 @@ pub struct AgentRuntime {
     meaning: meaning_plane::MeaningPlane,
     pub(crate) jev: crate::jev::JevPlane,
     pub(crate) email: crate::email::EmailPlane,
+    pub(crate) discord: crate::discord::DiscordPlane,
 }
 
 impl AgentRuntime {
@@ -725,6 +726,7 @@ impl AgentRuntime {
         let runtime = Arc::new(Self {
             jev,
             email: crate::email::EmailPlane::default(),
+            discord: crate::discord::DiscordPlane::default(),
             auth,
             chat,
             documents,
