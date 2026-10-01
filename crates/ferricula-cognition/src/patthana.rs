@@ -5,6 +5,10 @@
 //! each event maps to the condition it instantiates (research/10). Edges
 //! proposed from similarity alone are hypotheses until a gate or the
 //! operator confirms them.
+//!
+//! `LinkEvent::condition` and `DreamPool::link_event` apply only when a
+//! new link is created. An edge or memory row already stored keeps the
+//! label it was written with. Nothing here rewrites either.
 
 use serde::{Deserialize, Serialize};
 
@@ -67,7 +71,39 @@ impl Paccaya {
     }
 }
 
+/// Which pool a new dream link is drawn from.
+///
+/// A distant recovered trace and today's residue each name a condition.
+/// An unresolved observation names none, so no paccaya edge is created.
+/// Picking a pool does not rewrite an edge or a memory row already stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DreamPool {
+    /// A distant recovered trace.
+    Distant,
+    /// Today's residue.
+    Residue,
+    /// An unresolved observation.
+    Unresolved,
+}
+
+impl DreamPool {
+    /// Event for a new dream link from this pool.
+    ///
+    /// `None` means write no paccaya edge.
+    pub fn link_event(self) -> Option<LinkEvent> {
+        match self {
+            DreamPool::Distant => Some(LinkEvent::DreamedFromDistant),
+            DreamPool::Residue => Some(LinkEvent::DreamedFromResidue),
+            DreamPool::Unresolved => None,
+        }
+    }
+}
+
 /// Runtime events that create edges, and the condition each instantiates.
+///
+/// `condition` is the mapping for a new link. It does not rewrite an edge
+/// or a memory row that is already stored; those keep the label they were
+/// written with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LinkEvent {
@@ -81,8 +117,10 @@ pub enum LinkEvent {
     RecalledTogether,
     /// Two memories recalled together again (repetition).
     RecalledTogetherAgain,
-    /// A dream built from these traces.
-    DreamedFrom,
+    /// A dream built from a distant recovered trace.
+    DreamedFromDistant,
+    /// A dream built from today's residue.
+    DreamedFromResidue,
     /// The next turn of a conversation.
     NextTurn,
     /// Cosine-near but never co-recalled: a hypothesis, not a fact.
@@ -105,15 +143,20 @@ impl LinkEvent {
         match self {
             CuriosityFromThread => Paccaya::Hetu,
             ReadFrom => Paccaya::Arammana,
-            ReflectedOn => Paccaya::Nissaya,
+            ReflectedOn => Paccaya::Purejata,
             RecalledTogether => Paccaya::Atthi,
             RecalledTogetherAgain => Paccaya::Asevana,
-            DreamedFrom => Paccaya::Upanissaya,
+            DreamedFromDistant => Paccaya::Upanissaya,
+            DreamedFromResidue => Paccaya::Purejata,
             NextTurn => Paccaya::Anantara,
             SimilarityHypothesis => Paccaya::Sampayutta,
             ConsolidatedInto => Paccaya::Annamanna,
             AfterRelease => Paccaya::Vigata,
             Disputes => Paccaya::Arammana,
+            // TODO(Kord): research/2026-10-01-abhidhamma-fidelity.md §7.2
+            // says a verdict superseding a memory is UNSUPPORTED and must
+            // not emit adhipati. What Supersedes should emit instead is
+            // undecided. This arm stays Adhipati until that decision.
             Supersedes => Paccaya::Adhipati,
         }
     }
@@ -145,5 +188,26 @@ mod tests {
         assert_eq!(LinkEvent::RecalledTogetherAgain.condition(), Paccaya::Asevana);
         assert!(LinkEvent::SimilarityHypothesis.is_hypothesis());
         assert!(!LinkEvent::ReadFrom.is_hypothesis());
+    }
+
+    #[test]
+    fn new_links_map_reflections_and_dream_pools_supersedes_unchanged() {
+        assert_eq!(LinkEvent::ReflectedOn.condition(), Paccaya::Purejata);
+
+        assert_eq!(LinkEvent::DreamedFromDistant.condition(), Paccaya::Upanissaya);
+        assert_eq!(
+            DreamPool::Distant.link_event().map(LinkEvent::condition),
+            Some(Paccaya::Upanissaya),
+        );
+
+        assert_eq!(LinkEvent::DreamedFromResidue.condition(), Paccaya::Purejata);
+        assert_eq!(
+            DreamPool::Residue.link_event().map(LinkEvent::condition),
+            Some(Paccaya::Purejata),
+        );
+
+        assert_eq!(DreamPool::Unresolved.link_event(), None);
+
+        assert_eq!(LinkEvent::Supersedes.condition(), Paccaya::Adhipati);
     }
 }
