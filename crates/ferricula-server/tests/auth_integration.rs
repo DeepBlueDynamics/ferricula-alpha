@@ -1172,4 +1172,64 @@ async fn test_csrf_protection_for_cookie_session_and_bearer_exemption() {
         .await
         .unwrap();
     assert_eq!(res_logout_ok.status(), StatusCode::OK);
+
+    // 8. Safe methods (GET, HEAD, OPTIONS) are exempt from CSRF:
+    // Create an active session (since raw_session_id was logged out above)
+    let (nav_session_id, _) = runtime
+        .auth
+        .create_session(
+            KORD_USER_ID,
+            "kord@test.org",
+            Some("Kord"),
+            "nuts-auth",
+            now_secs() + 3600,
+        )
+        .unwrap();
+
+    // 8a. GET /settings with cookie session and NO Origin and NO Referer gives 200 OK (page loads on plain navigation)
+    let res_get_settings = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/settings")
+                .header(header::COOKIE, format!("ferricula_session={nav_session_id}"))
+                .header(header::HOST, "127.0.0.1:18875")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_get_settings.status(), StatusCode::OK);
+    let settings_html = axum::body::to_bytes(res_get_settings.into_body(), usize::MAX).await.unwrap();
+    assert!(String::from_utf8_lossy(&settings_html).to_lowercase().contains("<!doctype html>"));
+
+    // 8b. GET /life with cookie session and NO Origin and NO Referer gives 200 OK
+    let res_get_life = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/life")
+                .header(header::COOKIE, format!("ferricula_session={nav_session_id}"))
+                .header(header::HOST, "127.0.0.1:18875")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_get_life.status(), StatusCode::OK);
+
+    // 8c. Plain navigation to GET /talk loads without error
+    let res_get_talk = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/talk")
+                .header(header::COOKIE, format!("ferricula_session={nav_session_id}"))
+                .header(header::HOST, "127.0.0.1:18875")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_get_talk.status(), StatusCode::OK);
 }
