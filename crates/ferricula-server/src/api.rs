@@ -1071,7 +1071,11 @@ fn require_operator_identity(
     match runtime.auth.check_authorization(bearer, cookie_session, expected_static.as_deref()) {
         crate::auth::AuthCheckResult::Authorized(identity) => {
             if identity.via_cookie {
-                if let Err(csrf_err) = crate::auth::verify_csrf(headers) {
+                if let Err(csrf_err) = crate::auth::verify_csrf(
+                    headers,
+                    runtime.auth.config.trust_proxy,
+                    runtime.auth.config.public_url.as_deref(),
+                ) {
                     return Err((
                         StatusCode::FORBIDDEN,
                         Json(json!({ "error": csrf_err })),
@@ -1227,6 +1231,16 @@ async fn auth_logout(
     headers: HeaderMap,
 ) -> Result<axum::response::Response, ApiError> {
     if let Some(session_id) = crate::auth::extract_session_cookie(&headers) {
+        if let Err(csrf_err) = crate::auth::verify_csrf(
+            &headers,
+            runtime.auth.config.trust_proxy,
+            runtime.auth.config.public_url.as_deref(),
+        ) {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": csrf_err })),
+            ));
+        }
         runtime.auth.delete_session(session_id);
     }
     let is_secure = is_secure_connection(&runtime, &headers);

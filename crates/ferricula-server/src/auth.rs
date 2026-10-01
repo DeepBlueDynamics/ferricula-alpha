@@ -810,35 +810,76 @@ pub fn format_clear_session_cookie(is_secure: bool) -> String {
     )
 }
 
-pub fn verify_csrf(headers: &HeaderMap) -> Result<(), &'static str> {
-    if let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
+pub fn verify_csrf(
+    headers: &HeaderMap,
+    trust_proxy: bool,
+    public_url: Option<&str>,
+) -> Result<(), &'static str> {
+    let expected_host = if trust_proxy {
+        if let Some(fwd_host) = headers
+            .get("x-forwarded-host")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.split(',').next().unwrap_or(s).trim())
+            .filter(|s| !s.is_empty())
+        {
+            fwd_host
+        } else if let Some(pub_url) = public_url {
+            let h = pub_url
+                .trim_start_matches("https://")
+                .trim_start_matches("http://")
+                .split('/')
+                .next()
+                .unwrap_or_default();
+            if h.is_empty() {
+                let Some(host) = headers.get(header::HOST).and_then(|v| v.to_str().ok()) else {
+                    return Err("missing host header");
+                };
+                host
+            } else {
+                h
+            }
+        } else {
+            let Some(host) = headers.get(header::HOST).and_then(|v| v.to_str().ok()) else {
+                return Err("missing host header");
+            };
+            host
+        }
+    } else {
         let Some(host) = headers.get(header::HOST).and_then(|v| v.to_str().ok()) else {
             return Err("missing host header");
         };
+        host
+    };
+
+    if expected_host.is_empty() {
+        return Err("missing host header");
+    }
+
+    if let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
         let origin_host = origin
             .trim_start_matches("https://")
             .trim_start_matches("http://")
             .split('/')
             .next()
             .unwrap_or_default();
-        if !origin_host.eq_ignore_ascii_case(host) {
+        if !origin_host.eq_ignore_ascii_case(expected_host) {
             return Err("cross-origin request forbidden");
         }
+        Ok(())
     } else if let Some(referer) = headers.get(header::REFERER).and_then(|v| v.to_str().ok()) {
-        let Some(host) = headers.get(header::HOST).and_then(|v| v.to_str().ok()) else {
-            return Err("missing host header");
-        };
         let referer_host = referer
             .trim_start_matches("https://")
             .trim_start_matches("http://")
             .split('/')
             .next()
             .unwrap_or_default();
-        if !referer_host.eq_ignore_ascii_case(host) {
+        if !referer_host.eq_ignore_ascii_case(expected_host) {
             return Err("cross-origin referer forbidden");
         }
+        Ok(())
+    } else {
+        Err("missing origin or referer")
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -1014,12 +1055,51 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(header::HOST, "127.0.0.1:18875".parse().unwrap());
         headers.insert(header::ORIGIN, "http://127.0.0.1:18875".parse().unwrap());
-        assert!(verify_csrf(&headers).is_ok());
+        assert!(verify_csrf(&headers, false, None).is_ok());
 
         let mut bad_headers = HeaderMap::new();
         bad_headers.insert(header::HOST, "127.0.0.1:18875".parse().unwrap());
         bad_headers.insert(header::ORIGIN, "http://evil.com".parse().unwrap());
-        assert!(verify_csrf(&bad_headers).is_err());
+        assert_eq!(verify_csrf(&bad_headers, false, None), Err("cross-origin request forbidden"));
+
+        // Referer verification
+        let mut referer_headers = HeaderMap::new();
+        referer_headers.insert(header::HOST, "127.0.0.1:18875".parse().unwrap());
+        referer_headers.insert(header::REFERER, "http://127.0.0.1:18875/talk".parse().unwrap());
+        assert!(verify_csrf(&referer_headers, false, None).is_ok());
+
+        let mut bad_referer = HeaderMap::new();
+        bad_referer.insert(header::HOST, "127.0.0.1:18875".parse().unwrap());
+        bad_referer.insert(header::REFERER, "http://evil.com/talk".parse().unwrap());
+        assert_eq!(verify_csrf(&bad_referer, false, None), Err("cross-origin referer forbidden"));
+
+        // Fail closed: missing both Origin and Referer returns Err("missing origin or referer")
+        let mut missing_both = HeaderMap::new();
+        missing_both.insert(header::HOST, "127.0.0.1:18875".parse().unwrap());
+        assert_eq!(verify_csrf(&missing_both, false, None), Err("missing origin or referer"));
+
+        // trust_proxy = true with X-Forwarded-Host
+        let mut proxy_headers = HeaderMap::new();
+        proxy_headers.insert(header::HOST, "internal:18875".parse().unwrap());
+        proxy_headers.insert("x-forwarded-host", "agent.example.com".parse().unwrap());
+        proxy_headers.insert(header::ORIGIN, "https://agent.example.com".parse().unwrap());
+        assert!(verify_csrf(&proxy_headers, true, None).is_ok());
+
+        // trust_proxy = true with mismatching X-Forwarded-Host
+        let mut bad_proxy_headers = HeaderMap::new();
+        bad_proxy_headers.insert(header::HOST, "internal:18875".parse().unwrap());
+        bad_proxy_headers.insert("x-forwarded-host", "agent.example.com".parse().unwrap());
+        bad_proxy_headers.insert(header::ORIGIN, "https://evil.com".parse().unwrap());
+        assert_eq!(verify_csrf(&bad_proxy_headers, true, None), Err("cross-origin request forbidden"));
+
+        // trust_proxy = true with public_url fallback
+        let mut pub_url_headers = HeaderMap::new();
+        pub_url_headers.insert(header::HOST, "internal:18875".parse().unwrap());
+        pub_url_headers.insert(header::ORIGIN, "https://agent.example.com".parse().unwrap());
+        assert!(verify_csrf(&pub_url_headers, true, Some("https://agent.example.com")).is_ok());
+
+        // trust_proxy = false ignores X-Forwarded-Host and uses raw Host
+        assert_eq!(verify_csrf(&proxy_headers, false, None), Err("cross-origin request forbidden"));
     }
 
     #[test]
