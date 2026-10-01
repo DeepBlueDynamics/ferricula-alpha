@@ -36,3 +36,6 @@ __pycache__/
 /inbox/*.zip
 /inbox/ui-review/*.png
 /audit/life/dream-image-sample.png
+
+# Read-only copies of older projects for inventory (local only)
+/research/legacy-src/
