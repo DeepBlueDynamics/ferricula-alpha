@@ -709,7 +709,28 @@ impl ModelRouter {
                 continue;
             }
             let provider_request = self.materialize(&decision, request)?;
-            match transport.execute(&provider_request) {
+            let started = std::time::Instant::now();
+            let outcome = transport.execute(&provider_request);
+            if !decision.no_model {
+                // Operator log: one line per provider call, so a slow, cut-off
+                // or failed call is visible (the escalation below would
+                // otherwise hide a provider error behind the next route step).
+                match &outcome {
+                    Ok(response) => eprintln!(
+                        "model: {} {} {} {:.1}s ok (finish {}, out {} tok, in ~{} tok, max {:?} + reasoning {})",
+                        request.task_class, decision.profile_id, decision.model,
+                        started.elapsed().as_secs_f64(),
+                        response.raw.pointer("/choices/0/finish_reason").and_then(Value::as_str)
+                            .or_else(|| response.raw.pointer("/stop_reason").and_then(Value::as_str))
+                            .unwrap_or("?"),
+                        response.output_tokens, request.estimated_input_tokens, request.max_tokens, decision.reasoning_tokens),
+                    Err(error) => eprintln!(
+                        "model: {} {} {} {:.1}s FAILED (timeout {} ms, max {:?} + reasoning {}): {error:#}",
+                        request.task_class, decision.profile_id, decision.model,
+                        started.elapsed().as_secs_f64(), decision.timeout_ms, request.max_tokens, decision.reasoning_tokens),
+                }
+            }
+            match outcome {
                 Ok(response) => {
                     let profile = self.config.profile(&decision.profile_id);
                     let (input_path, output_path) = match decision.provider {

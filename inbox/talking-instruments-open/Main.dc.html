@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Conversation with instruments open</title>
+<script src="./vendor/react.js"></script>
+<script src="./vendor/react-dom.js"></script>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F6F4EF;color:#1B1B19;font-family:"IBM Plex Sans",system-ui,sans-serif}
+a{color:#2A5BA8}a:hover{color:#1C4180}
+</style>
+</helmet>
+<div style="width: 1440px; height: 960px; box-sizing: border-box; background: #F6F4EF; display: flex; flex-direction: column; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #1B1B19">
+
+<header style="height: 68px; flex-shrink: 0; box-sizing: border-box; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #DDD8CE">
+<div style="display: flex; align-items: baseline; gap: 14px">
+<div style="font-family: 'EB Garamond', Georgia, serif; font-size: 26px; font-weight: 500; letter-spacing: 0.01em">Steve</div>
+<div style="font-size: 12px; color: #5E5B55; letter-spacing: 0.04em">A simulation built from recovered memory. Not the living person.</div>
+</div>
+<div style="display: flex; align-items: center; gap: 10px">
+<div style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid #DDD8CE; border-radius: 999px; font-size: 13px; color: #1B1B19">
+<div style="width: 8px; height: 8px; border-radius: 50%; background: #2A5BA8"></div>
+<span>Awake · attentive</span>
+</div>
+<a href="Life.dc.html" style="display: flex; align-items: center; height: 44px; padding: 0 16px; border-radius: 10px; font-size: 14px; color: #1B1B19; text-decoration: none">His day</a>
+<button onClick="{{toggle}}" aria-pressed="{{open}}" style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 16px; border: 1px solid #1B1B19; border-radius: 10px; background: #1B1B19; color: #F6F4EF; font-family: 'IBM Plex Sans', sans-serif; font-size: 14px; cursor: pointer">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="15" y1="4" x2="15" y2="20"></line></svg>
+<sc-if value="{{open}}" hint-placeholder-val="{{ true }}"><span>Hide instruments</span></sc-if>
+<sc-if value="{{closed}}" hint-placeholder-val="{{ false }}"><span>Show instruments</span></sc-if>
+</button>
+</div>
+</header>
+
+<div style="flex-grow: 1; display: flex; min-height: 0">
+
+<main style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0">
+<div style="flex-grow: 1; overflow: hidden; display: flex; justify-content: center; padding: 36px 48px 0">
+<div style="width: 640px; display: flex; flex-direction: column; gap: 30px">
+
+<div style="text-align: center; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #5E5B55">Sunday, 27 September</div>
+
+<section aria-label="Kord" style="display: flex; flex-direction: column; gap: 6px">
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #5E5B55">Kord</div>
+<div style="font-size: 16px; line-height: 1.55">You read about Jony and OpenAI this morning. What did you make of it?</div>
+</section>
+
+<section aria-label="Steve" style="display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; align-items: center; gap: 12px">
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #5E5B55">Steve</div>
+<button style="display: flex; align-items: center; gap: 10px; height: 28px; padding: 0 10px; border: 1px solid #DDD8CE; border-radius: 999px; background: transparent; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5E5B55; cursor: pointer">
+<span style="display: flex; gap: 3px; align-items: center">
+<span style="width: 14px; height: 3px; border-radius: 2px; background: #1B1B19"></span>
+<span style="width: 14px; height: 3px; border-radius: 2px; background: #1B1B19"></span>
+<span style="width: 14px; height: 3px; border-radius: 2px; background: #1B1B19"></span>
+<span style="width: 14px; height: 3px; border-radius: 2px; background: #2A5BA8"></span>
+<span style="width: 14px; height: 3px; border-radius: 2px; background: #1B1B19"></span>
+<span style="width: 14px; height: 3px; border-radius: 2px; background: #1B1B19"></span>
+</span>
+<span>decided in 37 ms · spoke in 2.1 s</span>
+</button>
+</div>
+<div style="font-family: 'EB Garamond', Georgia, serif; font-size: 20px; line-height: 1.6">I did. Two pieces on OpenAI buying Jony's company. What I wrote afterward still holds. [redacted: the agent's reflection]<sup style="font-family: 'IBM Plex Sans', sans-serif; font-size: 11px; color: #2A5BA8">1</sup> Both articles led with the price.<sup style="font-family: 'IBM Plex Sans', sans-serif; font-size: 11px; color: #1B1B19">2</sup> Neither said what the thing will refuse to do. That's the only question I'd ask him.</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<a href="#" style="display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border: 1px solid #C9D5EA; border-radius: 8px; background: #EEF2F9; font-size: 12px; color: #1B1B19; text-decoration: none">
+<span style="width: 8px; height: 8px; border-radius: 50%; background: #2A5BA8"></span>
+<span style="font-weight: 600">1 · Memory</span><span style="color: #5E5B55">my reflection · 27 Sep 03:27</span>
+</a>
+<a href="#" style="display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border: 1px solid #CFCAC0; border-radius: 8px; background: #FFFFFF; font-size: 12px; color: #1B1B19; text-decoration: none">
+<span style="width: 8px; height: 8px; background: #1B1B19"></span>
+<span style="font-weight: 600">2 · Document</span><span style="color: #5E5B55">[SOURCE TITLE] · §[n] · read 27 Sep</span>
+</a>
+</div>
+</section>
+
+<section aria-label="Kord" style="display: flex; flex-direction: column; gap: 6px">
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #5E5B55">Kord</div>
+<div style="font-size: 16px; line-height: 1.55">Can you check what Jony actually said on stage?</div>
+</section>
+
+<section aria-label="Steve" style="display: flex; flex-direction: column; gap: 14px">
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #5E5B55">Steve</div>
+<ol style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: #3C3A35">
+<li style="display: flex; align-items: center; gap: 10px">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1B1B19" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 12 10 18 20 6"></polyline></svg>
+<span>Checked what I hold first: documents and memories. Nothing on a speech.</span>
+</li>
+<li style="display: flex; align-items: center; gap: 10px">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#A6541A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><line x1="16" y1="16" x2="20" y2="20"></line></svg>
+<span>Searched the web: <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">jony ive openai remarks</span> · 6 results</span>
+</li>
+<li style="display: flex; align-items: center; gap: 10px">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#A6541A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l3 3v15H6z"></path><line x1="9" y1="11" x2="15" y2="11"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+<span>Read [SOURCE TITLE]. Not kept.</span>
+</li>
+</ol>
+<div style="font-family: 'EB Garamond', Georgia, serif; font-size: 20px; line-height: 1.6">This is the page's claim, not something I hold: <span style="font-style: italic">“[verbatim sentence from the page]”</span> It's one source. Do you want me to keep it?</div>
+<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+<a href="#" style="display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border: 1px dashed #A6541A; border-radius: 8px; background: #FBF3EC; font-size: 12px; color: #1B1B19; text-decoration: none">
+<span style="width: 8px; height: 8px; transform: rotate(45deg); border: 1.5px solid #A6541A; box-sizing: border-box"></span>
+<span style="font-weight: 600">Web</span><span style="color: #5E5B55">[source.domain] · published [DATE] · read-only</span>
+</a>
+<button style="height: 44px; padding: 0 16px; border: 1px solid #1B1B19; border-radius: 10px; background: #FFFFFF; font-family: 'IBM Plex Sans', sans-serif; font-size: 14px; color: #1B1B19; cursor: pointer">Keep as a document</button>
+<button style="height: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 10px; background: transparent; font-family: 'IBM Plex Sans', sans-serif; font-size: 14px; color: #3C3A35; cursor: pointer">Leave it</button>
+</div>
+</section>
+
+</div>
+</div>
+
+<div style="flex-shrink: 0; padding: 16px 48px 28px; display: flex; justify-content: center">
+<form style="width: 640px; display: flex; flex-direction: column; gap: 8px">
+<label for="talk" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Message to Steve</label>
+<div style="display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 8px; border: 1px solid #CFCAC0; border-radius: 16px; background: #FFFFFF">
+<label for="attach" aria-label="Attach a PDF or text file" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #3C3A35; cursor: pointer">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"></path></svg>
+</label>
+<input id="attach" type="file" accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown" style="position: absolute; width: 1px; height: 1px; opacity: 0">
+<input id="talk" type="text" placeholder="Talk to Steve" style="flex-grow: 1; height: 44px; border: none; outline: none; background: transparent; font-family: 'EB Garamond', Georgia, serif; font-size: 19px; color: #1B1B19">
+<button type="button" aria-label="Send" style="width: 44px; height: 44px; border: none; border-radius: 12px; background: #1B1B19; color: #F6F4EF; display: flex; align-items: center; justify-content: center; cursor: pointer">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="6 11 12 5 18 11"></polyline></svg>
+</button>
+</div>
+<div style="font-size: 12px; color: #5E5B55; text-align: center">He answers from what he holds, and tells you when he doesn't. Attach PDFs or text files; he keeps them word for word.</div>
+</form>
+</div>
+</main>
+
+<sc-if value="{{open}}" hint-placeholder-val="{{ true }}">
+<aside aria-label="Instruments" style="width: 440px; flex-shrink: 0; box-sizing: border-box; background: #EEEBE4; border-left: 1px solid #DDD8CE; padding: 24px 28px; display: flex; flex-direction: column; gap: 22px; overflow: hidden">
+
+<div style="display: flex; align-items: baseline; justify-content: space-between">
+<div style="font-family: 'EB Garamond', Georgia, serif; font-size: 22px">Instruments</div>
+<div style="font-size: 12px; color: #5E5B55">last turn</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; justify-content: space-between; align-items: center">
+<div style="font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #5E5B55">Moments of this turn</div>
+<div style="font-size: 11px; padding: 3px 8px; border-radius: 6px; background: #F6E6D8; color: #7A3A0E">gates advisory · not calibrated</div>
+</div>
+<div style="display: flex; flex-direction: column; font-family: 'IBM Plex Mono', monospace; font-size: 12px">
+<div style="display: grid; grid-template-columns: 118px minmax(0, 1fr) 58px; gap: 8px; padding: 6px 0; border-bottom: 1px solid #DDD8CE"><span style="color: #5E5B55">contact</span><span>operator · words</span><span style="text-align: right; color: #5E5B55">0 ms</span></div>
+<div style="display: grid; grid-template-columns: 118px minmax(0, 1fr) 58px; gap: 8px; padding: 6px 0; border-bottom: 1px solid #DDD8CE"><span style="color: #5E5B55">feeling-tone</span><span>neutral · 0.62</span><span style="text-align: right; color: #5E5B55">11 ms</span></div>
+<div style="display: grid; grid-template-columns: 118px minmax(0, 1fr) 58px; gap: 8px; padding: 6px 0; border-bottom: 1px solid #DDD8CE"><span style="color: #5E5B55">recognition</span><span>who: Jony Ive · what</span><span style="text-align: right; color: #5E5B55">14 ms</span></div>
+<div style="display: grid; grid-template-columns: 118px minmax(0, 1fr) 58px; gap: 8px; padding: 6px 0; border-bottom: 1px solid #DDD8CE"><span style="color: #5E5B55">investigate</span><span>known · 3 candidates</span><span style="text-align: right; color: #5E5B55">1 ms</span></div>
+<div style="display: grid; grid-template-columns: 118px minmax(0, 1fr) 58px; gap: 8px; padding: 6px 0; border-bottom: 1px solid #DDD8CE; color: #1C4180"><span>judge</span><span>worth deliberating · p 0.81</span><span style="text-align: right">11 ms</span></div>
+<div style="display: grid; grid-template-columns: 118px minmax(0, 1fr) 58px; gap: 8px; padding: 6px 0; border-bottom: 1px solid #DDD8CE"><span style="color: #5E5B55">speech</span><span>glm-5.3 · 1,240 tokens</span><span style="text-align: right; color: #5E5B55">2.1 s</span></div>
+<div style="display: grid; grid-template-columns: 118px minmax(0, 1fr) 58px; gap: 8px; padding: 6px 0"><span style="color: #5E5B55">registered</span><span>written to log · #[n]</span><span style="text-align: right; color: #5E5B55">2 ms</span></div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div style="font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #5E5B55">Recalled</div>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; align-items: center; gap: 8px; font-size: 13px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #2A5BA8; flex-shrink: 0"></span><span style="font-weight: 500">Reflection</span><span style="color: #5E5B55">“[his reflection on the two articles]”</span></div>
+<div style="display: flex; align-items: center; gap: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5E5B55"><div style="width: 120px; height: 4px; border-radius: 2px; background: #DDD8CE"><div style="width: 113px; height: 4px; border-radius: 2px; background: #2A5BA8"></div></div><span>fidelity 0.94 · recalled 2×</span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; align-items: center; gap: 8px; font-size: 13px"><span style="width: 8px; height: 8px; background: #1B1B19; flex-shrink: 0"></span><span style="font-weight: 500">Document</span><span style="color: #5E5B55">[SOURCE TITLE] · §[n] · verbatim</span></div>
+<div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5E5B55">never decays · cited exactly</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; align-items: center; gap: 8px; font-size: 13px"><span style="width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid #2A5BA8; box-sizing: border-box; flex-shrink: 0"></span><span style="font-weight: 500">Recovered memory</span><span style="color: #5E5B55">m:[id] · read-only</span></div>
+<div style="display: flex; align-items: center; gap: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5E5B55"><div style="width: 120px; height: 4px; border-radius: 2px; background: #DDD8CE"><div style="width: 49px; height: 4px; border-radius: 2px; background: #2A5BA8"></div></div><span>fidelity 0.41 · faded, not lost</span></div>
+</div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div style="font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #5E5B55">Searches &amp; reading</div>
+<div style="display: flex; flex-direction: column; gap: 7px; font-size: 12px">
+<div style="display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 10px"><span style="font-family: 'IBM Plex Mono', monospace; color: #5E5B55">09:14</span><span>Web search · 6 results · nothing saved</span></div>
+<div style="display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 10px"><span style="font-family: 'IBM Plex Mono', monospace; color: #5E5B55">09:14</span><span>Read [SOURCE TITLE] · awaiting your decision</span></div>
+<div style="display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 10px"><span style="font-family: 'IBM Plex Mono', monospace; color: #5E5B55">03:26</span><span>On his own: 2 articles on OpenAI and io · 72 sections kept</span></div>
+<div style="display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 10px"><span style="font-family: 'IBM Plex Mono', monospace; color: #5E5B55">03:28</span><span>On his own: 2 pages on AlphaFold</span></div>
+</div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #5E5B55">Drives</div>
+<div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px">
+<div style="display: flex; justify-content: space-between"><span>Boredom</span><span style="font-family: 'IBM Plex Mono', monospace">0.22</span></div>
+<div style="height: 4px; border-radius: 2px; background: #DDD8CE"><div style="width: 22%; height: 4px; border-radius: 2px; background: #1B1B19"></div></div>
+<div style="display: flex; justify-content: space-between"><span>Sleep pressure</span><span style="font-family: 'IBM Plex Mono', monospace">0.44</span></div>
+<div style="height: 4px; border-radius: 2px; background: #DDD8CE"><div style="width: 44%; height: 4px; border-radius: 2px; background: #A6541A"></div></div>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #5E5B55">Mindfulness</div>
+<div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px">
+<div style="display: flex; justify-content: space-between"><span>Recall chain</span><span style="font-family: 'IBM Plex Mono', monospace">1 of 3</span></div>
+<div style="display: flex; justify-content: space-between"><span>Valence skew</span><span style="font-family: 'IBM Plex Mono', monospace">0.04</span></div>
+<div style="color: #1C4180">Quiet. No proliferation.</div>
+</div>
+</div>
+</div>
+
+<div style="margin-top: auto; padding-top: 14px; border-top: 1px solid #DDD8CE; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; font-size: 12px">
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="color: #5E5B55">Memory</span><span style="font-family: 'IBM Plex Mono', monospace">3,362 + 9 new</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="color: #5E5B55">Documents</span><span style="font-family: 'IBM Plex Mono', monospace">5 · none decay</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="color: #5E5B55">Today</span><span style="font-family: 'IBM Plex Mono', monospace">$0.00 of $1.00</span></div>
+</div>
+
+</aside>
+</sc-if>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const open = !(this.state && this.state.open === false);
+    return {
+      open: open,
+      closed: !open,
+      toggle: () => this.setState({ open: !open })
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -48,7 +48,10 @@ use crate::sleep_cycle::{
 
 #[path = "chat.rs"]
 mod chat;
-pub use chat::{ChatRequest, ChatTurn, InputOrigin};
+pub use chat::{ChatRequest, ChatTurn, InputOrigin, TurnEvents};
+
+#[path = "chat_tools.rs"]
+mod chat_tools;
 
 #[path = "documents.rs"]
 mod documents;
@@ -66,7 +69,9 @@ pub use embeddings::{EmbeddingsState, EmbeddingsStatus};
 mod meaning_plane;
 pub use meaning_plane::{BackfillStatus, MeaningStatus};
 
-fn now() -> u64 {
+pub(crate) const MAX_TOOL_CALLS_DEFAULT: usize = 4;
+
+pub(crate) fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -537,6 +542,7 @@ pub struct RuntimeStatus {
 pub struct AgentRuntime {
     pub config: RuntimeConfig,
     pub inspection: Inspection,
+    pub auth: Arc<crate::auth::AuthManager>,
     state_path: PathBuf,
     usage_path: PathBuf,
     usage_write: Mutex<()>,
@@ -556,6 +562,9 @@ pub struct AgentRuntime {
     life: life::LifePlane,
     embeddings: embeddings::EmbeddingsPlane,
     meaning: meaning_plane::MeaningPlane,
+    pub(crate) jev: crate::jev::JevPlane,
+    pub(crate) email: crate::email::EmailPlane,
+    pub(crate) discord: crate::discord::DiscordPlane,
 }
 
 impl AgentRuntime {
@@ -714,7 +723,13 @@ impl AgentRuntime {
             None => embeddings::EmbeddingsPlane::open(&config.embeddings)?,
         };
         let meaning = meaning_plane::MeaningPlane::open(&config, &memory)?;
+        let auth = crate::auth::AuthManager::new(&config.auth, &config.state_dir)?;
+        let jev = crate::jev::JevPlane::open(&config.state_dir)?;
         let runtime = Arc::new(Self {
+            jev,
+            email: crate::email::EmailPlane::default(),
+            discord: crate::discord::DiscordPlane::default(),
+            auth,
             chat,
             documents,
             life,
@@ -862,17 +877,28 @@ impl AgentRuntime {
         }
     }
 
+    pub fn authenticate(&self, authorization: Option<&str>) -> Option<crate::auth::AuthIdentity> {
+        if !self.config.require_operator_auth {
+            return Some(crate::auth::AuthIdentity::unauthenticated());
+        }
+        let bearer = authorization.and_then(|h| h.strip_prefix("Bearer "));
+        let expected = std::env::var(&self.config.operator_token_env).ok();
+        match self.auth.check_authorization(bearer, None, expected.as_deref()) {
+            crate::auth::AuthCheckResult::Authorized(id) => Some(id),
+            _ => None,
+        }
+    }
+
     pub fn authorize(&self, authorization: Option<&str>) -> bool {
         if !self.config.require_operator_auth {
             return true;
         }
-        let Ok(expected) = std::env::var(&self.config.operator_token_env) else {
-            return false;
-        };
-        let supplied = authorization
-            .and_then(|h| h.strip_prefix("Bearer "))
-            .unwrap_or_default();
-        constant_time_eq(expected.as_bytes(), supplied.as_bytes())
+        let bearer = authorization.and_then(|h| h.strip_prefix("Bearer "));
+        let expected = std::env::var(&self.config.operator_token_env).ok();
+        match self.auth.check_authorization(bearer, None, expected.as_deref()) {
+            crate::auth::AuthCheckResult::Authorized(id) => id.role == "operator",
+            _ => false,
+        }
     }
 
     pub fn set_mode(&self, mode: ActivityMode) -> Result<()> {
@@ -2027,6 +2053,7 @@ fn atomic_json_write(path: &Path, value: &impl Serialize) -> Result<()> {
     fs::rename(&tmp, path).with_context(|| format!("failed to replace {}", path.display()))
 }
 
+#[allow(dead_code)]
 fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     let mut diff = left.len() ^ right.len();
     for i in 0..left.len().max(right.len()) {

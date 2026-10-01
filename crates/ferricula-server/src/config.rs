@@ -40,6 +40,11 @@ pub struct RuntimeConfig {
     /// profile assumes a small 8192-token local model). The chat route sizes
     /// its prompt, including document evidence cards, from this value.
     pub ollama_context_tokens: Option<u32>,
+    /// Per-call timeout for `local_ollama`, in milliseconds (the built-in
+    /// profile uses 120000). A thinking model on a long tool-loop turn can
+    /// reason for more than two minutes in one call, and the empty-reply
+    /// retry doubles its headroom.
+    pub ollama_timeout_ms: Option<u64>,
     pub initial_mode: String,
     /// Generate an ephemeral briefing from scoped raw recovered memories before chat.
     /// Adds a separately budgeted model call; never writes the briefing to memory.
@@ -73,9 +78,21 @@ pub struct RuntimeConfig {
     pub embeddings: EmbeddingsConfig,
     /// Waking recall policy (R2b): dense arm sizes and faded memories.
     pub recall: RecallConfig,
+    /// Hyperia (messaging and spoken summaries on the operator's desktop). Off by default.
+    pub hyperia: HyperiaConfig,
+    /// `[email]`: AgentMail inbox tools. Active only when `AGENTMAIL_API_KEY` is set.
+    pub email: crate::email::EmailConfig,
+    /// `[discord]`: notices to Discord rooms. Active only when `DISCORD_BOT_TOKEN` is set.
+    pub discord: crate::discord::DiscordConfig,
+    /// `[code]`: read-only source access and PR diffs for the agent.
+    pub code: crate::code::CodeConfig,
+    /// Tool calls allowed per chat message (default 4; code review needs more).
+    pub max_tool_calls: Option<usize>,
     /// How the agent names its operator in conversation memories
     /// ("<operator_name> said: ..."). Persona-neutral default.
     pub operator_name: String,
+    /// Operator authentication, nuts-auth integration, and session management.
+    pub auth: AuthConfig,
 }
 
 /// `[life]`: the agent's own life between conversations. Drive knobs are
@@ -167,6 +184,107 @@ impl LifeConfig {
     }
 }
 
+/// Authentication mode for the server.
+/// - `Static`: traditional static bearer token (`FERRICULA_OPERATOR_TOKEN`) only.
+/// - `Both`: phase A0 coexistence — accepts static token, nuts-auth session cookie, or nuts-auth Bearer token.
+/// - `Nuts`: nuts-auth only (phase A2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AuthMode {
+    #[default]
+    Static,
+    Both,
+    Nuts,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentAuthRule {
+    pub actor: String,
+    pub role: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AuthConfig {
+    pub mode: AuthMode,
+    /// Allowlist of nuts-auth user_id UUIDs that have operator privileges.
+    pub operators: Vec<String>,
+    /// Optional agent authorizations by actor name (for ahp_ tokens).
+    pub agents: Vec<AgentAuthRule>,
+    pub login_url: String,
+    pub jwks_url: String,
+    pub validate_url: String,
+    /// Public base URL for building callback/redirect URLs (e.g. "https://agent.example.com").
+    /// If None, derived from `runtime.config.bind` (e.g. "http://127.0.0.1:<port>").
+    pub public_url: Option<String>,
+    /// Whether to trust `X-Forwarded-Proto` header from reverse proxies when detecting scheme.
+    pub trust_proxy: bool,
+    pub require_iss: bool,
+    pub require_aud: bool,
+    pub expected_iss: Option<String>,
+    pub expected_aud: Option<String>,
+    pub session_hours: u64,
+    pub ahp_cache_minutes: u64,
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            mode: AuthMode::Static,
+            operators: Vec::new(),
+            agents: Vec::new(),
+            login_url: "https://auth.nuts.services/login".into(),
+            jwks_url: "https://auth.nuts.services/.well-known/jwks.json".into(),
+            validate_url: "https://auth.nuts.services/api/validate".into(),
+            public_url: None,
+            trust_proxy: false,
+            require_iss: false,
+            require_aud: false,
+            expected_iss: None,
+            expected_aud: None,
+            session_hours: 12,
+            ahp_cache_minutes: 10,
+        }
+    }
+}
+
+impl AuthConfig {
+    pub fn login_enabled(&self) -> bool {
+        matches!(self.mode, AuthMode::Both | AuthMode::Nuts)
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        if self.login_enabled() {
+            for (name, url) in [
+                ("auth.login_url", &self.login_url),
+                ("auth.jwks_url", &self.jwks_url),
+                ("auth.validate_url", &self.validate_url),
+            ] {
+                if !(url.starts_with("http://") || url.starts_with("https://")) || url.contains('@') {
+                    bail!("{name} must be an http(s) URL without inline credentials");
+                }
+            }
+        }
+        if let Some(ref url) = self.public_url {
+            if !(url.starts_with("http://") || url.starts_with("https://")) || url.contains('@') {
+                bail!("auth.public_url must be an http(s) URL without inline credentials");
+            }
+        }
+        if self.session_hours == 0 || self.session_hours > 24 * 365 {
+            bail!("auth.session_hours must be in 1..=8760");
+        }
+        if self.ahp_cache_minutes > 1440 {
+            bail!("auth.ahp_cache_minutes cannot exceed 1440");
+        }
+        for agent in &self.agents {
+            if agent.role != "operator" && agent.role != "reader" {
+                bail!("auth.agents role must be 'operator' or 'reader', got {:?}", agent.role);
+            }
+        }
+        Ok(())
+    }
+}
+
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
@@ -181,6 +299,7 @@ impl Default for RuntimeConfig {
             ollama_model: None,
             ollama_reasoning_tokens: None,
             ollama_context_tokens: None,
+            ollama_timeout_ms: None,
             initial_mode: "asleep".into(),
             curator_enabled: false,
             schedule: ScheduleConfig::default(),
@@ -197,7 +316,13 @@ impl Default for RuntimeConfig {
             life: LifeConfig::default(),
             embeddings: EmbeddingsConfig::default(),
             recall: RecallConfig::default(),
+            hyperia: HyperiaConfig::default(),
+            email: crate::email::EmailConfig::default(),
+            discord: crate::discord::DiscordConfig::default(),
+            code: crate::code::CodeConfig::default(),
+            max_tool_calls: None,
             operator_name: "The operator".into(),
+            auth: AuthConfig::default(),
         }
     }
 }
@@ -230,6 +355,7 @@ impl RuntimeConfig {
         if config.ollama_base_url.is_some() || config.ollama_model.is_some()
             || config.ollama_reasoning_tokens.is_some()
             || config.ollama_context_tokens.is_some()
+            || config.ollama_timeout_ms.is_some()
         {
             let profile = config
                 .models
@@ -239,6 +365,12 @@ impl RuntimeConfig {
                 .context("Ollama overrides require the built-in local_ollama profile")?;
             if let Some(tokens) = config.ollama_reasoning_tokens {
                 profile.reasoning_tokens = tokens;
+            }
+            if let Some(timeout_ms) = config.ollama_timeout_ms {
+                if timeout_ms < 1000 {
+                    bail!("ollama_timeout_ms must be at least 1000");
+                }
+                profile.timeout_ms = timeout_ms;
             }
             if let Some(tokens) = config.ollama_context_tokens {
                 if tokens < 2048 {
@@ -303,6 +435,7 @@ impl RuntimeConfig {
             bail!("operator authentication is required when binding beyond loopback");
         }
         self.models.validate()?;
+        self.auth.validate()?;
         if self.expected_agent_id.trim().is_empty()
             || self.models.identity.agent_id != self.expected_agent_id
         {
@@ -495,6 +628,52 @@ impl EmbeddingsConfig {
     }
 }
 
+/// `[hyperia]`: the agent on Hyperia (inbox/HYPERIA_COMMS.md). The agent's
+/// `hyp_agent_` token comes from `HYPERIA_TOKEN` (delivered as
+/// `HYPERIA_TOKEN_FILE` by the entrypoint), never from this file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HyperiaConfig {
+    pub enabled: bool,
+    /// Hyperia sidecar base URL (from a container: host.docker.internal).
+    pub url: String,
+    /// Spoken summaries (`POST /api/tts`) play aloud on the operator's
+    /// desktop, can't be interrupted and ignore do-not-disturb, so they
+    /// are capped hard.
+    pub speak_enabled: bool,
+    pub speak_max_chars: usize,
+    /// Minimum seconds between two spoken summaries.
+    pub speak_min_interval_secs: u64,
+    /// Spoken summaries per rolling 24 hours.
+    pub speak_max_per_day: usize,
+    /// Kokoro/ElevenLabs voice (e.g. "am_adam"); none = Hyperia's stable
+    /// per-caller voice.
+    pub voice: Option<String>,
+    pub speed: Option<f32>,
+    /// Modality gate (Ollaya, `[life] ollaya_url`): decides write / speak /
+    /// both before anything is said aloud. Speaks only when P(speak) +
+    /// P(both) >= `speak_gate_threshold`; unsure or unreachable means write.
+    pub speak_gate: bool,
+    pub speak_gate_threshold: f32,
+}
+
+impl Default for HyperiaConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            url: "http://host.docker.internal:9800".into(),
+            speak_enabled: true,
+            speak_max_chars: 300,
+            speak_min_interval_secs: 300,
+            speak_max_per_day: 20,
+            voice: None,
+            speed: None,
+            speak_gate: true,
+            speak_gate_threshold: 0.5,
+        }
+    }
+}
+
 /// `[recall]` (R2b): how waking recall (chat, `/memory/recall`, MCP) ranks.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -522,11 +701,29 @@ pub struct RecallConfig {
     /// (`hearing`: what the operator said; `thinking`: what the agent
     /// said), so later conversations can recall it.
     pub remember_turns: bool,
+    /// Strengthening. A cited memory's fused score gains `s * ln(1 + recalls)`.
+    pub s: f64,
+    /// Fading. A memory's fused score loses `f * age_days / (age_days + h)`.
+    /// This changes rank only. It never changes text and never deletes.
+    pub f: f64,
+    /// Age in days at which fading is halfway to `f`. The term saturates at `f`.
+    pub h: f64,
 }
 
 impl Default for RecallConfig {
     fn default() -> Self {
-        Self { include_faded_recovered: false, dense_k: 24, graph_seeds: 3, graph_weight: 0.5, lexical_weight: 0.5, dense_guarantee: 2, remember_turns: true }
+        Self {
+            include_faded_recovered: false,
+            dense_k: 24,
+            graph_seeds: 3,
+            graph_weight: 0.5,
+            lexical_weight: 0.5,
+            dense_guarantee: 2,
+            remember_turns: true,
+            s: crate::recall_overlay::DEFAULT_S,
+            f: crate::recall_overlay::DEFAULT_F,
+            h: crate::recall_overlay::DEFAULT_H,
+        }
     }
 }
 
@@ -547,6 +744,16 @@ impl RecallConfig {
         if !(0.0..=1.0).contains(&self.graph_weight) {
             bail!("recall.graph_weight must be in 0..=1");
         }
+        if !self.s.is_finite() || self.s < 0.0 {
+            bail!("recall.s must be a finite number >= 0");
+        }
+        if !self.f.is_finite() || self.f < 0.0 {
+            bail!("recall.f must be a finite number >= 0");
+        }
+        if !self.h.is_finite() || self.h <= 0.0 {
+            bail!("recall.h must be a finite number > 0");
+        }
+        crate::recall_overlay::set_strength(self.s, self.f, self.h);
         Ok(())
     }
 }
@@ -1138,5 +1345,62 @@ name = "Memory Bench"
         );
         assert_eq!(url_host("ftp://x"), None);
         assert_eq!(url_host("https://"), None);
+    }
+
+    #[test]
+    fn auth_section_defaults_and_parses() {
+        let config = RuntimeConfig::default();
+        assert_eq!(config.auth.mode, AuthMode::Static);
+        assert!(!config.auth.login_enabled());
+        assert_eq!(config.auth.session_hours, 12);
+        assert_eq!(config.auth.ahp_cache_minutes, 10);
+        assert!(config.auth.operators.is_empty());
+        assert_eq!(config.auth.public_url, None);
+        assert!(!config.auth.trust_proxy);
+
+        let parsed: RuntimeConfig = toml::from_str(
+            r#"
+            [auth]
+            mode = "both"
+            operators = ["e6a86c62-3bf9-4b82-9017-0599a80b6239"]
+            public_url = "https://agent.example.com"
+            trust_proxy = true
+            session_hours = 24
+            ahp_cache_minutes = 15
+            require_iss = true
+            expected_iss = "https://auth.nuts.services"
+
+            [[auth.agents]]
+            actor = "claude-code"
+            role = "operator"
+        "#,
+        )
+        .unwrap();
+        parsed.validate().unwrap();
+        assert_eq!(parsed.auth.mode, AuthMode::Both);
+        assert!(parsed.auth.login_enabled());
+        assert_eq!(parsed.auth.operators, vec!["e6a86c62-3bf9-4b82-9017-0599a80b6239"]);
+        assert_eq!(parsed.auth.public_url.as_deref(), Some("https://agent.example.com"));
+        assert!(parsed.auth.trust_proxy);
+        assert_eq!(parsed.auth.session_hours, 24);
+        assert_eq!(parsed.auth.ahp_cache_minutes, 15);
+        assert!(parsed.auth.require_iss);
+        assert_eq!(parsed.auth.expected_iss.as_deref(), Some("https://auth.nuts.services"));
+        assert_eq!(parsed.auth.agents.len(), 1);
+        assert_eq!(parsed.auth.agents[0].actor, "claude-code");
+        assert_eq!(parsed.auth.agents[0].role, "operator");
+
+        let mut bad = RuntimeConfig::default();
+        bad.auth.session_hours = 0;
+        assert!(bad.validate().is_err());
+
+        let mut bad_mode = RuntimeConfig::default();
+        bad_mode.auth.mode = AuthMode::Both;
+        bad_mode.auth.login_url = "ftp://invalid".into();
+        assert!(bad_mode.validate().is_err());
+
+        let mut bad_pub = RuntimeConfig::default();
+        bad_pub.auth.public_url = Some("ftp://invalid".into());
+        assert!(bad_pub.validate().is_err());
     }
 }

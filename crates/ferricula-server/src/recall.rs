@@ -92,6 +92,10 @@ pub struct RecallCandidate {
     /// Cosine to the query when the dense arm found it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dense_score: Option<f64>,
+    /// Ranking fidelity in 0..=1 from strengthening and fading. Stored
+    /// `memory.fidelity` is left as recorded. None for document sections.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effective_fidelity: Option<f64>,
 }
 
 impl RecallCandidate {
@@ -105,6 +109,7 @@ impl RecallCandidate {
             section: None,
             arms: Vec::new(),
             dense_score: None,
+            effective_fidelity: None,
         }
     }
 
@@ -118,6 +123,7 @@ impl RecallCandidate {
             section: Some(section.clone()),
             arms: Vec::new(),
             dense_score: None,
+            effective_fidelity: None,
         }
     }
 
@@ -224,7 +230,85 @@ pub fn fuse_arms_all(lists: Vec<ArmList>) -> Vec<RecallCandidate> {
         }
     }
     order.sort_by(|a, b| b.score.total_cmp(&a.score));
+    apply_installed_ranking(&mut order);
     order
+}
+
+/// Overlay key for a memory candidate. Document sections are not memories.
+pub fn overlay_key(kind: CandidateKind, id: u32) -> Option<String> {
+    match kind {
+        CandidateKind::Memory => Some(format!("m:{id}")),
+        CandidateKind::Experience => Some(format!("x:{id}")),
+        CandidateKind::DocumentSection => None,
+    }
+}
+
+pub fn age_days(created_at: u64, now: u64) -> f64 {
+    now.saturating_sub(created_at) as f64 / 86_400.0
+}
+
+/// `(strengthening, fading)` added to a fused score.
+/// Strengthening is `s * ln(1 + recalls)`. Fading is
+/// `f * age_days / (age_days + h)`, which approaches `f` and never reaches a
+/// point where the row would be removed.
+pub fn ranking_terms(recalls: u64, age_days: f64, s: f64, f: f64, h: f64) -> (f64, f64) {
+    let strengthen = s * (1.0 + recalls as f64).ln();
+    let fade = if age_days.is_finite() && h > 0.0 {
+        f * age_days / (age_days + h)
+    } else {
+        0.0
+    };
+    (strengthen, fade)
+}
+
+/// `1 + strengthening - fading`, clamped to 0..=1.
+pub fn effective_fidelity(strengthen: f64, fade: f64) -> f64 {
+    (1.0 + strengthen - fade).clamp(0.0, 1.0)
+}
+
+pub(crate) fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// After fusion: adjust each memory candidate, then re-sort. Equal adjusted
+/// scores keep the RRF order. Document sections are unchanged.
+pub fn apply_ranking(
+    candidates: &mut [RecallCandidate],
+    mut recalls_of: impl FnMut(&str) -> u64,
+    now: u64,
+    s: f64,
+    f: f64,
+    h: f64,
+) {
+    for candidate in candidates.iter_mut() {
+        let Some(hit) = candidate.memory.as_ref() else { continue };
+        let Some(key) = overlay_key(candidate.kind, hit.id) else { continue };
+        let recalls = recalls_of(&key);
+        let (strengthen, fade) = ranking_terms(recalls, age_days(hit.created_at, now), s, f, h);
+        candidate.score += strengthen - fade;
+        // The displayed fidelity uses fixed unit-scale weights, independent of
+        // the (small) ranking weights: a citation adds 0.15*ln(1+n), age takes
+        // away up to 0.5 (half of that at `h` days).
+        let (shown_up, shown_down) = ranking_terms(recalls, age_days(hit.created_at, now), 0.15, 0.5, h);
+        candidate.effective_fidelity = Some(effective_fidelity(shown_up, shown_down));
+    }
+    candidates.sort_by(|a, b| b.score.total_cmp(&a.score));
+}
+
+fn apply_installed_ranking(candidates: &mut [RecallCandidate]) {
+    let (s, f, h) = crate::recall_overlay::strength();
+    let overlay = crate::recall_overlay::installed();
+    apply_ranking(
+        candidates,
+        |key| overlay.as_ref().map(|store| store.recalls(key)).unwrap_or(0),
+        unix_now(),
+        s,
+        f,
+        h,
+    );
 }
 
 /// Meaning guarantee: the i-th of `keys` (the dense arm's best hits) is
@@ -316,7 +400,7 @@ mod tests {
     fn hit(id: u32, score: f32) -> MemoryHit {
         MemoryHit {
             id, score, state: LifecycleStateView::Active, fidelity: 1.0, importance: 0.0,
-            keystone: false, tags: BTreeMap::new(), refs: None,
+            keystone: false, created_at: 0, tags: BTreeMap::new(), refs: None,
         }
     }
 
@@ -352,14 +436,17 @@ mod tests {
         let sections = vec![section("d1", 3, Some(2)), section("d1", 4, None)];
         let fused = fuse(&recovered, &experience, &sections, 10);
         assert_eq!(fused.len(), 5);
-        // Rank-1 items of each list tie at 1/61, in list order.
-        assert_eq!(fused[0].kind, CandidateKind::Memory);
-        assert_eq!(fused[1].kind, CandidateKind::Experience);
-        assert_eq!(fused[2].kind, CandidateKind::DocumentSection);
-        let s = fused[2].section.as_ref().unwrap();
+        // Fixture rows are dated at the epoch, so fading takes its full `f`;
+        // on the fusion scale that is a nudge, never more than `f`. Section
+        // order is RRF order.
+        let s = fused.iter().find(|c| c.kind == CandidateKind::DocumentSection).unwrap().section.as_ref().unwrap();
         assert_eq!(s.text, "verbatim 3");
         assert_eq!(s.cite, "[doc d1§3 p.2]");
-        assert!((fused[0].score - 1.0 / 61.0).abs() < 1e-12);
+        let memory = fused.iter().find(|c| c.memory.as_ref().is_some_and(|m| m.id == 1)).unwrap();
+        let fade = ranking_terms(0, age_days(0, unix_now()), crate::recall_overlay::DEFAULT_S, crate::recall_overlay::DEFAULT_F, crate::recall_overlay::DEFAULT_H).1;
+        assert!((memory.score - (1.0 / 61.0 - fade)).abs() < 1e-9, "{}", memory.score);
+        assert!(memory.effective_fidelity.unwrap() <= 1.0 && memory.effective_fidelity.unwrap() >= 0.0);
+        assert!(fused.iter().any(|c| c.kind == CandidateKind::Experience));
         assert_eq!(fuse(&recovered, &experience, &sections, 2).len(), 2);
         assert_eq!(citation("d1", 4, None), "[doc d1§4]");
     }
@@ -374,15 +461,17 @@ mod tests {
         lists.push(ArmList { arm: "dense", weight: 1.0, items: dense });
         lists.push(ArmList { arm: "graph", weight: 0.5, items: vec![RecallCandidate::from_memory(CandidateKind::Memory, &hit(9, 0.2), 1)] });
         let fused = fuse_arms(lists, 10);
-        let ids: Vec<Option<u32>> = fused.iter().map(|c| c.memory.as_ref().map(|m| m.id)).collect();
-        // 2 is in lexical (rank 2) and dense (rank 2): 2/62 beats every single rank-1 item.
-        assert_eq!(ids[0], Some(2));
-        assert_eq!(fused[0].arms, ["lexical", "dense"]);
-        assert!((fused[0].dense_score.unwrap() - 0.61).abs() < 1e-6);
+        // Epoch-dated memories all fade by the same small amount, so their
+        // RRF order is unchanged; memory 2 (lexical + dense) leads them.
+        let best = fused.iter().find(|c| c.memory.is_some()).unwrap();
+        assert_eq!(best.memory.as_ref().unwrap().id, 2);
+        assert_eq!(best.arms, ["lexical", "dense"]);
+        assert!((best.dense_score.unwrap() - 0.61).abs() < 1e-6);
         let seven = fused.iter().find(|c| c.memory.as_ref().is_some_and(|m| m.id == 7)).unwrap();
         assert_eq!(seven.arms, ["dense"]);
         let nine = fused.iter().find(|c| c.memory.as_ref().is_some_and(|m| m.id == 9)).unwrap();
-        assert!((nine.score - 0.5 / 61.0).abs() < 1e-12, "graph arm is weighted lower");
+        let fade = ranking_terms(0, age_days(0, unix_now()), crate::recall_overlay::DEFAULT_S, crate::recall_overlay::DEFAULT_F, crate::recall_overlay::DEFAULT_H).1;
+        assert!((nine.score - (0.5 / 61.0 - fade)).abs() < 1e-9, "graph arm is weighted lower");
         assert_eq!(fused.last().unwrap().memory.as_ref().unwrap().id, 9);
         assert_eq!(fuse_arms(Vec::new(), 5).len(), 0);
     }
@@ -401,5 +490,111 @@ mod tests {
     fn truncation_respects_char_boundaries() {
         assert_eq!(truncate_bytes("héllo", 2), "h");
         assert_eq!(truncate_bytes("abc", 10), "abc");
+    }
+
+    fn at(id: u32, created_at: u64) -> RecallCandidate {
+        let mut row = hit(id, 1.0);
+        row.created_at = created_at;
+        let mut candidate = RecallCandidate::from_memory(CandidateKind::Experience, &row, 1);
+        candidate.score = 1.0 / 61.0;
+        candidate
+    }
+
+    #[test]
+    fn five_citations_outrank_an_uncited_twin_with_the_same_text_score() {
+        let now = 1_790_846_400;
+        let mut rows = vec![at(10, now), at(11, now)];
+        apply_ranking(&mut rows, |key| if key == "x:10" { 5 } else { 0 }, now, 0.15, 0.10, 30.0);
+        assert_eq!(rows[0].memory.as_ref().unwrap().id, 10);
+        assert!(rows[0].score > rows[1].score);
+        let (strengthen, fade) = ranking_terms(5, 0.0, 0.15, 0.10, 30.0);
+        assert!((rows[0].score - (1.0 / 61.0 + strengthen - fade)).abs() < 1e-12);
+        assert_eq!(rows[0].effective_fidelity.unwrap(), 1.0);
+        assert_eq!(rows[1].effective_fidelity.unwrap(), 1.0);
+        assert_eq!(rows.len(), 2);
+    }
+
+    #[test]
+    fn an_old_unrecalled_row_ranks_below_a_new_twin_and_is_still_returned() {
+        let now = 1_790_846_400u64;
+        let new = at(21, now);
+        let old = at(22, now - 400 * 86_400);
+        let lists = vec![
+            ArmList { arm: "lexical", weight: 1.0, items: vec![new] },
+            ArmList { arm: "lexical", weight: 1.0, items: vec![old] },
+        ];
+        // Direct ranking, with the same clock the assertion uses. Fusion's
+        // installed path is covered by `fuse` above; here the ages are fixed.
+        let mut rows = lists.into_iter().flat_map(|list| list.items).collect::<Vec<_>>();
+        for row in &mut rows {
+            row.score = 1.0 / 61.0;
+        }
+        apply_ranking(&mut rows, |_| 0, now, 0.15, 0.10, 30.0);
+        assert_eq!(rows.len(), 2, "fading does not drop the old row");
+        assert_eq!(rows[0].memory.as_ref().unwrap().id, 21);
+        assert_eq!(rows[1].memory.as_ref().unwrap().id, 22);
+        assert!(rows[0].score > rows[1].score);
+        let old_fid = rows[1].effective_fidelity.unwrap();
+        assert!(old_fid < 1.0 && old_fid > 0.0, "{old_fid}");
+        assert_eq!(rows[1].memory.as_ref().unwrap().tags.get("text"), None);
+    }
+
+    #[test]
+    fn a_recall_run_does_not_change_recovered_bytes() {
+        use sha2::{Digest, Sha256};
+        use std::fs;
+        use std::path::Path;
+
+        fn hash_dir(dir: &Path) -> String {
+            let mut files = Vec::new();
+            let mut stack = vec![dir.to_path_buf()];
+            while let Some(current) = stack.pop() {
+                for entry in fs::read_dir(&current).unwrap() {
+                    let path = entry.unwrap().path();
+                    if path.is_dir() { stack.push(path); } else { files.push(path); }
+                }
+            }
+            files.sort();
+            let mut hasher = Sha256::new();
+            for path in files {
+                let rel = path.strip_prefix(dir).unwrap();
+                hasher.update(rel.to_string_lossy().as_bytes());
+                hasher.update(fs::read(&path).unwrap());
+            }
+            format!("{:x}", hasher.finalize())
+        }
+
+        let root = std::env::temp_dir().join(format!("ferricula-l2-{}", uuid::Uuid::new_v4()));
+        let memory = root.join("memory");
+        fs::create_dir_all(&memory).unwrap();
+        fs::write(memory.join("identity.json"), r#"{"agent_id":"ferricula-agent","name":"T"}"#).unwrap();
+        fs::write(memory.join("agent.toml"), "name = \"T\"\nrole = \"t\"\n").unwrap();
+        {
+            let mut engine = ferricula_core::DurableEngine::open(&memory).unwrap();
+            let row = ferricula_core::Row {
+                id: 3,
+                vector: vec![1.0, 0.0],
+                refs: None,
+                tags: std::collections::BTreeMap::from([("text".to_string(), "paging memory between contexts".to_string())]),
+            };
+            engine.remember(row, ferricula_core::MemoryRecord::new(3)).unwrap();
+            engine.checkpoint().unwrap();
+        }
+        let before = hash_dir(&memory);
+        let mut config = crate::config::RuntimeConfig::default();
+        config.memory_dir = memory.clone();
+        config.state_dir = root.join("state");
+        config.overlay.path = config.state_dir.join("overlay.json");
+        config.schedule.enabled = false;
+        config.require_operator_auth = false;
+        let inspection = crate::inspect_data_dir(&memory).unwrap();
+        let runtime = crate::runtime::AgentRuntime::open(config, inspection).unwrap();
+        let _recall = runtime.hybrid_recall("paging memory", 8);
+        let overlay = crate::recall_overlay::RecallOverlay::open(&root.join("state")).unwrap();
+        overlay.record("m:3", 1_790_846_400).unwrap();
+        drop(runtime);
+        let after = hash_dir(&memory);
+        assert_eq!(before, after, "recovered store bytes changed");
+        let _ = fs::remove_dir_all(root);
     }
 }

@@ -58,8 +58,11 @@ impl AgentKeys {
         })
     }
 
-    /// Encrypt embedding: v @ Q (preserves cosine similarity)
-    pub fn encrypt(&self, embedding: &[f32], role: &str) -> Vec<f32> {
+    /// Encrypt embedding: v @ Q (preserves cosine similarity).
+    ///
+    /// Errors when `embedding.len()` is not the key dimension. A mismatch is
+    /// never returned unchanged: that would pass plaintext off as encrypted.
+    pub fn encrypt(&self, embedding: &[f32], role: &str) -> Result<Vec<f32>> {
         let mat = if role == "retrieve" {
             self.retrieve.as_ref().unwrap_or(&self.organize)
         } else {
@@ -68,16 +71,23 @@ impl AgentKeys {
 
         let dim = mat.nrows();
         if embedding.len() != dim {
-            return embedding.to_vec();
+            bail!(
+                "embedding length {} != key dimension {}",
+                embedding.len(),
+                dim
+            );
         }
 
         let v = ndarray::ArrayView1::from(embedding);
         let result = v.dot(mat);
-        result.to_vec()
+        Ok(result.to_vec())
     }
 
-    /// Decrypt embedding: v @ Q^T
-    pub fn decrypt(&self, embedding: &[f32], role: &str) -> Vec<f32> {
+    /// Decrypt embedding: v @ Q^T.
+    ///
+    /// Errors when `embedding.len()` is not the key dimension. A mismatch is
+    /// never returned unchanged.
+    pub fn decrypt(&self, embedding: &[f32], role: &str) -> Result<Vec<f32>> {
         let mat_t = if role == "retrieve" {
             self.retrieve_t.as_ref().unwrap_or(&self.organize_t)
         } else {
@@ -86,16 +96,23 @@ impl AgentKeys {
 
         let dim = mat_t.nrows();
         if embedding.len() != dim {
-            return embedding.to_vec();
+            bail!(
+                "embedding length {} != key dimension {}",
+                embedding.len(),
+                dim
+            );
         }
 
         let v = ndarray::ArrayView1::from(embedding);
         let result = v.dot(mat_t);
-        result.to_vec()
+        Ok(result.to_vec())
     }
 }
 
-/// Manages per-agent encryption keys in memory. Keys are lost on restart.
+/// In-memory key manager for per-agent encryption.
+///
+/// Keys live only in this process and are lost on restart. This module does
+/// not persist them, and it is not wired into recall.
 pub struct CryptoManager {
     cache: RwLock<HashMap<String, Arc<AgentKeys>>>,
 }
@@ -179,8 +196,8 @@ mod tests {
         let keys = AgentKeys::new("test", &key_data, dim, None, None).unwrap();
 
         let original = vec![1.0, 2.0, 3.0, 4.0];
-        let encrypted = keys.encrypt(&original, "organize");
-        let decrypted = keys.decrypt(&encrypted, "organize");
+        let encrypted = keys.encrypt(&original, "organize").unwrap();
+        let decrypted = keys.decrypt(&encrypted, "organize").unwrap();
 
         for (a, b) in original.iter().zip(decrypted.iter()) {
             assert!((a - b).abs() < 1e-5, "roundtrip mismatch: {} vs {}", a, b);
@@ -194,7 +211,7 @@ mod tests {
         let keys = AgentKeys::new("test", &key_data, dim, None, None).unwrap();
 
         let original = vec![1.0, 2.0, 3.0, 4.0];
-        let encrypted = keys.encrypt(&original, "organize");
+        let encrypted = keys.encrypt(&original, "organize").unwrap();
 
         let differs = original
             .iter()
@@ -213,8 +230,8 @@ mod tests {
         let b = vec![0.3, 0.9, 0.1, -0.5, 0.7, 0.2, -0.4, 0.8];
 
         let sim_plain = cosine_sim(&a, &b);
-        let a_enc = keys.encrypt(&a, "organize");
-        let b_enc = keys.encrypt(&b, "organize");
+        let a_enc = keys.encrypt(&a, "organize").unwrap();
+        let b_enc = keys.encrypt(&b, "organize").unwrap();
         let sim_enc = cosine_sim(&a_enc, &b_enc);
 
         assert!(
@@ -232,7 +249,7 @@ mod tests {
         let keys = AgentKeys::new("test", &key_data, dim, None, None).unwrap();
 
         let v = vec![0.5, -0.3, 0.8, 0.1];
-        let v_enc = keys.encrypt(&v, "organize");
+        let v_enc = keys.encrypt(&v, "organize").unwrap();
 
         assert!(
             (norm(&v) - norm(&v_enc)).abs() < 1e-5,
@@ -243,17 +260,18 @@ mod tests {
     }
 
     #[test]
-    fn dimension_mismatch_returns_original() {
+    fn dimension_mismatch_errors() {
         let dim = 4;
         let key_data = make_rotation_matrix(dim, 0.5);
         let keys = AgentKeys::new("test", &key_data, dim, None, None).unwrap();
 
-        let wrong_dim = vec![1.0, 2.0, 3.0];
-        let result = keys.encrypt(&wrong_dim, "organize");
-        assert_eq!(result, wrong_dim);
+        let short = vec![1.0, 2.0, 3.0];
+        assert!(keys.encrypt(&short, "organize").is_err());
+        assert!(keys.decrypt(&short, "organize").is_err());
 
-        let result = keys.decrypt(&wrong_dim, "organize");
-        assert_eq!(result, wrong_dim);
+        let long = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        assert!(keys.encrypt(&long, "organize").is_err());
+        assert!(keys.decrypt(&long, "organize").is_err());
     }
 
     #[test]
@@ -263,8 +281,8 @@ mod tests {
         let keys = AgentKeys::new("test", &key_data, dim, None, None).unwrap();
 
         let v = vec![1.0, 2.0, 3.0, 4.0];
-        let enc_organize = keys.encrypt(&v, "organize");
-        let enc_retrieve = keys.encrypt(&v, "retrieve");
+        let enc_organize = keys.encrypt(&v, "organize").unwrap();
+        let enc_retrieve = keys.encrypt(&v, "retrieve").unwrap();
 
         assert_eq!(enc_organize, enc_retrieve);
     }
@@ -284,8 +302,8 @@ mod tests {
         .unwrap();
 
         let v = vec![1.0, 2.0, 3.0, 4.0];
-        let enc_organize = keys.encrypt(&v, "organize");
-        let enc_retrieve = keys.encrypt(&v, "retrieve");
+        let enc_organize = keys.encrypt(&v, "organize").unwrap();
+        let enc_retrieve = keys.encrypt(&v, "retrieve").unwrap();
 
         let differs = enc_organize
             .iter()
@@ -293,8 +311,8 @@ mod tests {
             .any(|(a, b)| (a - b).abs() > 1e-5);
         assert!(differs, "different keys should encrypt differently");
 
-        let dec_organize = keys.decrypt(&enc_organize, "organize");
-        let dec_retrieve = keys.decrypt(&enc_retrieve, "retrieve");
+        let dec_organize = keys.decrypt(&enc_organize, "organize").unwrap();
+        let dec_retrieve = keys.decrypt(&enc_retrieve, "retrieve").unwrap();
 
         for (a, b) in v.iter().zip(dec_organize.iter()) {
             assert!((a - b).abs() < 1e-5);
@@ -326,8 +344,8 @@ mod tests {
 
         let keys = keys.unwrap();
         let v = vec![1.0, 2.0, 3.0, 4.0];
-        let enc = keys.encrypt(&v, "organize");
-        let dec = keys.decrypt(&enc, "organize");
+        let enc = keys.encrypt(&v, "organize").unwrap();
+        let dec = keys.decrypt(&enc, "organize").unwrap();
         for (a, b) in v.iter().zip(dec.iter()) {
             assert!((a - b).abs() < 1e-5);
         }
@@ -353,12 +371,14 @@ mod tests {
         let keys = mgr.get_keys("trailokya").unwrap();
         let v = vec![0.5, -0.3, 0.8, 0.1];
 
-        let dec = keys.decrypt(&keys.encrypt(&v, "organize"), "organize");
+        let enc = keys.encrypt(&v, "organize").unwrap();
+        let dec = keys.decrypt(&enc, "organize").unwrap();
         for (a, b) in v.iter().zip(dec.iter()) {
             assert!((a - b).abs() < 1e-5);
         }
 
-        let dec = keys.decrypt(&keys.encrypt(&v, "retrieve"), "retrieve");
+        let enc_r = keys.encrypt(&v, "retrieve").unwrap();
+        let dec = keys.decrypt(&enc_r, "retrieve").unwrap();
         for (a, b) in v.iter().zip(dec.iter()) {
             assert!((a - b).abs() < 1e-5);
         }

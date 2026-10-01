@@ -1,0 +1,998 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Ferricula · Talk</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap">
+<style>
+:root{--paper:#F6F4EF;--ink:#1B1B19;--muted:#5E5B55;--rule:#DDD8CE;--rule-soft:#EEEBE4;--input-rule:#CFCAC0;--card:#FFFFFF;--accent:#2A5BA8;--accent-deep:#1C4180;--accent-wash:#EEF2F9;--accent-edge:#C9D5EA;--tired:#A6541A;--warn:#7A3A0E;font-family:'IBM Plex Sans',system-ui,sans-serif;color:var(--ink);background:var(--paper)}
+*{box-sizing:border-box}body{margin:0}button,input,textarea,select{font:inherit;color:inherit}button,a,input,textarea,summary,select{outline-offset:4px}:focus-visible{outline:2px solid var(--accent)}button{min-height:44px;border:1px solid var(--ink);border-radius:10px;background:var(--card);padding:0 14px;cursor:pointer}button:disabled{color:var(--muted);border-color:var(--rule);cursor:not-allowed}a{color:var(--accent)}a:hover{color:var(--accent-deep)}[hidden]{display:none!important}p{margin:0}header{min-height:68px;padding:12px 32px;border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:14px;flex-wrap:wrap}.brand{font:500 26px 'EB Garamond',Georgia,serif;letter-spacing:.01em;margin:0}.disclosure{font-size:12px;color:var(--muted);letter-spacing:.04em;max-width:440px}.header-actions{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap}.pill{display:flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--rule);border-radius:999px;font-size:13px}.pill:before{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent)}#instruments-toggle[aria-expanded=true]{background:var(--ink);color:var(--paper)}.quiet{background:transparent;border-color:transparent}.layout{display:flex;min-height:calc(100vh - 68px)}main{flex:1;min-width:0;padding:36px 48px 28px}.column{max-width:640px;margin:auto;min-height:calc(100vh - 132px);display:flex;flex-direction:column}.date-line{text-align:center;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:30px}.settings{font-size:13px}.settings>summary{color:var(--muted)}summary{cursor:pointer;padding:8px 0}label{display:block;font-size:12px;color:var(--muted);margin:8px 0}.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.row input{flex:1;min-width:160px}input{min-height:44px;padding:8px;border:1px solid var(--input-rule);border-radius:8px;background:var(--card);min-width:0}.fine{font-size:12px;color:var(--muted);line-height:1.5;margin:8px 0}.mono{font-family:'IBM Plex Mono',monospace;font-size:11px;overflow-wrap:anywhere}.tools{margin-top:16px}.turn{display:flex;flex-direction:column;gap:12px;margin-bottom:30px;overflow-wrap:anywhere}.speaker{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0}.operator{font-size:16px;line-height:1.55;white-space:pre-wrap;margin-bottom:18px}.answer{font:400 20px/1.6 'EB Garamond',Georgia,serif;white-space:pre-wrap}.turn-heading{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.inspect{min-height:32px;padding:4px 10px;border:1px solid var(--rule);border-radius:999px;background:transparent;font-size:11px;color:var(--muted)}.sources{display:flex;flex-wrap:wrap;gap:8px;list-style:none;margin:0;padding:0}.sources a{display:block;border:1px solid var(--accent-edge);border-radius:8px;background:var(--accent-wash);padding:6px 10px;font-size:12px;text-decoration:none;color:var(--ink)}.web-reading{border-left:2px solid var(--tired);padding:8px 12px;margin:4px 0}.web-source{font-size:12px;color:var(--warn)}.web-reading .row{margin-top:10px}.sources .document{background:var(--card);border-color:var(--input-rule)}sup a{font:11px 'IBM Plex Sans',sans-serif;padding:0 3px}.panel{position:sticky;top:0;align-self:flex-start;max-height:100vh;overflow-y:auto;min-height:calc(100vh - 68px);width:440px;flex-shrink:0;border-left:1px solid var(--rule);background:var(--rule-soft);padding:24px 28px;min-width:0;overflow-wrap:anywhere}.panel-top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:22px}.panel-top h2{font:22px 'EB Garamond',Georgia,serif;margin:0}.panel h3{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}.panel-section{margin-bottom:22px}.record{font-size:12px;line-height:1.6;padding:10px 0;border-bottom:1px solid var(--rule);white-space:pre-wrap}.candidate-text{font-size:13px;line-height:1.6}.metadata{color:var(--muted);font:11px/1.6 'IBM Plex Mono',monospace;margin-top:6px}.candidate-title{font-size:13px;font-weight:500;margin-bottom:4px}.candidate-title:before{content:"";display:inline-block;width:8px;height:8px;margin-right:8px;border-radius:50%;border:1.5px solid var(--accent)}.document-title:before{border-radius:0;background:var(--ink);border-color:var(--ink)}.fidelity-track{width:120px;height:4px;border-radius:2px;background:var(--rule);margin:8px 0}.fidelity-fill{height:4px;border-radius:2px;background:var(--accent)}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.6 'IBM Plex Mono',monospace;max-height:400px;overflow:auto}.error{color:var(--warn)}.empty{padding:32px 0;color:var(--muted);font:20px/1.6 'EB Garamond',Georgia,serif}.thinking{border-top:3px solid var(--accent);padding-top:10px;color:var(--accent-deep);font-size:13px;margin-bottom:24px}.composer{margin-top:auto;padding-top:16px}.compose-box{display:grid;grid-template-columns:1fr auto;align-items:end;gap:8px;padding:8px;border:1px solid var(--input-rule);border-radius:16px;background:var(--card)}textarea{flex:1;min-width:0;resize:none;height:28.5px;min-height:28.5px;max-height:228px;padding:0;overflow-y:hidden;align-self:center;border:0;background:transparent;font:19px/1.5 'EB Garamond',Georgia,serif}.compose-box textarea{grid-row:1;grid-column:1/-1;width:100%}.compose-box button{border-radius:12px;grid-row:2}#attach-button{grid-column:1;justify-self:start}#send,#stop{grid-column:2;width:64px}.compose-box.drag-over{border-color:var(--accent);background:var(--accent-wash)}.compose-box:focus-within{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}.compose-box textarea:focus-visible{outline:none}.status{font-size:13px;line-height:1.5;min-height:24px;margin:12px 0;overflow-wrap:anywhere}.drives-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.instrument{font-size:12px;line-height:1.6;margin-bottom:10px}.gauge-label{display:flex;justify-content:space-between;gap:10px}.gauge{height:4px;border-radius:2px;background:var(--rule);margin-top:6px}.fill{height:4px;border-radius:2px;background:var(--ink);width:0}#tired-fill{background:var(--tired)}.panel-counts{border-top:1px solid var(--rule);padding-top:14px;display:flex;gap:24px;font-size:12px;color:var(--muted)}dialog{max-width:min(560px,calc(100vw - 32px));max-height:90vh;width:100%;padding:24px;border:1px solid var(--rule);border-radius:12px;background:var(--paper);color:var(--ink)}dialog::backdrop{background:rgb(27 27 25 / .3)}.dialog-close{float:right}.moments{font:11px/1.7 'IBM Plex Mono',monospace;color:var(--muted)}.moment{display:flex;justify-content:space-between;border-bottom:1px solid var(--rule);padding:5px 0;gap:8px}.sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+#documents-header{display:none}#documents-dialog{max-width:min(960px,calc(100vw - 32px));width:100%}.documents-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.documents-heading h2{margin:0;font:26px 'EB Garamond',Georgia,serif}.document-filter{flex:1;min-width:180px}.document-filter input{width:100%}#documents-list{list-style:none;padding:0;margin:0}.document-list-item{border-top:1px solid var(--rule);padding:16px 0;overflow-wrap:anywhere}.document-open{font-weight:500;text-align:left;max-width:100%}.document-metadata{font-size:12px;line-height:1.7;color:var(--muted);overflow-wrap:anywhere;margin:10px 0}.document-metadata p{margin:4px 0}.document-navigation{margin:20px 0}.document-navigation select{min-height:44px;max-width:100%;flex:1;min-width:120px;border:1px solid var(--input-rule);border-radius:8px;background:var(--card);padding:6px}.document-section{padding:20px 12px;margin:12px 0;border-top:1px solid var(--rule);overflow-wrap:anywhere}.document-section h3{font-size:16px;font-weight:500;margin:0 0 8px}.document-section.cited-section{background:var(--accent-wash);border-left:3px solid var(--accent)}.section-text{white-space:pre-wrap;font:16px/1.7 'IBM Plex Sans',system-ui,sans-serif;margin-top:14px}.cite-link{display:inline-block;overflow-wrap:anywhere}.document-note{border-left:2px solid var(--rule);padding-left:12px;white-space:pre-wrap}.section-retry{margin-top:12px}
+@media(max-width:1050px){header{padding:12px 20px}main{padding:32px 24px}.panel{width:360px;padding:24px 20px}}
+@media(max-width:760px){#documents-header{display:inline-block}#documents-dialog{padding:16px}.documents-heading{align-items:flex-start}header{padding:16px;gap:12px}.disclosure{flex-basis:100%;max-width:none}.header-actions{margin-left:0;gap:8px}main{padding:24px 16px}.layout{flex-direction:column}.panel{position:static;max-height:none;min-height:0;width:100%;border-left:0;border-top:1px solid var(--rule);padding:24px 16px}.drives-grid{gap:24px}}
+</style>
+</head>
+<body>
+<header>
+<h1 class="brand" id="brand">Ferricula</h1>
+<p class="disclosure">A simulation built from recovered memory. Not the living person.</p>
+<div class="header-actions"><span class="pill" id="phase">Phase unavailable</span><button class="quiet" id="documents-header" type="button">Documents</button><button class="quiet" id="day-toggle" type="button">His day</button><button class="quiet" id="settings-toggle" type="button" aria-haspopup="dialog">Connection</button><button id="instruments-toggle" type="button" aria-controls="instruments" aria-expanded="true">Hide instruments</button></div>
+</header>
+<dialog id="connection-dialog" aria-label="Connection and conversation"><button class="dialog-close" id="close-settings" type="button">Close</button>
+<details class="settings" id="settings" open>
+<summary>Connection and conversation</summary>
+<p id="connection" class="fine">Not connected</p>
+<a id="login" href="/auth/login" hidden>Sign in with nuts.services</a>
+<form id="connect-form">
+<label for="token">Operator bearer token</label>
+<div class="row"><input id="token" type="password" autocomplete="off" spellcheck="false" required aria-describedby="token-note"><button id="connect">Connect</button></div>
+<p id="token-note" class="fine">Held only in this page’s memory. Refreshing or disconnecting clears it.</p>
+</form>
+<div class="row"><button id="retry" type="button">Retry connection</button><button id="disconnect" type="button" hidden>Disconnect</button></div>
+<div class="tools row"><button id="new" type="button">New conversation</button><button id="reload" type="button">Reload history</button></div>
+<p class="fine">Conversation ID <span id="conversation" class="mono"></span></p>
+<form id="open-form"><label for="saved-id">Load a conversation by ID</label><div class="row"><input id="saved-id" autocomplete="off" spellcheck="false"><button id="open">Load</button></div></form>
+</details>
+</dialog>
+<dialog id="day-dialog" aria-labelledby="day-title"><button class="dialog-close" id="close-day" type="button">Close</button><h2 id="day-title">His day</h2><p id="day-date" class="fine"></p><p id="day-note" class="fine">Life readings unavailable.</p><ol id="day-events"></ol></dialog>
+<dialog id="documents-dialog" aria-labelledby="documents-title">
+<div class="documents-heading"><h2 id="documents-title" tabindex="-1">Documents</h2><button id="close-documents" type="button">Close</button></div>
+<p class="fine">Read-only · documents are held verbatim and never decay.</p>
+<p id="documents-status" class="fine" role="status" aria-live="polite"></p>
+<div id="documents-list-view">
+<div class="row"><div class="document-filter"><label for="document-filter">Filter by title</label><input id="document-filter" type="search" autocomplete="off"></div><button id="refresh-documents" type="button">Refresh list</button></div>
+<p id="documents-count" class="fine"></p><ul id="documents-list"></ul>
+</div>
+<div id="document-reader" hidden>
+<button id="documents-back" type="button">All documents</button>
+<div id="document-metadata"></div>
+<div class="row document-navigation"><label for="document-section-select">Go to section</label><select id="document-section-select"></select><button id="document-jump" type="button">Go</button></div>
+<button id="document-earlier" type="button" hidden>Load earlier sections</button>
+<div id="document-sections" aria-label="Document sections"></div>
+<button id="document-more" type="button" hidden>Load more sections</button>
+</div>
+</dialog>
+<div class="layout">
+<main><div class="column">
+<p class="date-line" id="date-line"></p>
+<section id="turns" aria-label="Conversation"></section>
+<div id="thinking" class="thinking" role="status" hidden>Thinking · waiting for the complete reply</div>
+<form id="composer" class="composer">
+<label id="message-label" for="message">Message to the agent</label>
+<div class="compose-box"><button id="attach-button" type="button" aria-label="Attach a PDF or text file">Attach</button><textarea id="message" rows="1" required aria-describedby="compose-help counter"></textarea><button id="send">Send</button><button id="stop" type="button" hidden title="Stop waiting; the reply may still finish on the server">Stop</button></div>
+<input id="attachment" type="file" accept=".pdf,.txt,.md" hidden>
+<p id="attachment-status" class="fine" role="status"></p>
+<p id="compose-help" class="fine">Enter to send · Shift+Enter for a new line. Attach or drop one PDF or UTF-8 text file here to keep it as a document.</p>
+<p id="counter" class="fine">0 / 8192 bytes</p>
+</form>
+<p id="status" class="status" role="status" aria-live="polite"></p>
+</div></main>
+<aside class="panel" id="instruments" aria-label="Instruments" tabindex="-1">
+<div class="panel-top"><h2>Instruments</h2><span class="fine" id="inspected-turn">last turn</span></div>
+<section class="panel-section"><button id="documents-panel" type="button">Documents</button><p class="fine">Browse the documents held verbatim. Read-only; documents never decay.</p></section>
+<section class="panel-section"><h3>Moments of this turn</h3><div class="moments" id="moments"></div></section>
+<div id="turn-instruments"></div>
+<section class="panel-section"><h3>Life moments</h3><div id="life-moments"></div></section>
+<div class="drives-grid">
+<section class="panel-section"><h3>Drives</h3>
+<div class="instrument"><div class="gauge-label"><span>Boredom</span><span id="bored" class="mono">Unavailable</span></div><div class="gauge" aria-hidden="true" hidden><div class="fill" id="bored-fill"></div></div></div>
+<div class="instrument"><div class="gauge-label"><span>Sleep pressure</span><span id="tired" class="mono">Unavailable</span></div><div class="gauge" aria-hidden="true" hidden><div class="fill" id="tired-fill"></div></div></div>
+</section>
+<section class="panel-section"><h3>Mindfulness</h3><p class="fine">Not measured yet: recall chain and valence skew.</p></section>
+</div>
+<div class="panel-counts"><span><span id="recalled" class="mono">—</span> recalled</span><span><span id="searches" class="mono">—</span> searches</span></div>
+</aside>
+</div>
+<script>
+'use strict';
+const el = id => document.getElementById(id);
+const array = value => Array.isArray(value) ? value : [];
+const text = value => value == null ? 'Not recorded' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+const bytes = value => new TextEncoder().encode(value).length;
+// getRandomValues also works on an operator's plain-HTTP LAN origin.
+function uuid() {
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 15) | 64; b[8] = (b[8] & 63) | 128;
+  const h = Array.from(b, n => n.toString(16).padStart(2, '0')).join('');
+  return h.slice(0,8) + '-' + h.slice(8,12) + '-' + h.slice(12,16) + '-' + h.slice(16,20) + '-' + h.slice(20);
+}
+const validId = value => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value || '');
+let conversationId, token = '', connected = false, busy = false, awaiting = false;
+let needsReload = true, pending = false, uncertainId = null, agentName = 'the agent', turns = [];
+let auth = {login_enabled:false, signed_in:false, user_id:null}, lifeBusy = false, authEpoch = 0;
+try { conversationId = sessionStorage.getItem('ferricula-conversation'); } catch {}
+if (!validId(conversationId)) conversationId = uuid();
+function showId() {
+  try { sessionStorage.setItem('ferricula-conversation', conversationId); } catch {}
+  el('conversation').textContent = conversationId;
+}
+function node(tag, value, className) {
+  const n = document.createElement(tag);
+  if (value != null) n.textContent = text(value);
+  if (className) n.className = className;
+  return n;
+}
+function details(parent, title, value) {
+  const d = node('details'); d.append(node('summary', title), node('pre', JSON.stringify(value, null, 2))); parent.append(d);
+}
+function notice(value, error = false) { el('status').textContent = value; el('status').className = 'status' + (error ? ' error' : ''); }
+function resizeComposer() {
+  const input=el('message'),line=parseFloat(getComputedStyle(input).lineHeight);
+  const oldScroll=input.scrollTop,box=input.closest('.compose-box'),bottom=box.getBoundingClientRect().bottom;
+  input.style.height=line+'px';
+  const height=Math.min(line*8,Math.max(line,input.scrollHeight));
+  input.style.height=height+'px';
+  input.style.overflowY=input.scrollHeight>height?'auto':'hidden';
+  input.scrollTop=oldScroll;
+  if(document.activeElement===input&&input.selectionEnd===input.value.length)input.scrollTop=input.scrollHeight;
+  if(bottom>0&&bottom<=innerHeight)window.scrollBy(0,box.getBoundingClientRect().bottom-bottom);
+}
+function controls() {
+  resizeComposer();
+  for (const id of ['new','reload','open','saved-id']) el(id).disabled = busy || !connected;
+  for (const id of ['connect','token','retry','disconnect']) el(id).disabled = busy;
+  for (const id of ['documents-header','documents-panel']) el(id).disabled = !connected;
+  el('message').disabled = awaiting;
+  el('attach-button').disabled = busy || !connected;
+  for (const button of document.querySelectorAll('.web-decision')) button.disabled = busy || !connected || button.dataset.unavailable === 'true';
+  el('send').disabled = busy || !connected || needsReload || pending || !el('message').value.trim() || bytes(el('message').value) > 8192;
+  el('counter').textContent = bytes(el('message').value) + ' / 8192 bytes';
+  el('counter').hidden=bytes(el('message').value)<=8192*.8;
+  el('send').hidden=awaiting;
+  el('stop').hidden=!awaiting;
+  el('thinking').hidden = !awaiting;
+  el('disconnect').hidden = !connected && !auth.signed_in && !token;
+  el('login').hidden = !auth.login_enabled;
+}
+function unavailableLife() {
+  latestLife = null; renderDay(); renderCuriosity(); renderLifeMoments();
+  el('phase').textContent = 'Phase unavailable';
+  for (const key of ['bored','tired']) showDrive(key, null, false);
+}
+function authFailure(status) {
+  if (el('documents-dialog').open) el('documents-dialog').close();
+  token = ''; el('token').value = ''; connected = false; authEpoch++;
+  needsReload = true; auth.signed_in = status === 403; el('settings').open = true; if (!el('connection-dialog').open) el('connection-dialog').showModal();
+  el('connection').textContent = status === 403 ? 'Signed in, but not an operator for this agent.' : 'Sign in or enter an operator bearer token.';
+  unavailableLife(); controls();
+}
+async function api(path, body, statusProbe = false, signal) {
+  const headers = {'Content-Type':'application/json'};
+  if (token && !statusProbe) headers.Authorization = 'Bearer ' + token;
+  const response = await fetch(path, {method:body === undefined ? 'GET' : 'POST', credentials:'same-origin', headers,
+    body:body === undefined ? undefined : JSON.stringify(body), cache:'no-store', redirect:'error', signal});
+  if (statusProbe && response.status === 404) return {login_enabled:false,signed_in:false,user_id:null};
+  if (response.status === 401 || response.status === 403) authFailure(response.status);
+  if (!response.ok) {
+    let detail = '';
+    try {
+      const payload = await response.json();
+      if (payload && typeof payload.error === 'string' && payload.error.trim()) detail = payload.error.trim();
+    } catch { /* The failure body was not JSON. */ }
+    if (!detail) detail = response.status === 403 ? 'Signed in, but not an operator for this agent.' :
+      response.status === 401 ? 'Authentication required. Use an enabled login method above.' : 'Request failed (HTTP ' + response.status + ').';
+    throw Error(detail);
+  }
+  return response.json();
+}
+async function refreshAuth() {
+  auth = await api('/auth/status', undefined, true);
+  controls();
+}
+let inspectedIndex = null, latestLife = null, documentCatalog = [];
+const webDecisions = new Map();
+const sessionIngestNotes = new Map();
+const SECTION_BATCH = 3;
+let documentsVersion = 0, documentView = null, documentsLoading = false;
+const validDocumentId = id => typeof id === 'string' && /^[a-f0-9]{16}$/i.test(id);
+function documentCitation(handle) {
+  if(typeof handle!=='string')return null;
+  const match=handle.match(/^\[doc ([a-f0-9]{16})(?:§(\d+)(?:-\d+)?)?(?: p\.\d+)?\]$/i);
+  if(!match)return null;
+  const index=match[2]===undefined?null:Number(match[2]);
+  return index===null||validSectionIndex(index)?{id:match[1],index}:null;
+}
+function citationNode(handle) {
+  const cite=documentCitation(handle);
+  if(!cite)return node('span',handle,'mono');
+  const a=node('a',handle,'cite-link mono');a.href='#document-'+cite.id+(cite.index===null?'':'-'+cite.index);
+  a.setAttribute('aria-haspopup','dialog');a.onclick=event=>{event.preventDefault();openDocument(cite.id,cite.index);};return a;
+}
+function validSectionIndex(index) { return Number.isInteger(index) && index >= 0 && index <= 4294967295; }
+function documentNotice(value,error=false) {
+  el('documents-status').textContent=value;
+  el('documents-status').className='fine'+(error?' error':'');
+}
+function documentMeta(parent,meta,note) {
+  const box=node('div',null,'document-metadata');
+  const origin=node('p'),url=safeUrl(meta.origin);
+  origin.append(document.createTextNode('Origin: '));
+  if(url){const a=node('a',meta.origin);a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';origin.append(a);}
+  else origin.append(document.createTextNode(text(meta.origin)));
+  box.append(origin,node('p','Source: '+text(meta.source_kind)+' · Ingested '+dateText(meta.ingested_at,true)),
+    node('p',text(meta.sections)+' sections · '+text(meta.pages)+' pages'));
+  if(typeof note==='string'&&note.trim())box.append(node('p','Ingest note: '+note,'document-note'));
+  parent.append(box);
+}
+function renderDocumentList() {
+  const query=el('document-filter').value.trim().toLocaleLowerCase();
+  const all=documentCatalog.filter(d=>validDocumentId(d.doc_id)).slice().sort((a,b)=>
+    (Number(b.ingested_at)||0)-(Number(a.ingested_at)||0)||text(a.title).localeCompare(text(b.title)));
+  const docs=all.filter(d=>text(d.title).toLocaleLowerCase().includes(query)),root=el('documents-list');
+  root.replaceChildren();el('documents-count').textContent=docs.length+' of '+all.length+' documents · newest first';
+  for(const doc of docs){
+    const li=node('li',null,'document-list-item'),open=node('button',doc.title||'Untitled document','document-open');
+    open.type='button';open.onclick=()=>openDocument(doc.doc_id);li.append(open);
+    documentMeta(li,doc,doc.note??sessionIngestNotes.get(doc.doc_id));root.append(li);
+  }
+  if(!docs.length)root.append(node('li',all.length?'No titles match this filter.':'No documents are held yet.','fine'));
+}
+async function openDocumentList(refresh=true) {
+  if(!connected){notice('Connect to browse documents.',true);el('connection-dialog').showModal();return;}
+  const version=++documentsVersion;documentView=null;
+  el('documents-title').textContent='Documents';
+  el('documents-list-view').hidden=false;el('document-reader').hidden=true;
+  if(!el('documents-dialog').open)el('documents-dialog').showModal();
+  el('document-filter').focus();
+  if(!refresh){documentNotice('');renderDocumentList();return;}
+  documentsLoading=true;el('refresh-documents').disabled=true;
+  el('documents-list').replaceChildren();el('documents-count').textContent='';documentNotice('Loading documents…');
+  try{
+    const data=await api('/documents');
+    if(version!==documentsVersion||!connected||!el('documents-dialog').open)return;
+    if(!Array.isArray(data.documents))throw Error('Document list was not recognized.');
+    documentCatalog=data.documents;renderDocumentList();documentNotice('Document list loaded.');
+  }catch(error){
+    if(version===documentsVersion&&el('documents-dialog').open)documentNotice('Could not load documents: '+error.message+' Use Refresh list to retry.',true);
+  }finally{
+    if(version===documentsVersion){documentsLoading=false;el('refresh-documents').disabled=false;}
+  }
+}
+function currentDocument(view) {
+  return documentView===view&&view.version===documentsVersion&&connected&&el('documents-dialog').open;
+}
+function noteForDocument(data,id) {
+  if(typeof data.reading?.note==='string')return data.reading.note;
+  if(typeof data.note==='string')return data.note;
+  if(typeof data.meta?.note==='string')return data.meta.note;
+  if(sessionIngestNotes.has(id))return sessionIngestNotes.get(id);
+  for(const turn of turns)for(const c of array(turn.memory_candidates)){
+    if(c.tags?.doc_id===id&&typeof c.tags.note==='string')return c.tags.note;
+  }
+  return null;
+}
+async function openDocument(id,section=null) {
+  if(!validDocumentId(id)||(section!==null&&!validSectionIndex(section))){notice('This document citation is not valid.',true);return;}
+  if(!connected){notice('Connect to open documents.',true);el('connection-dialog').showModal();return;}
+  const view={id,version:++documentsVersion,outline:[],loaded:new Map(),busy:false,from:0,to:0,target:section};
+  documentView=view;documentsLoading=false;el('refresh-documents').disabled=false;
+  el('documents-list-view').hidden=true;el('document-reader').hidden=false;
+  el('document-metadata').replaceChildren();el('document-sections').replaceChildren();
+  el('document-section-select').replaceChildren();el('document-jump').disabled=true;
+  el('document-earlier').hidden=true;el('document-more').hidden=true;
+  el('documents-title').textContent='Loading document…';
+  if(!el('documents-dialog').open)el('documents-dialog').showModal();
+  el('documents-title').focus();documentNotice('Loading document outline…');
+  try{
+    const data=await api('/documents/'+encodeURIComponent(id));
+    if(!currentDocument(view))return;
+    if(data.meta?.doc_id!==id||!Array.isArray(data.sections))throw Error('Document outline was not recognized.');
+    const seen=new Set();
+    view.outline=data.sections.filter(s=>validSectionIndex(s.index)&&!seen.has(s.index)&&seen.add(s.index)).sort((a,b)=>a.index-b.index);
+    el('documents-title').textContent=data.meta.title||'Untitled document';
+    const note=noteForDocument(data,id);documentMeta(el('document-metadata'),data.meta,note);
+    if(data.reading?.read_at)el('document-metadata').append(node('p','Reading recorded '+dateText(data.reading.read_at,true),'fine'));
+    if(!note)el('document-metadata').append(node('p','Ingest note not available.','fine'));
+    for(const s of view.outline){
+      const option=node('option','§'+s.index+(s.page!=null?' · page '+s.page:'')+(s.heading?' · '+s.heading:''));
+      option.value=String(s.index);el('document-section-select').append(option);
+    }
+    el('document-jump').disabled=!view.outline.length;
+    if(!view.outline.length){documentNotice('This document has no sections.');return;}
+    let position=section===null?0:view.outline.findIndex(s=>s.index===section);
+    if(position<0){
+      documentNotice('The cited section is not in this document. Choose a section from the outline.',true);
+      el('document-section-select').value=String(view.outline[0].index);return;
+    }
+    await loadDocumentRange(view,position,Math.min(view.outline.length,position+SECTION_BATCH),section);
+  }catch(error){
+    if(!currentDocument(view))return;
+    el('documents-title').textContent='Document unavailable';
+    documentNotice(error.message,true);
+    const retry=node('button','Retry document','section-retry');retry.type='button';retry.onclick=()=>openDocument(id,section);el('document-sections').append(retry);
+  }
+}
+function updateDocumentControls(view) {
+  el('document-earlier').hidden=view.from===0;
+  el('document-more').hidden=view.to>=view.outline.length;
+  el('document-earlier').disabled=view.busy;el('document-more').disabled=view.busy;el('document-jump').disabled=view.busy;
+  el('document-earlier').textContent='Load previous '+Math.min(SECTION_BATCH,view.from)+' sections';
+  el('document-more').textContent='Load next '+Math.min(SECTION_BATCH,view.outline.length-view.to)+' sections';
+}
+async function fetchDocumentSection(view,entry) {
+  try {
+    const data=await api('/documents/'+encodeURIComponent(view.id)+'/sections/'+entry.index);
+    if(!currentDocument(view))return;
+    if(data.doc_id!==view.id||data.index!==entry.index||typeof data.text!=='string')throw Error('Section response was not recognized.');
+    view.loaded.set(entry.index,{data});
+  }catch(error){if(currentDocument(view))view.loaded.set(entry.index,{error:error.message});}
+}
+function renderDocumentSections(view) {
+  const root=el('document-sections');root.replaceChildren();
+  for(const entry of view.outline.slice(view.from,view.to)){
+    const article=node('section',null,'document-section');article.id='document-section-'+entry.index;article.tabIndex=-1;
+    if(entry.index===view.target){article.classList.add('cited-section');article.setAttribute('aria-label','Cited section '+entry.index);}
+    const saved=view.loaded.get(entry.index);
+    article.append(node('h3',entry.heading||'Section '+entry.index),
+      node('p',entry.cite??('[doc '+view.id+'§'+entry.index+(entry.page!=null?' p.'+entry.page:'')+']'),'mono'),
+      node('p',entry.page!=null?'Page '+entry.page:'Unpaged section','fine'));
+    if(saved?.data)article.append(node('div',saved.data.text,'section-text'));
+    else{
+      article.append(node('p',saved?.error||'Section not loaded.','error'));
+      const retry=node('button','Retry section '+entry.index,'section-retry');retry.type='button';
+      retry.disabled=view.busy;
+      retry.onclick=async()=>{
+        if(!currentDocument(view)||view.busy)return;
+        view.busy=true;retry.disabled=true;updateDocumentControls(view);documentNotice('Retrying section '+entry.index+'…');
+        await fetchDocumentSection(view,entry);
+        if(!currentDocument(view))return;
+        view.busy=false;renderDocumentSections(view);updateDocumentControls(view);
+        documentNotice(view.loaded.get(entry.index)?.error?'Section still unavailable.':'Section loaded.',!!view.loaded.get(entry.index)?.error);
+        el('document-section-'+entry.index)?.focus();
+      };
+      article.append(retry);
+    }
+    root.append(article);
+  }
+}
+async function loadDocumentRange(view,from,to,focusSection=null,prepend=false) {
+  if(!currentDocument(view)||view.busy)return;
+  view.busy=true;view.from=Math.min(view.from===view.to?from:view.from,from);view.to=Math.max(view.to,to);
+  updateDocumentControls(view);documentNotice('Loading sections…');
+  const dialog=el('documents-dialog'),previousHeight=dialog.scrollHeight,previousTop=dialog.scrollTop;
+  // Only a small batch of section bodies is fetched; the outline remains navigable.
+  for(const entry of view.outline.slice(from,to)){
+    if(!currentDocument(view))return;
+    if(!view.loaded.has(entry.index))await fetchDocumentSection(view,entry);
+  }
+  if(!currentDocument(view))return;
+  view.busy=false;renderDocumentSections(view);updateDocumentControls(view);
+  const failures=[...view.loaded.values()].filter(v=>v.error).length;
+  documentNotice('Showing '+(view.to-view.from)+' of '+view.outline.length+' sections.'+(failures?' '+failures+' section(s) could not be loaded; use Retry.':''),failures>0);
+  if(focusSection!==null){
+    el('document-section-select').value=String(focusSection);
+    const section=el('document-section-'+focusSection);section?.focus();section?.scrollIntoView({block:'nearest'});
+  }else if(prepend)dialog.scrollTop=previousTop+(dialog.scrollHeight-previousHeight);
+}
+function jumpDocumentSection() {
+  const view=documentView,index=Number(el('document-section-select').value);
+  if(!view||view.busy||!validSectionIndex(index))return;
+  openDocument(view.id,index);
+}
+
+function safeUrl(value) {
+  try { const u=new URL(value);return ['http:','https:'].includes(u.protocol)&&!u.username&&!u.password ? u : null; } catch { return null; }
+}
+function pageLink(title, url, suffix) {
+  const parsed = safeUrl(typeof url === 'string' ? url : '');
+  const name = typeof title === 'string' && title.trim() ? title : '';
+  const p = node('p');
+  if (parsed) {
+    const a = node('a', name || parsed.href);
+    a.href = parsed.href;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    p.append(a);
+  } else p.append(document.createTextNode(name || 'Title not recorded'));
+  if (suffix) p.append(document.createTextNode(suffix));
+  return p;
+}
+function showDrive(key, value, enabled) {
+  const valid = enabled !== false && typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+  el(key).textContent = valid ? value.toFixed(2) : 'Unavailable';
+  const fill = el(key + '-fill');
+  fill.style.width = valid ? value * 100 + '%' : '0';
+  fill.parentElement.hidden = !valid;
+}
+function savedDocument(url) { return documentCatalog.find(d=>d.origin===url); }
+async function refreshDocuments() {
+  try {
+    const data=await api('/documents');
+    if(Array.isArray(data.documents))documentCatalog=data.documents;
+  } catch { /* Optional metadata; records still render without it. */ }
+}
+function webKey(turn, index) { return text(turn.request?.request_id) + ':' + index; }
+function recordedPane(call) {
+  const fromResult = typeof call?.pane === 'string' ? call.pane.trim() : '';
+  const argued = call?.arguments && typeof call.arguments.pane === 'string' ? call.arguments.pane.trim() : '';
+  return fromResult || argued;
+}
+function webStatus(turn,call,index) {
+  const url=safeUrl(call.url),decision=webDecisions.get(webKey(turn,index));
+  if(call.error)return 'Read failed';
+  if(decision)return decision.label;
+  if(url && (savedDocument(url.href) || array(turn.tool_calls).some(c=>c.name==='ingest_url'&&!c.error&&c.ok===true&&safeUrl(c.url??c.arguments?.url)?.href===url.href)))return 'Kept as a document';
+  if(Array.isArray(call.web_panes))return 'Listed open pages · nothing saved';
+  return url ? 'Awaiting your decision · nothing saved by this read' : 'URL not recorded · read-only';
+}
+function renderWebReads(parent,turn) {
+  array(turn.tool_calls).forEach((call,index)=>{
+    if(!call || call.name!=='read_web_pane' || call.error || Array.isArray(call.web_panes))return;
+    const url=safeUrl(call.url),pane=recordedPane(call),box=node('section',null,'web-reading'),key=webKey(turn,index);
+    box.append(node('p','Web / '+(url?url.hostname:'URL not recorded')+' · read-only','web-source'));
+    if(call.source)box.append(node('p',call.source,'fine'));
+    const status=webStatus(turn,call,index);
+    box.append(node('p',status,'fine'));
+    if(!status.startsWith('Kept'))box.append(node('p','This is the page’s claim. Reading it does not keep a document.','fine'));
+    if(url){
+      const a=node('a','Open source');a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';box.append(a);
+    }
+    if(!status.startsWith('Kept') && !webDecisions.has(key)){
+      const actions=node('div',null,'row'),keep=node('button','Keep as a document','web-decision'),leave=node('button','Leave it','web-decision');
+      keep.type=leave.type='button';keep.dataset.unavailable=String(!pane);keep.disabled=!pane||busy||!connected;leave.disabled=busy||!connected;
+      keep.onclick=()=>keepWeb(turn,call,index);
+      leave.onclick=()=>{webDecisions.set(key,{label:'Left as read-only · nothing saved by this choice'});render();controls();notice('Left it as read-only. No document was saved.');};
+      actions.append(keep,leave);box.append(actions);
+      if(!pane)box.append(node('p','Keeping this page is unavailable because its pane id was not recorded.','fine'));
+    }
+    parent.append(box);
+  });
+}
+async function keepWeb(turn,call,index) {
+  const pane=recordedPane(call),url=safeUrl(call.url),fromPane=call.name==='read_web_pane';
+  if(busy||!connected||(fromPane?!pane:!url))return;
+  busy=true;controls();notice('Keeping the page as a document…');
+  try {
+    const note='Kept by the operator clicking Keep as a document in chat; conversation '+conversationId;
+    const body=fromPane?{kind:'pane',pane,note}:{kind:'url',url:url.href,note};
+    const result=await api('/documents',body);
+    if(!result.doc_id)throw Error('Document response was not recognized.');
+    if(result.duplicate===false)sessionIngestNotes.set(result.doc_id,note);
+    webDecisions.set(webKey(turn,index),{label:'Kept as a document · '+result.doc_id});
+    await refreshDocuments();render();notice('Page kept as a document.');
+  } catch(error) { notice(error.message+' Keeping was not confirmed. Check the documents before trying again.',true); }
+  finally {busy=false;controls();}
+}
+async function attachFile(file) {
+  if(!file||busy||!connected)return;
+  const pdf=/\.pdf$/i.test(file.name)||file.type==='application/pdf';
+  const plain=/\.(txt|md)$/i.test(file.name)||['text/plain','text/markdown'].includes(file.type);
+  if(!pdf&&!plain){el('attachment-status').textContent='Choose a PDF, .txt or .md file.';return;}
+  if(file.size>32*1024*1024){el('attachment-status').textContent='This page accepts files up to 32 MiB; the server may use a lower limit.';return;}
+  busy=true;controls();el('attachment-status').textContent='Attaching '+file.name+'…';
+  try {
+    const data=await file.arrayBuffer();let source;
+    if(pdf){
+      if(new TextDecoder().decode(data.slice(0,5))!=='%PDF-')throw Error('Unsupported file: a PDF must start with %PDF-.');
+      let binary='';const bytes=new Uint8Array(data);
+      for(let i=0;i<bytes.length;i+=16384)binary+=String.fromCharCode(...bytes.subarray(i,i+16384));
+      source={kind:'pdf',name:file.name,base64:btoa(binary)};
+    }else{
+      let content;
+      try{content=new TextDecoder('utf-8',{fatal:true}).decode(data);}catch{throw Error('Unsupported file: text must use valid UTF-8.');}
+      if(!content.trim())throw Error('The text file is empty.');
+      source={kind:'text',title:file.name,text:content};
+    }
+    const result=await api('/documents',{...source,note:'attached by the operator in chat'});
+    if(!result.doc_id)throw Error('Document response was not recognized.');
+    if(result.duplicate===false)sessionIngestNotes.set(result.doc_id,'attached by the operator in chat');
+    el('attachment-status').textContent='Kept '+file.name+' · document '+result.doc_id;
+    el('attachment').value='';await refreshDocuments();render();
+  }catch(error){el('attachment-status').textContent='Attachment not confirmed: '+error.message+' Your message draft is unchanged.';}
+  finally{busy=false;controls();}
+}
+function renderCuriosity() {
+  const root=el('curiosity-reading');if(!root)return;root.replaceChildren();
+  if(!latestLife){root.append(node('p','Curiosity readings unavailable.','fine'));return;}
+  const entries=array(latestLife.journal).filter(e=>e.kind==='curiosity').slice(-5).reverse();
+  if(!entries.length){root.append(node('p','No curiosity excursions in the returned journal.','fine'));return;}
+  for(const e of entries){
+    const row=node('div',null,'record');row.append(node('p',dateText(e.ts,true)+' · On his own'));
+    if(e.query)row.append(node('p',e.query));
+    const kept=array(e.ingested);
+    row.append(node('p',Array.isArray(e.ingested)?kept.length?kept.length+' documents kept':'Nothing saved':'Retention not recorded','fine'));
+    for(const item of kept)row.append(pageLink(item.title,item.url,' · '+text(item.sections)+' sections kept'));
+    for(const error of array(e.errors))row.append(node('p',error,'error'));
+    details(row,'Recorded excursion',e);root.append(row);
+  }
+}
+function renderLifeMoments() {
+  const root=el('life-moments'),opened=new Set(Array.from(root.children).filter(n=>n.open).map(n=>n.dataset.entry));
+  root.replaceChildren();
+  if(!latestLife){root.append(node('p','Life readings unavailable.','fine'));return;}
+  const entries=array(latestLife.journal).map((entry,index)=>({entry,index})).filter(({entry})=>['curiosity','mail_walk','dream'].includes(entry.kind));
+  if(!entries.length){root.append(node('p','No excursions, mail walks or dreams in the returned journal.','fine'));return;}
+  for(const {entry,index} of entries.reverse()){
+    const row=node('details',null,'record'),key=text(entry.ts)+'-'+entry.kind+'-'+index;
+    row.dataset.entry=key;row.open=opened.has(key);
+    row.append(node('summary',dateText(entry.ts,true)+' · '+({curiosity:'Curiosity excursion',mail_walk:'Mail walk',dream:'Dream'})[entry.kind]));
+    const stages=node('div',null,'moments');momentRows(entry,stages,true);row.append(stages);
+    if(entry.error)row.append(node('p',entry.error,'error'));
+    for(const error of array(entry.errors))row.append(node('p',error,'error'));
+    details(row,'Recorded journal entry',entry);root.append(row);
+  }
+}
+function renderDay() {
+  const root = el('day-events');root.replaceChildren();
+  const today = new Date();
+  el('day-date').textContent = today.toLocaleDateString(undefined,{weekday:'long',year:'numeric',month:'long',day:'numeric'}) + ' · your local time';
+  if (!latestLife) { el('day-note').textContent = 'Life readings unavailable.'; return; }
+  const journal = array(latestLife.journal);
+  el('day-note').textContent = 'Recorded entries returned by the server; this may be only part of the day.';
+  const entries=journal.filter(e => typeof e.ts === 'number' && new Date(e.ts*1000).toDateString() === today.toDateString());
+  for(const e of entries) {
+    const li=node('li',null,'record');
+    const label=({curiosity:'Followed a curiosity',sleep:'Went to sleep',wake:'Woke',dream:'Dreamed',meditate:'Meditating',end_meditation:'Finished meditating',consolidate:'Consolidated memories',stimulus:'A stimulus'})[e.kind] || text(e.kind);
+    li.append(node('p',dateText(e.ts,true) + ' · ' + label));
+    if(e.query)li.append(node('p',e.query));
+    if(e.reflection)li.append(node('p',e.reflection));
+    if(e.kind==='dream'&&e.text)li.append(node('p','Dream · '+e.text));
+    if(e.reason)li.append(node('p',e.reason));
+    if(e.kind==='curiosity') {
+      li.append(node('p',Array.isArray(e.ingested) ? e.ingested.length+' documents kept' : 'Retention not recorded','fine'));
+      for(const item of array(e.ingested))li.append(pageLink(item.title,item.url,' · '+text(item.sections)+' sections'));
+    }
+    for(const error of array(e.errors))li.append(node('p',error,'error'));
+    if(e.error)li.append(node('p',e.error,'error'));
+    details(li,'Recorded event',e);root.append(li);
+  }
+  if(!entries.length)root.append(node('li','No entries for today in the returned journal.','fine'));
+  if(journal.some(e=>!e.ts))el('day-note').textContent+=' Entries without timestamps cannot be placed on the day.';
+}
+function phaseLabel(life) {
+  const human=value=>text(value).replaceAll('_',' ').replace(/^./,c=>c.toUpperCase());
+  if(life.enabled===false)return 'Life disabled';
+  const parts=[life.mode,life.phase].filter(v=>typeof v==='string'&&v);
+  return parts.length ? [...new Set(parts)].map(human).join(' · ') : 'Phase unavailable';
+}
+function setInstruments(open, focus = false) {
+  el('instruments').hidden = !open;
+  el('instruments-toggle').setAttribute('aria-expanded', String(open));
+  el('instruments-toggle').textContent = open ? 'Hide instruments' : 'Show instruments';
+  if (open && focus) el('instruments').focus();
+}
+function inspect(index) {
+  inspectedIndex = index;
+  // Opening is independent of data rendering: an old or malformed section
+  // must never prevent the panel from being visible.
+  setInstruments(true);
+  try { renderInstruments(); }
+  catch { el('turn-instruments').append(node('p','Could not show this section of the turn.','error')); }
+  finally { setInstruments(true, true); }
+}
+function dateText(value, time = false) {
+  if (value == null || value === '' || value === 0) return 'date not recorded';
+  const d = new Date(typeof value === 'number' ? value * 1000 : value);
+  if (!Number.isFinite(d.getTime())) return 'date not recorded';
+  return d.toLocaleString(undefined, time ? {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'} : {day:'numeric',month:'short',year:'numeric'});
+}
+function memoryKind(c) {
+  if (c.kind === 'memory') return 'Recovered memory · read-only';
+  if (c.tags?.source === 'curiosity' || c.tags?.channel === 'thinking') return 'Reflection';
+  if (c.tags?.channel === 'hearing') return 'Conversation · you said';
+  return 'Memory · ' + text(c.tags?.source ?? c.kind);
+}
+function memoryText(c) {
+  return text(c.tags?.text ?? c.text).replace(/^\[heard\]\s*/i,'You said: ').replace(/^\[said\]\s*/i,agentName + ' said: ');
+}
+function sourceLabel(handle, turn) {
+  const memory = handle.match(/^\[memory (\d+)\]$/);
+  if (memory) {
+    const c = array(turn.memory_candidates).find(c => String(c.id) === memory[1]);
+    return 'Memory / ' + (c ? memoryKind(c).toLowerCase() + ' · ' + dateText(c.created_at) : memory[1] + ' · details not recorded');
+  }
+  if (handle.startsWith('[doc ')) {
+    const id = handle.match(/^\[doc ([^§\s\]]+)/)?.[1];
+    const doc = array(turn.document_evidence).find(d => d.cite === handle || d.doc_id === id);
+    const catalog = documentCatalog.find(d => d.doc_id === id);
+    const call = array(turn.tool_calls).find(c => !c.error && (array(c.cites).includes(handle) || c.doc_id === id || c.arguments?.doc_id === id));
+    const section = handle.match(/§([^\]\s]+)/)?.[1];
+    return 'Document / ' + text(doc?.title ?? call?.source ?? catalog?.title ?? id) + (section ? ' · §' + section : '') +
+      (call?.date || call?.ts ? ' · read ' + dateText(call.date ?? call.ts) : doc && turn.received_at ? ' · shown ' + dateText(turn.received_at) : ' · read date not recorded');
+  }
+  return 'Episode / ' + handle + ' · details in the turn record';
+}
+// Light inline markup in replies: *emphasis* and **strong** (the model writes
+// markdown). Any asterisk left over gets a zero-width non-joiner after it:
+// the Google Fonts build of EB Garamond turns the sequence "*direct" into
+// arrow glyphs (a required substitution that font-variant-ligatures cannot
+// turn off), so a raw asterisk must never touch the next letter.
+function appendInline(parent, str) {
+  const re = /(\*\*|\*)(?=\S)([^*\n]*?\S)\1/g;
+  let at = 0;
+  const plain = t => parent.append(document.createTextNode(t.replace(/\*/g, '*\u200C')));
+  for (const m of str.matchAll(re)) {
+    plain(str.slice(at, m.index));
+    parent.append(node(m[1] === '**' ? 'strong' : 'em', m[2].replace(/\*/g, '*\u200C')));
+    at = m.index + m[0].length;
+  }
+  plain(str.slice(at));
+}
+function renderAnswer(parent, turn, index) {
+  const answer = node('p',null,'answer'), sources = [], body = text(turn.reply);
+  const handles = /\[(?:memory \d+|doc [^\]\n]+|episode [^\]\n]+)\]/g;
+  let start = 0;
+  for (const match of body.matchAll(handles)) {
+    appendInline(answer, body.slice(start,match.index));
+    let number = sources.indexOf(match[0]) + 1;
+    if (!number) { sources.push(match[0]); number = sources.length; }
+    const sup = node('sup'), link = node('a',number);
+    link.href = '#source-' + index + '-' + number;
+    const docCite=documentCitation(match[0]);
+    if(docCite){link.setAttribute('aria-haspopup','dialog');link.onclick=event=>{event.preventDefault();openDocument(docCite.id,docCite.index);};}
+    link.setAttribute('aria-label','Source ' + number + ': ' + sourceLabel(match[0],turn));
+    sup.append(link);answer.append(sup);start = match.index + match[0].length;
+  }
+  appendInline(answer, body.slice(start));parent.append(answer);
+  if (sources.length) {
+    const list = node('ol',null,'sources');list.setAttribute('aria-label','Sources cited in this reply');
+    sources.forEach((handle,i) => {
+      const li = node('li'), a = node('a',(i+1) + ' · ' + sourceLabel(handle,turn));
+      a.id = 'source-' + index + '-' + (i+1);a.href = '#instruments';a.title = handle;
+      if (handle.startsWith('[doc ')) a.className = 'document';
+      a.onclick = event => { event.preventDefault(); const cite=documentCitation(handle); if(cite)openDocument(cite.id,cite.index); else inspect(index); };
+      if(documentCitation(handle))a.setAttribute('aria-haspopup','dialog');
+      li.append(a);list.append(li);
+    });
+    parent.append(list);
+  }
+}
+function render() {
+  el('turns').replaceChildren();
+  if (!turns.length) el('turns').append(node('p','Start with a question, an observation, or something you haven’t figured out yet.','empty'));
+  turns.forEach((turn,index) => {
+    const article = node('article',null,'turn');
+    article.append(node('h2','You','speaker'),node('p',turn.request?.message,'operator'));
+    const heading = node('div',null,'turn-heading'), button = node('button','Inspect turn','inspect');
+    button.type = 'button';button.onclick = () => inspect(index);
+    button.setAttribute('aria-label','Inspect turn ' + (index+1));
+    heading.append(node('h2',agentName,'speaker'),button);article.append(heading);
+    if (turn.reply != null) renderAnswer(article,turn,index);
+    renderWebReads(article,turn);
+    if (turn.status !== 'completed') article.append(node('p','Response ' + text(turn.status),'fine'));
+    if (turn.error) article.append(node('p',turn.error,'error'));
+    el('turns').append(article);
+  });
+  renderInstruments();
+}
+let liveTurn = null;
+function momentRows(turn, root=el('moments'), isLife=false) {
+  root.replaceChildren();
+  const stages=array(turn?.vithi).filter(e=>e.stage);
+  if(!stages.length){root.append(node('p',isLife ? 'No moment record for this journal entry.' : turn === liveTurn && liveTurn ? 'Waiting for the moment record (server side in progress).' : 'No moment record for this turn (recorded before 2026-10-01).','fine'));return;}
+  const pali={contact:'phassa',feeling:'vedanā',recognition:'saññā',investigation:'santīraṇa',determining:'voṭṭhapana',impulsion:'javana',registration:'tadārammaṇa'};
+  for(const e of stages){
+    const row=node('div',null,'record'),d=e.detail??{};
+    row.append(node('p',e.stage+' · '+text(e.pali??pali[e.stage])+' · measured: '+(e.measured===true?'yes':'no')+(e.advisory||e.stage==='feeling'?' · advisory':'')));
+    row.append(node('p',e.summary,e.measured===true?'':'fine'));
+    if(e.stage==='contact'&&!isLife){
+      row.append(node('p',d.message??turn.request?.message,'candidate-text'));
+      row.append(node('p','origin: '+text(d.reported_origin??d.origin??turn.request?.reported_origin)+' · verified: '+text(d.origin_verified??turn.request?.origin_verified??'not recorded'),'metadata'));
+    }
+    if(e.stage==='recognition'){
+      for(const [arm,value] of Object.entries(d.searches??d.per_arm??d.arm_counts??{}))row.append(node('p',arm+': '+(value===0||Array.isArray(value)&&!value.length?'empty search':text(typeof value==='object'?JSON.stringify(value):value)),'metadata'));
+    }
+    if(e.stage==='determining'&&(d.briefing??d.curator_briefing??d.guidance)!=null){const guidance=node('div',null,'record');guidance.append(node('p','guidance','metadata'),node('p',d.briefing??d.curator_briefing??d.guidance,'candidate-text'));row.append(guidance);}
+    if(e.stage==='impulsion')for(const draft of array(d.drafts??d.rounds).filter(x=>(x.text??x.reply??x.draft)!=null)){const item=node('details');item.append(node('summary','round '+text(draft.round)+' draft'),node('p',draft.text??draft.reply??draft.draft,'candidate-text'));row.append(item);}
+    if(e.stage==='feeling'){
+      if(d.novelty!=null)row.append(node('p','novelty: '+text(d.novelty),'metadata'));
+    }else details(row,'Recorded stage details',d);
+    root.append(row);
+  }
+}
+function eventSections(section,turn) {
+  const events=turn._events ? array(turn._events) : array(turn.vithi).flatMap(e=>{
+    const d=e.detail??{},entries=[e];
+    if(e.stage==='impulsion')for(const r of array(d.rounds)){
+      for(const call of array(r.model_calls))entries.push({...call,round:r.round,event:'model_call'});
+      entries.push({...r,event:'round'});
+    }
+    if(e.stage==='investigation')for(const t of array(d.tools??d.tool_calls))entries.push({...t,event:'tool_result'});
+    if(e.stage==='determining')for(const g of array(d.gates))entries.push({...g,event:'gate'});
+    return entries;
+  });
+  const group=(title,names)=>section(title,root=>{
+    const selected=events.filter(e=>names.includes(e.event));
+    if(!selected.length)root.append(node('p','No '+title.toLowerCase()+' recorded.','fine'));
+    for(const e of selected){
+      const row=node('div',null,'record');
+      if(e.event==='round_start'){
+        const ended=events.some(x=>x.event==='round'&&x.round===e.round);
+        row.append(node('p','round '+e.round+(ended?' · started':' · running '+Math.max(0,Math.floor((Date.now()-(e._received??Date.now()))/1000))+'s')));
+      }else if(e.event==='round')row.append(node('p','round '+e.round+' · '+text(e.secs)+'s · finish: '+text(e.finish)+' · output tokens: '+text(e.output_tokens)));
+      else row.append(node('p',text(e.name??e.gate??e.event)+(e.advisory?' · advisory':'')));
+      if(e.event==='model_call'&&e.attempt===2){
+        const previous=events.findLast(x=>x.event==='model_call'&&x.round===e.round&&x.attempt===1);
+        row.append(node('p','round '+text(e.round)+', attempt 2 (previous attempt finished: '+text(previous?.finish)+')'));
+      }
+      details(row,'Recorded event',e);root.append(row);
+    }
+  });
+  group('Rounds',['round_start','model_call','round','nudge']);
+  group('Tools',['tool_call','tool_result']);
+  group('Gates',['gate','verdict']);
+  section('Reply',root=>{
+    for(const e of events.filter(e=>e.event==='round'&&(e.reply??e.text??e.draft)!=null)){
+      const d=node('details');d.append(node('summary','round '+e.round+' draft'),node('p',e.reply??e.text??e.draft,'candidate-text'));root.append(d);
+    }
+    if(turn.reply!=null)root.append(node('p',turn.reply,'candidate-text'));
+    else root.append(node('p','Waiting for the reply.','fine'));
+  });
+}
+async function streamChat(request,signal) {
+  let accepted=false;
+  const headers={'Content-Type':'application/json'};
+  if(token)headers.Authorization='Bearer '+token;
+  try{
+    const response=await fetch('/chat/stream',{method:'POST',credentials:'same-origin',headers,body:JSON.stringify(request),cache:'no-store',redirect:'error',signal});
+    if(response.status===401||response.status===403){authFailure(response.status);throw Error('Authentication required.');}
+    if(!response.ok||!response.body)throw Error('Stream unavailable (HTTP '+response.status+').');
+    const reader=response.body.getReader(),decoder=new TextDecoder();
+    let buffer='',doneTurn=null;
+    const frame=raw=>{
+      let name='',data=[];
+      for(const line of raw.split('\n')){
+        if(line.startsWith('event:'))name=line.slice(6).trim();
+        if(line.startsWith('data:'))data.push(line.slice(5).trimStart());
+      }
+      if(!data.length)return;
+      const payload=JSON.parse(data.join('\n')),e={...payload,event:payload.event??name,_received:Date.now()};
+      if(e.event==='accepted'){accepted=true;notice('Turn accepted. Watching the live record.');}
+      liveTurn._events.push(e);
+      if(e.event==='stage')liveTurn.vithi.push(e);
+      if(e.event==='candidate')liveTurn.memory_candidates.push(payload.candidate??payload);
+      if(e.event==='document')liveTurn.document_evidence.push(payload.card??payload.document??payload);
+      if(e.event==='curator')liveTurn.curator=payload;
+      if(e.event==='done')doneTurn=payload.turn??payload;
+      if(e.event==='failed')throw Error(text(payload.error??payload.message??'Turn failed.'));
+      renderInstruments();
+    };
+    while(true){
+      const chunk=await reader.read();buffer+=decoder.decode(chunk.value??new Uint8Array(),{stream:!chunk.done}).replace(/\r\n/g,'\n');
+      let match;
+      while((match=/\r?\n\r?\n/.exec(buffer))){frame(buffer.slice(0,match.index));buffer=buffer.slice(match.index+match[0].length);}
+      if(chunk.done)break;
+    }
+    if(buffer.trim())frame(buffer);
+    if(!doneTurn)throw Error('Stream ended before the completed turn.');
+    return doneTurn;
+  }catch(error){
+    if(!accepted&&error.name!=='AbortError'&&connected)return api('/chat',request,false,signal);
+    throw error;
+  }
+}
+function renderInstruments() {
+  const index = inspectedIndex == null ? turns.length-1 : Math.min(inspectedIndex,turns.length-1);
+  const turn = inspectedIndex == null && liveTurn ? liveTurn : turns[index], root = el('turn-instruments');root.replaceChildren();
+  momentRows(turn);
+  el('inspected-turn').textContent = index === turns.length-1 ? 'last turn' : 'turn ' + (index+1);
+  if (!turn) { root.append(node('p','No turn to inspect yet.','fine'),node('h3','Searches & reading')); const curiosity=node('div');curiosity.id='curiosity-reading';root.append(curiosity);renderCuriosity();el('recalled').textContent='—';el('searches').textContent='—';return; }
+  const section = (title, render) => {
+    const n=node('section',null,'panel-section');n.append(node('h3',title));root.append(n);
+    try { render(n); } catch {
+      n.replaceChildren(node('h3',title),node('p','Could not show this section. The recorded turn is still available below.','error'));
+    }
+  };
+  section('Recalled', recalled => {
+  const items = [];
+  for (const c of array(turn.memory_candidates)) {
+    const entry=node('div',null,'record');entry.append(node('p',memoryKind(c),'candidate-title'),node('p',memoryText(c),'candidate-text'));
+    const labels = [...new Set(array(c.arms).map(a => ({dense:'found by meaning',lexical:'by words',bm25:'by words',graph:'linked'})[a] || a))];
+    if(c.in_prompt===false)labels.push('not used');
+    if(c.score!=null)labels.push('score '+text(c.score));
+    if(c.kind==='dream')labels.push('dream');
+    if (typeof c.fidelity === 'number' && Number.isFinite(c.fidelity)) {
+      const track=node('div',null,'fidelity-track'),fill=node('div',null,'fidelity-fill');fill.style.width=Math.max(0,Math.min(1,c.fidelity))*100+'%';track.append(fill);entry.append(track);
+      labels.push('fidelity ' + c.fidelity.toFixed(2));
+    } else labels.push('fidelity not recorded');
+    if (['archived','forgiven'].includes(c.state)) labels.push('faded, not lost');
+    entry.append(node('p',labels.join(' · '),'metadata'));
+    if (array(c.verdicts).length) details(entry,'Verdicts · '+c.verdicts.length,c.verdicts);
+    details(entry,'Memory record · '+text(c.id),c);items.push(entry);
+  }
+  for (const doc of array(turn.document_evidence)) {
+    const entry=node('div',null,'record');entry.append(node('p','Document · '+text(doc.title ?? doc.doc_id),'candidate-title document-title'),
+      citationNode(doc.cite),node('p',(doc.truncated ? 'verbatim excerpt' : 'verbatim') + ' · never decays' + (typeof doc.cite === 'string' && turn.reply?.includes(doc.cite) ? ' · cited exactly' : ''),'metadata'));
+    const d=node('details');d.append(node('summary',doc.truncated ? 'Read recorded excerpt' : 'Read recorded section'),node('p',doc.text ?? doc.excerpt,'candidate-text'));entry.append(d);
+    details(entry,'Document record',doc);items.push(entry);
+  }
+  if (!items.length) recalled.append(node('p','No recalled items recorded.','fine'));
+  items.slice(0,3).forEach(n=>recalled.append(n));
+  if(items.length>3){const more=node('details');more.append(node('summary',(items.length-3)+' more'));items.slice(3).forEach(n=>more.append(n));recalled.append(more);}
+  });
+  if(turn.curator) section('Guidance', root => { root.append(node('p',turn.curator.briefing??turn.curator.guidance??turn.curator.text,'candidate-text'));details(root,'Recorded curator guidance',turn.curator); });
+  eventSections(section,turn);
+  section('Searches & reading', activity => {
+  for(const call of array(turn.tool_calls).filter(c=>c.name!=='speak_summary')){
+    const record=node('div',null,'record');
+    const label=({search_documents:'Searched documents',search_memory:'Searched memories',read_document:'Read document',read_section:'Read section',read_web_pane:'Read web pane',read_url:'Read page',ingest_url:'Keep web page',mark_disputed:'Memory verdict',citation_check:'Citation check',empty_reply_nudge:'Reply retry'})[call.name] || text(call.name);
+    record.append(node('p',label),node('p',call.ts ? dateText(call.ts,true) : 'time not recorded','metadata'));
+    if(call.arguments?.query)record.append(node('p',call.arguments.query));
+    if(['read_url','ingest_url','read_web_pane'].includes(call.name)){
+      const raw=typeof call.url==='string'?call.url:call.arguments?.url;
+      if((typeof call.source==='string'&&call.source.trim())||safeUrl(typeof raw==='string'?raw:''))record.append(pageLink(call.source,raw));
+    }else if(call.source)record.append(node('p',call.source));
+    if(call.name==='read_web_pane')record.append(node('p',webStatus(turn,call,array(turn.tool_calls).indexOf(call)),'fine'));
+    else if(call.name==='ingest_url')record.append(node('p',call.error?'Keeping failed · check the recorded error':call.ok===true?'Kept as a document':'Retention not recorded','fine'));
+    else if(['read_document','read_section','search_memory','search_documents'].includes(call.name))record.append(node('p','Read-only · nothing saved by this call','fine'));
+    if(call.error)record.append(node('p',call.error,'error'));
+    for(const cite of array(call.cites))record.append(citationNode(cite));
+    if(!array(call.cites).length&&validDocumentId(call.doc_id??call.arguments?.doc_id))record.append(citationNode('[doc '+(call.doc_id??call.arguments.doc_id)+(validSectionIndex(call.arguments?.index)?'§'+call.arguments.index:'')+']'));
+    details(record,'Recorded tool details',call);activity.append(record);
+  }
+  if(!array(turn.tool_calls).length)activity.append(node('p','No searches or reading recorded for this turn.','fine'));
+  const curiosity=node('div');curiosity.id='curiosity-reading';activity.append(curiosity);renderCuriosity();
+  });
+  const speech=array(turn.tool_calls).filter(c=>c?.name==='speak_summary');
+  if(speech.length){
+    section('Said aloud', log => {
+    for(const call of speech){
+      const result=call.result??call,failure=call.error??result.error;
+      const status=failure?'Failed: '+text(failure):result.mode==='write'?'Kept in writing':result.queued===true?'Queued for playback':result.ok===false?'Failed':'Playback status not recorded';
+      log.append(node('p',status,'fine'),node('p',call.arguments?.text,'candidate-text'));details(log,'Recorded speech details',call);
+    }
+  });
+  }
+  section('Recorded details', record => {
+  const cards=turn.evidence_cards;
+  if(Array.isArray(cards)?cards.length:cards)details(record,'Recorded episode evidence',cards);
+  else record.append(node('p','No episodes recorded yet.','fine'));
+  details(record,'Turn record',turn);
+  });
+  el('recalled').textContent=array(turn.memory_candidates).length;
+  el('searches').textContent=array(turn.tool_calls).filter(c=>['search_documents','search_memory'].includes(c?.name)).length;
+}
+function acceptHistory(data) {
+  if (!Array.isArray(data.turns)) throw Error('History response was not recognized.');
+  turns = data.turns; inspectedIndex = null; pending = turns.some(t => t.status === 'pending');
+  needsReload = false; render();
+  // A committed reply resolves an uncertain send without silently resending it.
+  if (uncertainId) {
+    const found = turns.find(t => t.request?.request_id === uncertainId);
+    if (found?.status === 'completed' && el('message').value === found.request.message) el('message').value = '';
+    if (!pending) uncertainId = null;
+  }
+}
+async function loadHistory() { acceptHistory(await api('/chat/' + conversationId)); }
+async function pollLife() {
+  if (!connected || lifeBusy) return;
+  lifeBusy = true; const epoch = authEpoch;
+  try {
+    const life = await api('/life?journal=200');
+    if (!connected || epoch !== authEpoch) return;
+    latestLife = life; renderDay(); renderCuriosity(); renderLifeMoments();
+    el('phase').textContent = phaseLabel(life);
+    for (const [key, value] of [['bored',life.boredom],['tired',life.sleep_pressure]]) showDrive(key, value, life.enabled);
+  } catch { unavailableLife(); } finally { lifeBusy = false; }
+}
+async function connect() {
+  if (busy) return;
+  busy = true; controls();
+  try {
+    await refreshAuth();
+    const identity = await api('/identity');
+    agentName = typeof identity.name === 'string' && identity.name.trim() ? identity.name.trim().split(/\s+/)[0] : 'the agent';
+    el('brand').textContent = agentName; el('message-label').textContent = 'Message to ' + agentName;
+    document.title = agentName + ' · Talk'; connected = true;
+    el('connection').textContent = token ? 'Connected with bearer token' : 'Signed in' + (auth.user_id ? ' · ' + auth.user_id : '');
+    await loadHistory(); await refreshDocuments(); if (!connected) throw Error('Authentication required. Reconnect to continue.'); render(); el('connection-dialog').close(); notice(pending ? 'A saved reply is still pending. Reload history before sending.' : 'Connected. History loaded.');
+    await pollLife();
+  } catch (error) {
+    if (!connected) { token = ''; el('token').value = ''; }
+    notice(error.message, true);
+  } finally { busy = false; controls(); }
+}
+el('connect-form').onsubmit = event => {
+  event.preventDefault(); if (busy) return;
+  token = el('token').value.trim(); el('token').value = '';
+  if (token) connect();
+};
+el('retry').onclick = connect;
+el('disconnect').onclick = async () => {
+  if (busy) return;
+  busy = true; token = ''; el('token').value = ''; connected = false; authEpoch++; needsReload = true; if (el('documents-dialog').open) el('documents-dialog').close(); unavailableLife(); controls();
+  try { await api('/auth/logout', {}); auth.signed_in = false; notice('Disconnected.'); }
+  catch (error) { notice('Bearer token cleared. Session logout could not be confirmed: ' + error.message, true); }
+  finally { el('connection').textContent = 'Disconnected'; busy = false; controls(); }
+};
+el('new').onclick = () => {
+  if (busy || !connected || pending || uncertainId) { notice('Reload the current history before starting another conversation.',true); return; }
+  conversationId = uuid(); turns = []; needsReload = false; showId(); render(); controls(); notice('New conversation. Earlier turns remain saved.');
+};
+el('reload').onclick = async () => {
+  if (busy || !connected) return;
+  busy = true; controls();
+  try { await loadHistory(); notice(pending ? 'A reply is still pending. Reload again before sending.' : 'History loaded. Review it before sending your retained draft.'); }
+  catch (error) { needsReload = true; notice(error.message,true); }
+  finally { busy = false; controls(); }
+};
+el('open-form').onsubmit = async event => {
+  event.preventDefault(); if (busy || !connected) return;
+  if (pending || uncertainId) { notice('Reload the current history before switching conversations.',true); return; }
+  const id = el('saved-id').value.trim();
+  if (!validId(id)) { notice('Enter a valid conversation UUID.',true); return; }
+  busy = true; controls();
+  try {
+    const data = await api('/chat/' + id);
+    if (!Array.isArray(data.turns)) throw Error('History response was not recognized.');
+    conversationId = id; acceptHistory(data); showId(); el('saved-id').value = ''; notice('Conversation loaded.');
+  } catch (error) { notice(error.message,true); }
+  finally { busy = false; controls(); }
+};
+el('message').oninput = controls;
+window.addEventListener('resize',resizeComposer);
+el('message').onkeydown = event => {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); if (!el('send').disabled) el('composer').requestSubmit(); }
+};
+let replyController=null;
+el('stop').onclick=()=>replyController?.abort();
+el('composer').onsubmit = async event => {
+  event.preventDefault(); if (el('send').disabled) return;
+  const request = {request_id:uuid(),conversation_id:conversationId,message:el('message').value,reported_origin:'human'};
+  replyController=new AbortController();
+  liveTurn={request,status:'pending',vithi:[],_events:[],memory_candidates:[],document_evidence:[],tool_calls:[]};inspectedIndex=null;renderInstruments();
+  busy = true; awaiting = true; uncertainId = request.request_id; controls(); notice('Waiting for the complete reply.');
+  try {
+    const turn = await streamChat(request,replyController.signal);
+    liveTurn=null;
+    if (turn.request?.request_id !== request.request_id || !turn.status) throw Error('Reply response was not recognized.');
+    turns.push(turn); inspectedIndex = null; pending = turn.status === 'pending'; render();
+    if (turn.status === 'completed') { el('message').value = ''; uncertainId = null; notice('Reply received.'); }
+    else { needsReload = true; notice('Response ' + turn.status + '. Draft retained. Reload history before sending again.',true); }
+  } catch (error) {
+    needsReload = true;
+    notice((error.name==='AbortError'?'Stopped waiting. The reply may still finish; it will appear when you reload.':'Request not confirmed: '+error.message+' The reply may still finish.') + ' Draft retained. Reload history before sending again. Request: ' + request.request_id,true);
+  } finally { liveTurn=null;replyController=null; busy = false; awaiting = false; renderInstruments();controls(); el('message').focus(); }
+};
+el('documents-header').onclick=()=>openDocumentList();
+el('documents-panel').onclick=()=>openDocumentList();
+el('close-documents').onclick=()=>el('documents-dialog').close();
+el('documents-dialog').addEventListener('close',()=>{documentsVersion++;documentView=null;documentsLoading=false;el('refresh-documents').disabled=false;});
+el('refresh-documents').onclick=()=>openDocumentList();
+el('documents-back').onclick=()=>openDocumentList(false);
+el('document-filter').oninput=()=>{if(!documentsLoading)renderDocumentList();};
+el('document-jump').onclick=jumpDocumentSection;
+el('document-earlier').onclick=()=>{const v=documentView;if(v)loadDocumentRange(v,Math.max(0,v.from-SECTION_BATCH),v.from,null,true);};
+el('document-more').onclick=()=>{const v=documentView;if(v)loadDocumentRange(v,v.to,Math.min(v.outline.length,v.to+SECTION_BATCH));};
+el('attach-button').onclick = () => el('attachment').click();
+el('attachment').onchange = () => attachFile(el('attachment').files[0]);
+const composeBox=document.querySelector('.compose-box');
+const draggingFiles=event => Array.from(event.dataTransfer?.types||[]).includes('Files');
+composeBox.addEventListener('dragover',event=>{
+  if(!draggingFiles(event))return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect=busy||!connected?'none':'copy';
+  if(!busy&&connected)composeBox.classList.add('drag-over');
+});
+composeBox.addEventListener('dragleave',event=>{
+  if(!composeBox.contains(event.relatedTarget))composeBox.classList.remove('drag-over');
+});
+composeBox.addEventListener('drop',event=>{
+  if(!draggingFiles(event))return;
+  event.preventDefault();composeBox.classList.remove('drag-over');
+  if(!connected){el('attachment-status').textContent='Connect before attaching a file.';return;}
+  if(busy){el('attachment-status').textContent='Wait for the current request before attaching a file.';return;}
+  const files=event.dataTransfer.files;
+  if(files.length!==1){el('attachment-status').textContent='Drop one PDF, .txt or .md file at a time.';return;}
+  attachFile(files[0]);
+});
+// Keep an accidental file drop outside the composer from navigating away from the draft.
+document.addEventListener('dragover',event=>{if(draggingFiles(event))event.preventDefault();});
+document.addEventListener('drop',event=>{if(draggingFiles(event))event.preventDefault();});
+el('day-toggle').onclick = () => { renderDay(); el('day-dialog').showModal(); };
+el('close-day').onclick = () => el('day-dialog').close();
+el('settings-toggle').onclick = () => { el('settings').open = true; el('connection-dialog').showModal(); };
+el('close-settings').onclick = () => el('connection-dialog').close();
+el('instruments-toggle').onclick = () => { const open=el('instruments').hidden; setInstruments(open,open&&matchMedia('(max-width:760px)').matches); };
+setInstruments(matchMedia('(min-width:761px)').matches);
+el('date-line').textContent = new Date().toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'});
+setInterval(()=>{if(liveTurn)renderInstruments();},1000);
+showId(); render(); controls();
+connect();
+setInterval(pollLife, 30000);
+window.addEventListener('pagehide', () => { token = ''; el('token').value = ''; connected = false; authEpoch++; controls(); });
+</script>
+</body>
+</html>

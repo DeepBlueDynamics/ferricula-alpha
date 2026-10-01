@@ -14,8 +14,8 @@
 //! - **Sleep pressure** rises with waking time and with work done (tokens).
 //!   Over its threshold → [`Urge::Sleep`]. Sleep drains it.
 //! - **Sleep** runs bhāvanā (consolidation) and then a dream built from a
-//!   [`DreamProposal`]: the day's residue, weighted by feeling-tone, plus
-//!   distant memories and unresolved observations picked by entropy.
+//!   [`DreamProposal`]: recent residue drawn by entropy, plus distant
+//!   memories and unresolved observations picked by entropy.
 //! - **Waking**: an operator message always wakes; a dream may leave a
 //!   question that wakes the agent if allowed; rested sleep ends on its own.
 //! - **Meditation**: an explicit resting mode. Boredom does not rise and
@@ -40,6 +40,12 @@ pub struct DriveConfig {
     pub sleep_per_1k_tokens: f32,
     /// Sleep pressure at which the agent falls asleep.
     pub sleep_threshold: f32,
+    /// Ceiling on sleep pressure, as a multiple of `sleep_threshold`. Token
+    /// spend is unbounded (a thinking model can spend hundreds of thousands
+    /// of tokens a day), so without a ceiling one busy day could demand a
+    /// sleep of days. At 1.5 the longest sleep is 1.5 x threshold /
+    /// recovery rate (9 hours at the defaults).
+    pub max_sleep_pressure_factor: f32,
     /// Sleep pressure drained per sleeping minute.
     pub sleep_recovery_per_min: f32,
     /// Sleep ends on its own when pressure falls below this.
@@ -69,6 +75,7 @@ impl Default for DriveConfig {
             sleep_per_awake_min: 1.0 / (16.0 * 60.0),
             sleep_per_1k_tokens: 0.01,
             sleep_threshold: 1.0,
+            max_sleep_pressure_factor: 1.5,
             sleep_recovery_per_min: 1.0 / (6.0 * 60.0),
             rested_below: 0.1,
             max_curiosity_per_day: 12,
@@ -110,6 +117,10 @@ pub struct Drives {
     /// When the operator or a dream question last woke the agent out of sleep.
     #[serde(default)]
     pub woken_at: Option<u64>,
+    /// When the agent last dreamed. A resumed sleep skips its dream only
+    /// while this is recent; a long sleep dreams again once it isn't.
+    #[serde(default)]
+    pub last_dream_at: Option<u64>,
 }
 
 impl Drives {
@@ -125,6 +136,7 @@ impl Drives {
             dreamed_this_sleep: false,
             engaged_until: None,
             woken_at: None,
+            last_dream_at: None,
         }
     }
 }
@@ -192,9 +204,20 @@ pub fn step(d: &mut Drives, cfg: &DriveConfig, stimulus: &Stimulus, now: u64) ->
         }
     }
 
+    cap_pressure(d, cfg);
     let mut urges = Vec::new();
     match stimulus {
-        Stimulus::Tick => {}
+        Stimulus::Tick => {
+            // A long sleep that is still tired dreams again once its last
+            // dream is no longer recent (the resumed-sleep rule only guards
+            // the short window). A rested agent just wakes.
+            if d.phase == Phase::Asleep && cfg.dream_on_sleep && d.dreamed_this_sleep
+                && d.sleep_pressure >= cfg.rested_below && !dream_recent(d, cfg, now)
+            {
+                d.dreamed_this_sleep = false;
+                urges.push(Urge::Dream);
+            }
+        }
         Stimulus::Operator { novelty } => {
             if d.phase == Phase::Asleep {
                 urges.push(Urge::Wake { reason: WakeReason::Operator });
@@ -215,6 +238,7 @@ pub fn step(d: &mut Drives, cfg: &DriveConfig, stimulus: &Stimulus, now: u64) ->
         }
         Stimulus::TokensSpent { tokens } => {
             d.sleep_pressure += cfg.sleep_per_1k_tokens * *tokens as f32 / 1000.0;
+            cap_pressure(d, cfg);
         }
         Stimulus::Consolidated => {
             if d.phase == Phase::Asleep && cfg.dream_on_sleep && !d.dreamed_this_sleep {
@@ -223,6 +247,7 @@ pub fn step(d: &mut Drives, cfg: &DriveConfig, stimulus: &Stimulus, now: u64) ->
         }
         Stimulus::Dreamed { question } => {
             d.dreamed_this_sleep = true;
+            d.last_dream_at = Some(now);
             if let Some(q) = question.as_ref().filter(|q| !q.trim().is_empty()) {
                 if cfg.wake_on_dream_question && d.phase == Phase::Asleep {
                     d.phase = Phase::Engaged;
@@ -261,7 +286,7 @@ pub fn step(d: &mut Drives, cfg: &DriveConfig, stimulus: &Stimulus, now: u64) ->
             // Resuming an interrupted sleep that already dreamed: no second dream.
             let resumed = d.woken_at
                 .is_some_and(|w| now.saturating_sub(w) < u64::from(cfg.resume_sleep_within_min) * 60);
-            d.dreamed_this_sleep = d.dreamed_this_sleep && resumed;
+            d.dreamed_this_sleep = d.dreamed_this_sleep && resumed && dream_recent(d, cfg, now);
             urges.push(Urge::Sleep);
             urges.push(Urge::Consolidate);
         }
@@ -275,6 +300,20 @@ pub fn step(d: &mut Drives, cfg: &DriveConfig, stimulus: &Stimulus, now: u64) ->
         _ => {}
     }
     urges
+}
+
+/// Hold sleep pressure at or under its ceiling (see
+/// [`DriveConfig::max_sleep_pressure_factor`]); a non-positive factor
+/// disables the ceiling.
+fn cap_pressure(d: &mut Drives, cfg: &DriveConfig) {
+    if cfg.max_sleep_pressure_factor > 0.0 {
+        d.sleep_pressure = d.sleep_pressure.min(cfg.sleep_threshold * cfg.max_sleep_pressure_factor);
+    }
+}
+
+/// Whether the last dream falls inside the resumed-sleep window.
+fn dream_recent(d: &Drives, cfg: &DriveConfig, now: u64) -> bool {
+    d.last_dream_at.is_some_and(|t| now.saturating_sub(t) < u64::from(cfg.resume_sleep_within_min) * 60)
 }
 
 fn woken(d: &mut Drives, cfg: &DriveConfig, now: u64) {
@@ -327,7 +366,8 @@ pub fn choose_curiosity(open_threads: &[String], memories: &[Trace], entropy: u6
 /// The material a dream is made from.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DreamProposal {
-    /// Today's strongest experiences, by feeling-tone intensity.
+    /// Up to five experiences drawn by entropy from the window the caller
+    /// supplies. A short window yields fewer traces, not repeats.
     pub residue: Vec<Trace>,
     /// Older memories drawn by entropy: where a dream goes "somewhere else".
     pub distant: Vec<Trace>,
@@ -339,16 +379,14 @@ pub struct DreamProposal {
 }
 
 pub fn propose_dream(
-    mut today: Vec<Trace>,
+    today: Vec<Trace>,
     older: &[Trace],
     unresolved: &[Trace],
     seed: u64,
     entropy_source: &str,
 ) -> DreamProposal {
-    today.sort_by(|a, b| b.intensity.total_cmp(&a.intensity));
-    today.truncate(5);
     DreamProposal {
-        residue: today,
+        residue: draw(&today, 5, seed),
         distant: draw(older, 3, seed),
         unresolved: draw(unresolved, 2, seed.rotate_left(17)),
         entropy_source: entropy_source.to_string(),
@@ -437,6 +475,34 @@ mod tests {
     }
 
     #[test]
+    fn sleep_pressure_is_capped_so_one_heavy_day_cannot_demand_days_of_sleep() {
+        let cfg = DriveConfig::default();
+        let mut d = Drives::new(T0);
+        // A thinking-model day: 1.7M tokens would be 17.0 pressure uncapped.
+        step(&mut d, &cfg, &Stimulus::TokensSpent { tokens: 1_700_000 }, T0);
+        assert!((d.sleep_pressure - 1.5).abs() < 1e-6, "{}", d.sleep_pressure);
+        assert_eq!(d.phase, Phase::Asleep);
+        // A state persisted before the cap (17.25) is pulled down on the next step.
+        // (It has already dreamed, so rest alone ends this sleep.)
+        d.sleep_pressure = 17.25;
+        d.dreamed_this_sleep = true;
+        d.last_dream_at = Some(T0);
+        step(&mut d, &cfg, &Stimulus::Tick, T0 + 60);
+        assert!(d.sleep_pressure <= 1.5);
+        // The longest sleep is bounded: 1.5 / (1/360 per min) = 540 min.
+        let wake_by = T0 + 60 + 541 * 60;
+        let mut t = T0 + 60;
+        while d.phase == Phase::Asleep && t < wake_by {
+            t += 60;
+            // A long sleep dreams again every so often; deliver each dream.
+            if step(&mut d, &cfg, &Stimulus::Tick, t).contains(&Urge::Dream) {
+                step(&mut d, &cfg, &Stimulus::Dreamed { question: None }, t);
+            }
+        }
+        assert_ne!(d.phase, Phase::Asleep, "still asleep after {} min", (t - T0) / 60);
+    }
+
+    #[test]
     fn boredom_leads_to_curiosity_then_cooldown() {
         let cfg = DriveConfig::default();
         let mut d = Drives::new(T0);
@@ -504,6 +570,7 @@ mod tests {
         d.phase = Phase::Asleep;
         d.sleep_pressure = 1.2;
         d.dreamed_this_sleep = true;
+        d.last_dream_at = Some(T0);
         let urges = step(&mut d, &cfg, &Stimulus::Operator { novelty: 0.5 }, T0 + 60);
         assert_eq!(urges, vec![Urge::Wake { reason: WakeReason::Operator }]);
         assert_eq!(d.phase, Phase::Engaged);
@@ -520,6 +587,51 @@ mod tests {
         // It still wakes rested later.
         let urges = step(&mut d, &cfg, &Stimulus::Tick, T0 + 12 * 3600);
         assert_eq!(urges, vec![Urge::Wake { reason: WakeReason::Rested }]);
+    }
+
+    #[test]
+    fn a_long_tired_sleep_dreams_again_and_a_stale_flag_clears() {
+        let cfg = DriveConfig::default();
+        let window = u64::from(cfg.resume_sleep_within_min) * 60;
+        // Dreamed at T0, still deeply tired, and asleep ever since.
+        let mut d = Drives::new(T0);
+        d.phase = Phase::Asleep;
+        d.sleep_pressure = 50.0;
+        d.dreamed_this_sleep = true;
+        d.last_dream_at = Some(T0);
+        assert!(step(&mut d, &cfg, &Stimulus::Tick, T0 + window - 60).is_empty(), "inside the window: no second dream");
+        assert_eq!(step(&mut d, &cfg, &Stimulus::Tick, T0 + window + 60), vec![Urge::Dream]);
+        assert!(!d.dreamed_this_sleep);
+        step(&mut d, &cfg, &Stimulus::Dreamed { question: None }, T0 + window + 120);
+        assert_eq!(d.last_dream_at, Some(T0 + window + 120));
+
+        // The live bug (2026-09-27): the flag stuck from a morning dream, with
+        // no dream time recorded. The next tick clears it and he dreams.
+        let mut d = Drives::new(T0);
+        d.phase = Phase::Asleep;
+        d.sleep_pressure = 7.9;
+        d.dreamed_this_sleep = true;
+        assert_eq!(step(&mut d, &cfg, &Stimulus::Tick, T0 + 60), vec![Urge::Dream]);
+    }
+
+    #[test]
+    fn a_chatty_day_still_dreams_when_the_last_dream_is_old() {
+        let cfg = DriveConfig::default();
+        let window = u64::from(cfg.resume_sleep_within_min) * 60;
+        let mut d = Drives::new(T0);
+        d.phase = Phase::Asleep;
+        d.sleep_pressure = 5.0;
+        d.dreamed_this_sleep = true;
+        d.last_dream_at = Some(T0);
+        // Woken long after the dream, falls asleep again shortly after the wake:
+        // the sleep counts as resumed, but the old dream doesn't cover it.
+        step(&mut d, &cfg, &Stimulus::Operator { novelty: 0.5 }, T0 + window + 600);
+        step(&mut d, &cfg, &Stimulus::Settled, T0 + window + 900);
+        let t_sleep = d.engaged_until.unwrap_or(T0 + window + 900) + 60;
+        let urges = step(&mut d, &cfg, &Stimulus::Tick, t_sleep);
+        assert_eq!(urges, vec![Urge::Sleep, Urge::Consolidate]);
+        assert!(!d.dreamed_this_sleep);
+        assert_eq!(step(&mut d, &cfg, &Stimulus::Consolidated, t_sleep + 60), vec![Urge::Dream]);
     }
 
     #[test]
@@ -605,7 +717,7 @@ mod tests {
         let a = propose_dream(today.clone(), &older, &[], 42, "os");
         let b = propose_dream(today, &older, &[], 42, "os");
         assert_eq!(a, b);
-        assert_eq!(a.residue[0].id, "t2");
+        assert_eq!(a.residue.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["t2", "t3", "t1"]);
         assert_eq!(a.distant.len(), 3);
         let mut ids: Vec<_> = a.distant.iter().map(|t| &t.id).collect();
         ids.dedup();
@@ -613,6 +725,22 @@ mod tests {
         let prompt = a.render_prompt("name = \"Steve\"");
         assert!(prompt.contains("QUESTION:") && prompt.contains("[t2]"));
         assert!(prompt.contains("ONLY from the traces listed below"));
+    }
+
+    #[test]
+    fn a_later_draw_skips_residue_already_taken_and_shrinks_when_short() {
+        let pool: Vec<Trace> = (0..12).map(|i| trace(&format!("r{i}"), 4.0 - i as f32)).collect();
+        let first = propose_dream(pool.clone(), &[], &[], 7, "os");
+        assert_eq!(first.residue.len(), 5);
+        let used: Vec<_> = first.residue.iter().map(|t| t.id.clone()).collect();
+        let rest: Vec<Trace> = pool.into_iter().filter(|t| !used.contains(&t.id)).collect();
+        let second = propose_dream(rest, &[], &[], 11, "os");
+        assert_eq!(second.residue.len(), 5);
+        assert!(second.residue.iter().all(|t| !used.contains(&t.id)));
+        let short = propose_dream(vec![trace("only", 1.0)], &[], &[], 3, "os");
+        assert_eq!(short.residue.len(), 1);
+        assert_eq!(short.residue[0].id, "only");
+        assert!(short.render_prompt("name = \"Steve\"").contains("[only]"));
     }
 
     #[test]

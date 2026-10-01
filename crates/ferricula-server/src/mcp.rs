@@ -115,9 +115,9 @@ async fn handle_post(runtime: Arc<AgentRuntime>, headers: &HeaderMap, body: &str
     let authorization = headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
-    if !runtime.authorize(authorization) {
+    let Some(identity) = runtime.authenticate(authorization) else {
         return McpHttp::Unauthorized;
-    }
+    };
     if body.trim().is_empty() {
         return McpHttp::Json(
             StatusCode::BAD_REQUEST,
@@ -146,7 +146,7 @@ async fn handle_post(runtime: Arc<AgentRuntime>, headers: &HeaderMap, body: &str
     if let Err(response) = check_protocol_header(headers) {
         return response;
     }
-    match handle_rpc(runtime, &parsed).await {
+    match handle_rpc(runtime, &parsed, &identity).await {
         RpcOut::Accepted => McpHttp::Accepted,
         RpcOut::Body(value) => McpHttp::Json(StatusCode::OK, value),
         RpcOut::BadRequest(value) => McpHttp::Json(StatusCode::BAD_REQUEST, value),
@@ -186,7 +186,7 @@ enum RpcOut {
     BadRequest(Value),
 }
 
-async fn handle_rpc(runtime: Arc<AgentRuntime>, msg: &Value) -> RpcOut {
+async fn handle_rpc(runtime: Arc<AgentRuntime>, msg: &Value, identity: &crate::auth::AuthIdentity) -> RpcOut {
     if msg.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
         let id = msg.get("id").cloned().unwrap_or(Value::Null);
         return RpcOut::BadRequest(rpc_error(id, INVALID_REQUEST, "jsonrpc must be \"2.0\""));
@@ -211,8 +211,8 @@ async fn handle_rpc(runtime: Arc<AgentRuntime>, msg: &Value) -> RpcOut {
     let result = match method {
         "initialize" => initialize_result(&runtime, &params),
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(tools_list()),
-        "tools/call" => tools_call(&runtime, &params).await,
+        "tools/list" => Ok(tools_list(identity)),
+        "tools/call" => tools_call(&runtime, &params, identity).await,
         _ => Err(rpc_error(
             id.clone(),
             METHOD_NOT_FOUND,
@@ -266,8 +266,8 @@ fn canonical_tool_name(name: &str) -> &str {
     }
 }
 
-fn tools_list() -> Value {
-    json!({
+fn tools_list(identity: &crate::auth::AuthIdentity) -> Value {
+    let mut list = json!({
         "tools": [
             {
                 "name": "ferricula_status",
@@ -412,7 +412,24 @@ fn tools_list() -> Value {
                 }
             }
         ]
-    })
+    });
+    if !identity.is_operator() {
+        const READ_TOOLS: [&str; 4] = [
+            "ferricula_status",
+            "ferricula_recall",
+            "ferricula_documents",
+            "ferricula_read_section",
+        ];
+        if let Some(tools) = list.get_mut("tools").and_then(Value::as_array_mut) {
+            tools.retain(|t| {
+                t.get("name")
+                    .and_then(Value::as_str)
+                    .map(|n| READ_TOOLS.contains(&n))
+                    .unwrap_or(false)
+            });
+        }
+    }
+    list
 }
 
 async fn ferricula_ingest(runtime: &Arc<AgentRuntime>, arguments: &Value) -> Result<Value, Value> {
@@ -457,10 +474,21 @@ async fn ferricula_ingest(runtime: &Arc<AgentRuntime>, arguments: &Value) -> Res
     }
 }
 
-async fn tools_call(runtime: &Arc<AgentRuntime>, params: &Value) -> Result<Value, Value> {
+async fn tools_call(
+    runtime: &Arc<AgentRuntime>,
+    params: &Value,
+    identity: &crate::auth::AuthIdentity,
+) -> Result<Value, Value> {
     let name = params.get("name").and_then(Value::as_str).unwrap_or("");
+    let canonical = canonical_tool_name(name);
+    if !identity.is_operator() {
+        const WRITE_TOOLS: [&str; 3] = ["ferricula_chat", "ferricula_ingest", "ferricula_life"];
+        if WRITE_TOOLS.contains(&canonical) {
+            return Ok(tool_text(&json!({ "error": "read-only role" }), true));
+        }
+    }
     let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
-    match canonical_tool_name(name) {
+    match canonical {
         "ferricula_status" => {
             let status = runtime.status();
             let payload = serde_json::to_value(&status)
@@ -721,12 +749,25 @@ mod tests {
     }
 
     fn post(runtime: &Arc<AgentRuntime>, origin: Option<&str>, protocol: Option<&str>, body: &str) -> McpHttp {
+        post_with_auth(runtime, origin, protocol, None, body)
+    }
+
+    fn post_with_auth(
+        runtime: &Arc<AgentRuntime>,
+        origin: Option<&str>,
+        protocol: Option<&str>,
+        auth: Option<&str>,
+        body: &str,
+    ) -> McpHttp {
         let mut headers = HeaderMap::new();
         if let Some(origin) = origin {
             headers.insert(header::ORIGIN, origin.parse().unwrap());
         }
         if let Some(protocol) = protocol {
             headers.insert(PROTOCOL_HEADER, protocol.parse().unwrap());
+        }
+        if let Some(auth) = auth {
+            headers.insert(header::AUTHORIZATION, auth.parse().unwrap());
         }
         let runtime = Arc::clone(runtime);
         tokio::runtime::Builder::new_current_thread()
@@ -1012,5 +1053,192 @@ mod tests {
         );
         let init = json_body(init);
         assert_eq!(init["result"]["protocolVersion"], PROTOCOL_VERSION);
+    }
+
+    #[test]
+    fn reader_role_enforcement_in_mcp() {
+        let root = tempfile::tempdir().unwrap();
+        let memory = root.path().join("memory");
+        let state = root.path().join("state");
+        fs::create_dir_all(&memory).unwrap();
+        fs::create_dir_all(&state).unwrap();
+        fs::write(
+            memory.join("identity.json"),
+            r#"{"agent_id":"ferricula-agent","name":"Test Persona"}"#,
+        )
+        .unwrap();
+        fs::write(
+            memory.join("agent.toml"),
+            "name = \"Test Persona\"\nrole = \"a test fixture\"\n",
+        )
+        .unwrap();
+        let mut config = RuntimeConfig::default();
+        config.memory_dir = memory.clone();
+        config.state_dir = state.clone();
+        config.overlay.path = state.join("overlay.json");
+        config.schedule.enabled = false;
+        config.require_operator_auth = true;
+        config.operator_token_env = "TEST_MCP_OPERATOR_TOKEN".to_string();
+        config.auth.mode = crate::config::AuthMode::Both;
+        unsafe {
+            std::env::set_var("TEST_MCP_OPERATOR_TOKEN", "test-static-operator-token");
+        }
+        config.auth.agents = vec![
+            crate::config::AgentAuthRule {
+                actor: "reader-agent".to_string(),
+                role: "reader".to_string(),
+            },
+            crate::config::AgentAuthRule {
+                actor: "operator-agent".to_string(),
+                role: "operator".to_string(),
+            },
+        ];
+
+        let inspection = inspect_data_dir(&memory).unwrap();
+        let runtime = AgentRuntime::open(config, inspection).expect("test AgentRuntime");
+
+        let reader_token = "ahp_reader_token_mcp";
+        let operator_token = "ahp_operator_token_mcp";
+
+        runtime.auth.cache_ahp_token(
+            reader_token,
+            crate::auth::AuthIdentity {
+                user_id: "".to_string(),
+                email: Some("reader@nuts.services".to_string()),
+                name: Some("Reader Agent".to_string()),
+                actor: Some("reader-agent".to_string()),
+                role: "reader".to_string(),
+                via: "ahp".to_string(),
+                via_cookie: false,
+            },
+        );
+
+        runtime.auth.cache_ahp_token(
+            operator_token,
+            crate::auth::AuthIdentity {
+                user_id: "".to_string(),
+                email: Some("operator@nuts.services".to_string()),
+                name: Some("Operator Agent".to_string()),
+                actor: Some("operator-agent".to_string()),
+                role: "operator".to_string(),
+                via: "ahp".to_string(),
+                via_cookie: false,
+            },
+        );
+
+        // 1. Reader tools/list shows only read tools
+        let list_resp = post_with_auth(
+            &runtime,
+            None,
+            Some(PROTOCOL_VERSION),
+            Some(&format!("Bearer {reader_token}")),
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+        );
+        let list_body = json_body(list_resp);
+        let names: Vec<&str> = list_body["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "ferricula_status",
+                "ferricula_recall",
+                "ferricula_documents",
+                "ferricula_read_section"
+            ]
+        );
+        assert!(!names.contains(&"ferricula_chat"));
+        assert!(!names.contains(&"ferricula_ingest"));
+        assert!(!names.contains(&"ferricula_life"));
+
+        // 2. Operator tools/list shows all 7 tools
+        let op_list_resp = post_with_auth(
+            &runtime,
+            None,
+            Some(PROTOCOL_VERSION),
+            Some(&format!("Bearer {operator_token}")),
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+        );
+        let op_list_body = json_body(op_list_resp);
+        let op_names: Vec<&str> = op_list_body["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            op_names,
+            [
+                "ferricula_status",
+                "ferricula_recall",
+                "ferricula_chat",
+                "ferricula_ingest",
+                "ferricula_documents",
+                "ferricula_life",
+                "ferricula_read_section"
+            ]
+        );
+
+        // 3. Reader tools/call for ferricula_chat is refused with clear MCP error
+        let chat_call = post_with_auth(
+            &runtime,
+            None,
+            Some(PROTOCOL_VERSION),
+            Some(&format!("Bearer {reader_token}")),
+            r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ferricula_chat","arguments":{"message":"hello"}}}"#,
+        );
+        let chat_body = json_body(chat_call);
+        assert_eq!(chat_body["result"]["isError"], true);
+        let err_payload = tool_payload(&chat_body);
+        assert_eq!(err_payload["error"], "read-only role");
+
+        // 4. Reader tools/call for ferricula_ingest is refused
+        let ingest_call = post_with_auth(
+            &runtime,
+            None,
+            Some(PROTOCOL_VERSION),
+            Some(&format!("Bearer {reader_token}")),
+            r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"ferricula_ingest","arguments":{"text":"doc"}}}"#,
+        );
+        let ingest_body = json_body(ingest_call);
+        assert_eq!(ingest_body["result"]["isError"], true);
+        assert_eq!(tool_payload(&ingest_body)["error"], "read-only role");
+
+        // 5. Reader tools/call for ferricula_life is refused
+        let life_call = post_with_auth(
+            &runtime,
+            None,
+            Some(PROTOCOL_VERSION),
+            Some(&format!("Bearer {reader_token}")),
+            r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"ferricula_life","arguments":{}}}"#,
+        );
+        let life_body = json_body(life_call);
+        assert_eq!(life_body["result"]["isError"], true);
+        assert_eq!(tool_payload(&life_body)["error"], "read-only role");
+
+        // 6. Reader tools/call for ferricula_status succeeds
+        let status_call = post_with_auth(
+            &runtime,
+            None,
+            Some(PROTOCOL_VERSION),
+            Some(&format!("Bearer {reader_token}")),
+            r#"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"ferricula_status","arguments":{}}}"#,
+        );
+        let status_body = json_body(status_call);
+        assert_eq!(status_body["result"]["isError"], false);
+
+        // 7. Reader tools/call for ferricula_recall succeeds
+        let recall_call = post_with_auth(
+            &runtime,
+            None,
+            Some(PROTOCOL_VERSION),
+            Some(&format!("Bearer {reader_token}")),
+            r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"ferricula_recall","arguments":{"query":"test"}}}"#,
+        );
+        let recall_body = json_body(recall_call);
+        assert_eq!(recall_body["result"]["isError"], false);
     }
 }

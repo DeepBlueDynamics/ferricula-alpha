@@ -6,7 +6,13 @@ use ferricula_core::{DurableEngine, LifecycleState};
 use serde::{Deserialize, Serialize};
 
 pub mod api;
+pub mod auth;
 pub mod harness;
+pub mod hyperia;
+pub mod email;
+pub mod discord;
+pub mod code;
+pub mod jev;
 pub mod comfy;
 pub mod curation;
 pub mod mcp;
@@ -26,6 +32,7 @@ pub mod nutnews;
 pub mod nutnews_events;
 pub mod persona;
 pub mod recall;
+pub mod recall_overlay;
 pub mod runtime;
 pub mod sleep_cycle;
 

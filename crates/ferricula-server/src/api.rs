@@ -9,9 +9,10 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::extract::{DefaultBodyLimit, Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, Method, StatusCode};
+use axum::middleware::{Next, from_fn_with_state};
 use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::{Json, Router, response::IntoResponse};
 use ferricula_cognition::WhisperContext;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -40,11 +41,18 @@ pub fn router(runtime: Arc<AgentRuntime>) -> Router {
         .route("/documents/{doc_id}/sections/{index}", get(get_section))
         .merge(documents)
         .route("/", get(chat_page))
+        .route("/talk", get(|| async { axum::response::Html(include_str!("talk.html")) }))
         .route("/chat", post(chat))
+        .route("/chat/stream", post(chat_stream))
         .route("/chat/{conversation_id}", get(conversation))
         .route("/health", get(health))
         .route("/status", get(status))
         .route("/identity", get(identity))
+        .route("/auth/login", get(auth_login))
+        .route("/auth/callback", get(auth_callback))
+        .route("/auth/logout", post(auth_logout))
+        .route("/auth/status", get(auth_status))
+        .route("/auth/break-glass", get(auth_break_glass))
         .route("/control/mode", post(set_mode))
         .route("/control/wake", post(wake))
         .route("/control/sleep", post(sleep))
@@ -78,8 +86,67 @@ pub fn router(runtime: Arc<AgentRuntime>) -> Router {
         .route("/life/meditate", post(life_meditate))
         .route("/life/end-meditation", post(life_end_meditation))
         .route("/life/urge", post(life_urge))
+        .route("/settings", get(settings_page))
+        .route("/settings/jev", get(jev_status).post(jev_update))
+        .route("/settings/jev/probe", post(jev_probe))
+        .route("/settings/discord/channels", get(discord_channels))
         .route("/wisdom/preview", post(wisdom_preview))
+        // Guard the layer: all routes MUST be registered above this csrf_middleware layer.
+        // In axum, Router::layer() only wraps routes added prior to the layer call.
+        // Any route registered after this layer would bypass CSRF protection.
+        .layer(from_fn_with_state(runtime.clone(), csrf_middleware))
         .with_state(runtime)
+}
+
+async fn csrf_middleware(
+    State(runtime): State<Arc<AgentRuntime>>,
+    req: axum::extract::Request,
+    next: Next,
+) -> Result<axum::response::Response, ApiError> {
+    if !runtime.config.require_operator_auth {
+        return Ok(next.run(req).await);
+    }
+
+    let is_safe = matches!(
+        *req.method(),
+        Method::GET | Method::HEAD | Method::OPTIONS
+    );
+
+    if !is_safe {
+        if let Some(cookie_session) = crate::auth::extract_session_cookie(req.headers()) {
+            let authorization = req
+                .headers()
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|value| value.to_str().ok());
+            let bearer = authorization.and_then(|h| h.strip_prefix("Bearer "));
+            let expected_static = std::env::var(&runtime.config.operator_token_env).ok();
+
+            let auth_res = runtime.auth.check_authorization(
+                bearer,
+                Some(cookie_session),
+                expected_static.as_deref(),
+            );
+            let is_cookie_auth = match auth_res {
+                crate::auth::AuthCheckResult::Authorized(ref identity) => identity.via_cookie,
+                _ => bearer.is_none(),
+            };
+
+            if is_cookie_auth {
+                if let Err(csrf_err) = crate::auth::verify_csrf(
+                    req.headers(),
+                    runtime.auth.config.trust_proxy,
+                    runtime.auth.config.public_url.as_deref(),
+                ) {
+                    return Err((
+                        StatusCode::FORBIDDEN,
+                        Json(json!({ "error": csrf_err })),
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(next.run(req).await)
 }
 
 // --- Documents (R1 sense door) ---------------------------------------------
@@ -99,6 +166,9 @@ pub enum IngestSourceBody {
     Text { #[serde(default)] title: Option<String>, text: String },
     Url { url: String },
     Pdf { name: String, base64: String },
+    /// A page already read from a Hyperia web pane. The server fetches the
+    /// rendered markdown the way `read_web_pane` does and stores that text.
+    Pane { pane: String },
 }
 
 /// Validate sizes before decoding, then decode into an extraction source.
@@ -117,7 +187,7 @@ pub fn decode_source(
             if title.as_ref().is_some_and(|t| t.len() > 1024) {
                 return Err((StatusCode::BAD_REQUEST, "title exceeds 1024 bytes".into()));
             }
-            Ok(ferricula_ingest::Source::Text { title, text })
+            Ok(ferricula_ingest::Source::Text { title, text, origin: None })
         }
         IngestSourceBody::Url { url } => {
             if url.len() > 4096 { return Err((StatusCode::BAD_REQUEST, "url exceeds 4096 bytes".into())); }
@@ -139,7 +209,61 @@ pub fn decode_source(
             if bytes.len() > config.max_bytes { return Err(too_large("pdf")); }
             Ok(ferricula_ingest::Source::Pdf { name, bytes })
         }
+        IngestSourceBody::Pane { .. } => {
+            Err((StatusCode::BAD_REQUEST, "pane sources are resolved by POST /documents".into()))
+        }
     }
+}
+
+/// Fetch one open web pane through Hyperia and carry its URL as the
+/// document origin. The token and the `web_nav` grant are the same ones
+/// `read_web_pane` uses; a missing grant surfaces as the Hyperia error.
+fn pane_source(runtime: &AgentRuntime, pane: &str) -> Result<ferricula_ingest::Source, String> {
+    let pane = pane.trim();
+    if pane.is_empty() {
+        return Err("pane id is empty".into());
+    }
+    if pane.len() > 128 {
+        return Err("pane id exceeds 128 bytes".into());
+    }
+    if !runtime.config.documents.enabled {
+        return Err("document ingestion is disabled ([documents] enabled = false)".into());
+    }
+    if !runtime.config.hyperia.enabled {
+        return Err("keeping a web pane needs Hyperia, and it is not enabled for this agent".into());
+    }
+    let Some(token) = crate::hyperia::token() else {
+        return Err("keeping a web pane needs the Hyperia token, and this agent has none".into());
+    };
+    let base = runtime.config.hyperia.url.as_str();
+    let panes = crate::hyperia::web_panes(base, &token).map_err(|error| format!("{error:#}"))?;
+    let needle = pane.to_lowercase();
+    let matches: Vec<&(String, String)> = panes.iter()
+        .filter(|(id, name)| id.to_lowercase().starts_with(&needle) || name.to_lowercase().contains(&needle))
+        .collect();
+    let id = match matches.as_slice() {
+        [one] => one.0.as_str(),
+        [] => return Err(format!("no open web pane matches `{pane}`")),
+        many => return Err(format!("`{pane}` matches {} panes; use a pane id", many.len())),
+    };
+    let page = crate::hyperia::web_pane_content(base, &token, id).map_err(|error| format!("{error:#}"))?;
+    let markdown = page["markdown"].as_str().unwrap_or("").to_string();
+    if markdown.trim().is_empty() {
+        return Err("the pane's page had no text".into());
+    }
+    let max = runtime.config.documents.max_bytes;
+    if markdown.len() > max {
+        return Err(format!("text exceeds documents.max_bytes ({max} bytes)"));
+    }
+    let url = page["url"].as_str().unwrap_or("").trim().to_string();
+    if url.is_empty() {
+        return Err("the pane did not report the page URL".into());
+    }
+    if url.len() > 4096 {
+        return Err("url exceeds 4096 bytes".into());
+    }
+    let title = page["title"].as_str().map(str::trim).filter(|t| !t.is_empty() && t.len() <= 1024).map(str::to_string);
+    Ok(ferricula_ingest::Source::Text { title, text: markdown, origin: Some(url) })
 }
 
 async fn ingest_document(
@@ -147,12 +271,22 @@ async fn ingest_document(
     headers: HeaderMap,
     Json(body): Json<IngestBody>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     if body.note.as_ref().is_some_and(|n| n.len() > crate::runtime::MAX_NOTE_BYTES) {
         return Err(bad_request(format!("note exceeds {} bytes", crate::runtime::MAX_NOTE_BYTES)));
     }
-    let source = decode_source(body.source, &runtime.config.documents)
-        .map_err(|(status, error)| (status, Json(json!({ "error": error }))))?;
+    let source = match body.source {
+        IngestSourceBody::Pane { pane } => {
+            let worker = runtime.clone();
+            tokio::task::spawn_blocking(move || pane_source(&worker, &pane))
+                .await
+                .map_err(internal)?
+                .map_err(|error| (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": error }))))?
+        }
+        other => decode_source(other, &runtime.config.documents)
+            .map_err(|(status, error)| (status, Json(json!({ "error": error }))))?,
+    };
     let note = body.note;
     // Complete the ingest even if the HTTP client disconnects mid-fetch.
     let worker = runtime.clone();
@@ -167,7 +301,7 @@ async fn list_documents(
     State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    require_read(&runtime, &headers)?;
     Ok(Json(json!({ "documents": runtime.documents() })))
 }
 
@@ -176,7 +310,7 @@ async fn get_document(
     headers: HeaderMap,
     Path(doc_id): Path<String>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    require_read(&runtime, &headers)?;
     let Some(record) = runtime.document(&doc_id) else {
         return Err((StatusCode::NOT_FOUND, Json(json!({ "error": "document not found" }))));
     };
@@ -185,7 +319,7 @@ async fn get_document(
         "index": s.index, "heading": s.heading, "page": s.page, "bytes": s.text.len(),
         "cite": crate::recall::citation(&record.meta.doc_id, s.index, s.page),
     })).collect();
-    Ok(Json(json!({ "meta": record.meta, "sections": sections })))
+    Ok(Json(json!({ "meta": record.meta, "sections": sections, "reading": runtime.document_reading(&doc_id) })))
 }
 
 async fn get_section(
@@ -193,7 +327,7 @@ async fn get_section(
     headers: HeaderMap,
     Path((doc_id, index)): Path<(String, u32)>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    require_read(&runtime, &headers)?;
     let Some(section) = runtime.document_section(&doc_id, index) else {
         return Err((StatusCode::NOT_FOUND, Json(json!({ "error": "section not found" }))));
     };
@@ -218,7 +352,7 @@ async fn search_documents(
     headers: HeaderMap,
     Json(request): Json<DocumentSearchRequest>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    require_read(&runtime, &headers)?;
     if request.query.trim().is_empty() {
         return Err(bad_request("query cannot be empty"));
     }
@@ -235,7 +369,8 @@ async fn episode_commit(
     headers: HeaderMap,
     Json(item): Json<ferricula_episode::EpisodeItem>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let event_id = runtime.commit_episode(item).map_err(bad_request)?;
     Ok(Json(json!({"event_id": event_id, "source_actor_verified": false})))
 }
@@ -245,7 +380,7 @@ async fn episode_query(
     headers: HeaderMap,
     Json(request): Json<ferricula_episode::query::EpisodeQueryRequest>,
 ) -> ApiResult<ferricula_episode::query::EpisodeQueryResponse> {
-    require_operator(&runtime, &headers)?;
+    require_read(&runtime, &headers)?;
     if request.query.len() > 8192 { return Err(bad_request("query exceeds 8192 bytes")); }
     Ok(Json(runtime.query_episodes(&request)))
 }
@@ -259,7 +394,8 @@ async fn chat(
     headers: HeaderMap,
     Json(request): Json<crate::runtime::ChatRequest>,
 ) -> ApiResult<crate::runtime::ChatTurn> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     request.validate().map_err(bad_request)?;
     // The durable request must reach a terminal state even if HTTP disconnects.
     let turn = tokio::spawn(async move { runtime.converse(request).await })
@@ -267,6 +403,35 @@ async fn chat(
         StatusCode::CONFLICT, Json(json!({"error": error.to_string()}))
     ))?;
     Ok(Json(turn))
+}
+
+/// `POST /chat/stream`: the same turn as `/chat`, answered as
+/// `text/event-stream`. Each SSE message is named for its event (`accepted`,
+/// `candidate`, `document`, `curator`, `round_start`, `model_call`, `round`,
+/// `tool_call`, `tool_result`, `gate`, `verdict`, `nudge`, then `done` or
+/// `failed`) and carries one JSON object with `request_id` and `t` (ms since
+/// the turn began). The durable turn completes even if the client leaves.
+async fn chat_stream(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    Json(request): Json<crate::runtime::ChatRequest>,
+) -> Result<axum::response::sse::Sse<impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, (StatusCode, Json<Value>)> {
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
+    request.validate().map_err(bad_request)?;
+    let (events, rx) = crate::runtime::TurnEvents::channel(request.request_id);
+    let rejected = events.clone();
+    tokio::spawn(async move {
+        if let Err(error) = runtime.converse_with_events(request, events).await {
+            // Rejected before the turn began (busy, reused request_id...).
+            rejected.emit("failed", json!({ "error": error.to_string(), "rejected": true }));
+        }
+    });
+    let stream = tokio_stream::StreamExt::map(tokio_stream::wrappers::UnboundedReceiverStream::new(rx), |event| {
+        let name = event["event"].as_str().unwrap_or("message").to_string();
+        Ok(axum::response::sse::Event::default().event(name).data(event.to_string()))
+    });
+    Ok(axum::response::sse::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
 }
 
 async fn conversation(
@@ -290,7 +455,7 @@ async fn status(
     State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<crate::runtime::RuntimeStatus> {
-    require_operator(&runtime, &headers)?;
+    require_read(&runtime, &headers)?;
     Ok(Json(runtime.status()))
 }
 
@@ -314,26 +479,43 @@ async fn set_mode(
     headers: HeaderMap,
     Json(request): Json<ModeRequest>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let mode = ActivityMode::parse(&request.mode).map_err(bad_request)?;
     runtime.set_mode(mode).map_err(internal)?;
     Ok(Json(json!({ "mode": mode })))
 }
 
 async fn wake(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     runtime.set_mode(ActivityMode::Engaged).map_err(internal)?;
     Ok(Json(json!({ "mode": ActivityMode::Engaged })))
 }
 
 async fn sleep(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     runtime.set_mode(ActivityMode::Asleep).map_err(internal)?;
-    Ok(Json(json!({ "mode": ActivityMode::Asleep })))
+    // The mode alone left the drives awake (phase resting, no consolidation,
+    // no dream). With life on, the operator's sleep is a real sleep: the
+    // same path as the forced sleep urge, run in the background because
+    // consolidation and the dream take model calls.
+    let life = runtime.life_status(0)["enabled"].as_bool().unwrap_or(false);
+    if life {
+        let runtime = runtime.clone();
+        tokio::spawn(async move {
+            if let Err(error) = runtime.life_force(crate::runtime::LifeUrgeRequest::Sleep).await {
+                eprintln!("control: sleep did not reach life: {error:#}");
+            }
+        });
+    }
+    Ok(Json(json!({ "mode": ActivityMode::Asleep, "life_sleep": life })))
 }
 
 async fn pause(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     runtime.set_mode(ActivityMode::Paused).map_err(internal)?;
     Ok(Json(json!({ "mode": ActivityMode::Paused })))
 }
@@ -348,7 +530,8 @@ async fn set_schedule(
     headers: HeaderMap,
     Json(request): Json<ScheduleRequest>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     runtime.set_schedule(request.enabled).map_err(internal)?;
     Ok(Json(json!({ "enabled": request.enabled })))
 }
@@ -388,7 +571,8 @@ async fn enqueue(
     headers: HeaderMap,
     Json(request): Json<TaskRequest>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let task = runtime
         .enqueue(request.kind, "operator", request.payload)
         .map_err(internal)?;
@@ -399,7 +583,8 @@ async fn read_feed(
     State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let task = runtime
         .enqueue(TaskKind::ReadFeed, "operator", json!({}))
         .map_err(internal)?;
@@ -410,7 +595,8 @@ async fn read_hacker_news(
     State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let task = runtime
         .enqueue(TaskKind::ReadHackerNews, "operator", json!({}))
         .map_err(internal)?;
@@ -430,7 +616,8 @@ async fn mention(
     headers: HeaderMap,
     Json(request): Json<MentionRequest>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let text = bound_text(&request.by, 128);
     let body = bound_text(&request.text, 4_096);
     let task = runtime
@@ -518,7 +705,8 @@ async fn overlay_approve_blocked(
     headers: HeaderMap,
     Path(event_id): Path<String>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let _ = bound_text(&event_id, 128);
     Err((
         StatusCode::NOT_IMPLEMENTED,
@@ -560,7 +748,7 @@ async fn recall(
     headers: HeaderMap,
     Json(request): Json<RecallRequest>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    require_read(&runtime, &headers)?;
     if request.query.trim().is_empty() {
         return Err(bad_request("query cannot be empty"));
     }
@@ -596,15 +784,62 @@ async fn life_status(
 }
 
 async fn life_meditate(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let entry = runtime.life_meditate(true).map_err(conflict)?;
     Ok(Json(entry))
 }
 
 async fn life_end_meditation(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let entry = runtime.life_meditate(false).map_err(conflict)?;
     Ok(Json(entry))
+}
+
+async fn settings_page(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+) -> Result<axum::response::Html<&'static str>, ApiError> {
+    require_operator(&runtime, &headers)?;
+    Ok(axum::response::Html(include_str!("settings.html")))
+}
+
+/// `GET /settings/jev`: hosted JEV gate tier status (never the key).
+async fn jev_status(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    Ok(Json(runtime.jev_status()))
+}
+
+/// `POST /settings/jev`: set or clear the key and change settings.
+async fn jev_update(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    Json(update): Json<crate::jev::JevUpdate>,
+) -> ApiResult<Value> {
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
+    runtime.jev_update(update).map(Json).map_err(bad_request)
+}
+
+/// `GET /settings/discord/channels`: every text channel the bot can see,
+/// with ids, for the `[discord] channels` map (never the token).
+async fn discord_channels(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
+    require_operator(&runtime, &headers)?;
+    let cfg = runtime.config.discord.clone();
+    let listed = tokio::task::spawn_blocking(move || crate::discord::list_channels(&cfg)).await.map_err(internal)?;
+    match listed {
+        Ok(rows) => Ok(Json(json!({ "channels": rows.into_iter().map(|(server, name, id)| json!({ "server": server, "channel": name, "id": id })).collect::<Vec<_>>() }))),
+        Err(error) => Ok(Json(json!({ "error": format!("{error:#}") }))),
+    }
+}
+
+/// `POST /settings/jev/probe`: one live call on fixed non-private text.
+async fn jev_probe(State(runtime): State<Arc<AgentRuntime>>, headers: HeaderMap) -> ApiResult<Value> {
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
+    let result = tokio::task::spawn_blocking(move || runtime.jev_probe()).await.map_err(internal)?;
+    Ok(Json(result))
 }
 
 #[derive(Deserialize)]
@@ -617,7 +852,8 @@ async fn life_urge(
     headers: HeaderMap,
     Json(request): Json<UrgeRequest>,
 ) -> ApiResult<Value> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     // Runs to completion even if the HTTP client disconnects.
     let urge = request.urge;
     let entries = tokio::spawn(async move { runtime.life_force(urge).await })
@@ -635,7 +871,8 @@ async fn embeddings_probe(
     State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> ApiResult<crate::runtime::EmbeddingsStatus> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     let status = tokio::task::spawn_blocking(move || runtime.probe_embeddings())
         .await
         .map_err(internal)?;
@@ -659,7 +896,8 @@ async fn meaning_backfill(
     State(runtime): State<Arc<AgentRuntime>>,
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
-    require_operator(&runtime, &headers)?;
+    let identity = require_operator_identity(&runtime, &headers)?;
+    require_write(&identity)?;
     if runtime.embedder().is_none() {
         return Err(conflict(format!(
             "embedder not usable (embeddings state {:?})",
@@ -839,18 +1077,274 @@ fn bound_text(s: &str, max_chars: usize) -> String {
     }
 }
 
-fn require_operator(runtime: &AgentRuntime, headers: &HeaderMap) -> Result<(), ApiError> {
-    let authorization = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok());
-    if runtime.authorize(authorization) {
+fn require_operator(
+    runtime: &AgentRuntime,
+    headers: &HeaderMap,
+) -> Result<crate::auth::AuthIdentity, ApiError> {
+    let identity = require_operator_identity(runtime, headers)?;
+    if !identity.is_operator() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "read-only role" })),
+        ));
+    }
+    Ok(identity)
+}
+
+fn require_read(
+    runtime: &AgentRuntime,
+    headers: &HeaderMap,
+) -> Result<crate::auth::AuthIdentity, ApiError> {
+    require_operator_identity(runtime, headers)
+}
+
+fn require_write(identity: &crate::auth::AuthIdentity) -> Result<(), ApiError> {
+    if identity.is_operator() {
         Ok(())
     } else {
         Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "operator authorization required" })),
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "read-only role" })),
         ))
     }
+}
+
+fn require_operator_identity(
+    runtime: &AgentRuntime,
+    headers: &HeaderMap,
+) -> Result<crate::auth::AuthIdentity, ApiError> {
+    if !runtime.config.require_operator_auth {
+        return Ok(crate::auth::AuthIdentity::unauthenticated());
+    }
+
+    let authorization = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok());
+    let bearer = authorization.and_then(|h| h.strip_prefix("Bearer "));
+    let cookie_session = crate::auth::extract_session_cookie(headers);
+    let expected_static = std::env::var(&runtime.config.operator_token_env).ok();
+
+    match runtime.auth.check_authorization(bearer, cookie_session, expected_static.as_deref()) {
+        crate::auth::AuthCheckResult::Authorized(identity) => Ok(identity),
+        crate::auth::AuthCheckResult::Forbidden(reason) => Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": reason })),
+        )),
+        crate::auth::AuthCheckResult::Unreachable(reason) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "error": reason })),
+        )),
+        crate::auth::AuthCheckResult::Unauthorized(reason) => Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": reason })),
+        )),
+    }
+}
+
+fn get_public_base_url(runtime: &AgentRuntime, headers: &HeaderMap) -> String {
+    if let Some(ref url) = runtime.auth.config.public_url {
+        return url.trim_end_matches('/').to_string();
+    }
+
+    let bind = runtime.config.bind;
+    let host_port = if bind.ip().is_loopback() || bind.ip().is_unspecified() {
+        format!("127.0.0.1:{}", bind.port())
+    } else {
+        bind.to_string()
+    };
+
+    let is_https = runtime.auth.config.trust_proxy && is_request_secure(headers);
+    let scheme = if is_https { "https" } else { "http" };
+    format!("{scheme}://{host_port}")
+}
+
+fn is_request_secure(headers: &HeaderMap) -> bool {
+    headers
+        .get("x-forwarded-proto")
+        .and_then(|p| p.to_str().ok())
+        .map(|p| p.eq_ignore_ascii_case("https"))
+        .unwrap_or(false)
+}
+
+fn is_secure_connection(runtime: &AgentRuntime, headers: &HeaderMap) -> bool {
+    if let Some(ref url) = runtime.auth.config.public_url {
+        if url.starts_with("https://") {
+            return true;
+        }
+    }
+    if runtime.auth.config.trust_proxy {
+        return is_request_secure(headers);
+    }
+    false
+}
+
+async fn auth_login(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+) -> Result<axum::response::Response, ApiError> {
+    if !runtime.auth.login_enabled() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "nuts-auth login is disabled" })),
+        ));
+    }
+    let origin = get_public_base_url(&runtime, &headers);
+    let return_url = format!("{origin}/auth/callback");
+    let redirect_url = runtime.auth.build_login_url(&return_url);
+    let mut response = axum::response::Redirect::to(&redirect_url).into_response();
+    *response.status_mut() = StatusCode::SEE_OTHER;
+    Ok(response)
+}
+
+#[derive(Deserialize)]
+struct AuthCallbackParams {
+    token: Option<String>,
+}
+
+async fn auth_callback(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    axum::extract::Query(params): axum::extract::Query<AuthCallbackParams>,
+) -> Result<axum::response::Response, ApiError> {
+    let Some(token) = params.token.filter(|t| !t.trim().is_empty()) else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "missing token parameter" })),
+        ));
+    };
+
+    let claims = match runtime.auth.verify_jwt(&token) {
+        Ok(c) => c,
+        Err(crate::auth::JwtError::Expired) => {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({ "error": "token expired" })),
+            ));
+        }
+        Err(crate::auth::JwtError::Unreachable) => {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "error": "nuts-auth unreachable" })),
+            ));
+        }
+        Err(crate::auth::JwtError::Invalid(msg)) => {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({ "error": format!("invalid token: {msg}") })),
+            ));
+        }
+    };
+
+    if !runtime.auth.is_operator(&claims.user_id) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": "not an operator for this agent",
+                "user_id": claims.user_id,
+            })),
+        ));
+    }
+
+    let (raw_session_id, _session) = runtime
+        .auth
+        .create_session(
+            &claims.user_id,
+            &claims.sub,
+            claims.name.as_deref(),
+            "nuts-auth",
+            claims.exp,
+        )
+        .map_err(|e| internal(e))?;
+
+    let is_secure = is_secure_connection(&runtime, &headers);
+    let max_age_secs = runtime.auth.config.session_hours * 3600;
+    let cookie = crate::auth::format_session_cookie(&raw_session_id, max_age_secs, is_secure);
+
+    let mut response = axum::response::Redirect::to("/talk").into_response();
+    *response.status_mut() = StatusCode::SEE_OTHER;
+    if let Ok(cookie_val) = axum::http::HeaderValue::from_str(&cookie) {
+        response.headers_mut().insert(axum::http::header::SET_COOKIE, cookie_val);
+    }
+    Ok(response)
+}
+
+async fn auth_logout(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+) -> Result<axum::response::Response, ApiError> {
+    if let Some(session_id) = crate::auth::extract_session_cookie(&headers) {
+        runtime.auth.delete_session(session_id);
+    }
+    let is_secure = is_secure_connection(&runtime, &headers);
+    let clear_cookie = crate::auth::format_clear_session_cookie(is_secure);
+    let mut response = Json(json!({ "ok": true })).into_response();
+    if let Ok(cookie_val) = axum::http::HeaderValue::from_str(&clear_cookie) {
+        response.headers_mut().insert(axum::http::header::SET_COOKIE, cookie_val);
+    }
+    Ok(response)
+}
+
+async fn auth_status(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+) -> Json<Value> {
+    let login_enabled = runtime.auth.login_enabled();
+    let authorization = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
+    let bearer = authorization.and_then(|h| h.strip_prefix("Bearer "));
+    let session_id = crate::auth::extract_session_cookie(&headers);
+    let expected_static = std::env::var(&runtime.config.operator_token_env).ok();
+
+    let (signed_in, user_id) = match runtime.auth.check_authorization(
+        bearer,
+        session_id,
+        expected_static.as_deref(),
+    ) {
+        crate::auth::AuthCheckResult::Authorized(id) => (true, Some(id.user_id)),
+        _ => (false, None),
+    };
+
+    Json(json!({
+        "login_enabled": login_enabled,
+        "signed_in": signed_in,
+        "user_id": user_id,
+    }))
+}
+
+#[derive(Deserialize)]
+struct BreakGlassParams {
+    token: Option<String>,
+}
+
+async fn auth_break_glass(
+    State(runtime): State<Arc<AgentRuntime>>,
+    headers: HeaderMap,
+    axum::extract::Query(params): axum::extract::Query<BreakGlassParams>,
+) -> Result<axum::response::Response, ApiError> {
+    let Some(token) = params.token else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "missing break-glass token" })),
+        ));
+    };
+    let Some((raw_session_id, _session)) = runtime.auth.redeem_break_glass_token(&token) else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "invalid or expired break-glass token" })),
+        ));
+    };
+
+    let is_secure = is_secure_connection(&runtime, &headers);
+    let max_age_secs = runtime.auth.config.session_hours * 3600;
+    let cookie = crate::auth::format_session_cookie(&raw_session_id, max_age_secs, is_secure);
+
+    let mut response = axum::response::Redirect::to("/talk").into_response();
+    *response.status_mut() = StatusCode::SEE_OTHER;
+    if let Ok(cookie_val) = axum::http::HeaderValue::from_str(&cookie) {
+        response.headers_mut().insert(axum::http::header::SET_COOKIE, cookie_val);
+    }
+    Ok(response)
 }
 
 fn bad_request(error: impl std::fmt::Display) -> ApiError {
@@ -1011,5 +1505,22 @@ mod tests {
         for p in paths {
             assert!(p.starts_with('/'));
         }
+    }
+
+    #[test]
+    fn session_with_non_operator_role_is_refused_on_write() {
+        let identity = crate::auth::AuthIdentity {
+            user_id: "reader-user".into(),
+            email: None,
+            name: None,
+            actor: None,
+            role: "reader".into(),
+            via: "session".into(),
+            via_cookie: true,
+        };
+        assert!(!identity.is_operator());
+        let err = require_write(&identity).unwrap_err();
+        assert_eq!(err.0, StatusCode::FORBIDDEN);
+        assert_eq!(err.1.0["error"], "read-only role");
     }
 }

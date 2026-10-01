@@ -15,13 +15,13 @@ fn research_corpus() -> Vec<Extracted> {
     assert!(!files.is_empty(), "no research/*.md fixtures");
     files.iter().map(|p| {
         let text = std::fs::read_to_string(p).unwrap();
-        extract(&Source::Text { title: None, text }, &ExtractConfig::default()).unwrap()
+        extract(&Source::Text { title: None, text, origin: None }, &ExtractConfig::default()).unwrap()
     }).collect()
 }
 
 fn note(i: u32) -> Extracted {
     let text = format!("# Note {i}\nObservation number {i} about impermanence and recall, token{i}.\n");
-    extract(&Source::Text { title: None, text }, &ExtractConfig::default()).unwrap()
+    extract(&Source::Text { title: None, text, origin: None }, &ExtractConfig::default()).unwrap()
 }
 
 const QUERIES: &[&str] = &[

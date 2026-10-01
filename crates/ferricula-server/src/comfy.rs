@@ -674,7 +674,7 @@ mod tests {
         use ferricula_semantic::image_embed::{DEFAULT_IMAGE_SPACE, SHIVVR_MAX_IMAGE_BYTES};
         use ferricula_semantic::{ImageEmbedder, ShivvrImageEmbedder};
 
-        let dream = "Jony is in the garage on Crist Drive. He is holding a stone. Pocket-sized, warm, no screen. \
+        let dream = "Tomas is in the boathouse on Kelp Lane. He is holding a stone. Pocket-sized, warm, no screen. \
             He holds it to his ear the way you hold a shell. On Dad's workbench the proteins are folding.";
         // What the visual-prompt model would answer (written by hand here),
         // deliberately leaking names to exercise the sanitizer.
@@ -686,7 +686,7 @@ mod tests {
         let harvested = candidate_names(dream);
         forbidden.extend(harvested.iter().map(String::as_str));
         let prompt = sanitize_visual_prompt(llm_answer, &forbidden);
-        for n in ["Jony", "Steve", "Jobs", "Crist", "\""] {
+        for n in ["Jony", "Steve", "Jobs", "Kelp", "\""] {
             assert!(!prompt.contains(n), "{n} leaked: {prompt}");
         }
         println!("visual prompt ({} words): {prompt}", prompt.split_whitespace().count());

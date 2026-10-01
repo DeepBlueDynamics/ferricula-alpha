@@ -1,0 +1,121 @@
+name: Discord notify
+
+# Post repository activity to Discord: pushes to the working branches, pull
+# requests opened or merged, and issues opened or closed. Same bot and pattern
+# as nemesis8's pr-notify and release workflows.
+#
+# pull_request_target so PRs from forks can post too. It is safe here because
+# this job NEVER checks out or runs any code; it only reads the event payload.
+# Titles, branch names and commit messages are untrusted: they reach the
+# message only through jq (never interpolated into the shell), and
+# allowed_mentions blocks @everyone, @here and role/user pings.
+on:
+  push:
+    branches: [main, v3/r0]
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, closed]
+  issues:
+    types: [opened, closed, reopened]
+
+permissions: {}
+
+concurrency:
+  group: discord-notify-${{ github.event_name }}-${{ github.ref }}-${{ github.event.issue.number || github.event.pull_request.number || github.sha }}
+
+jobs:
+  notify-discord:
+    # PRs: opened/reopened only when not a draft; ready_for_review covers
+    # drafts going live; closed only when actually merged.
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'issues' ||
+      (github.event_name == 'pull_request_target' && (
+        (github.event.action == 'closed' && github.event.pull_request.merged) ||
+        (github.event.action == 'ready_for_review') ||
+        ((github.event.action == 'opened' || github.event.action == 'reopened') && !github.event.pull_request.draft)))
+    runs-on: ubuntu-latest
+    # A notification must never turn a run red.
+    continue-on-error: true
+    steps:
+      - name: Post event to Discord
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DISCORD_BOT_TOKEN:-}" ] || [ -z "${DISCORD_CHANNEL_ID:-}" ]; then
+            echo "DISCORD_BOT_TOKEN / DISCORD_CHANNEL_ID not set; skipping Discord post."
+            exit 0
+          fi
+          jq -n --slurpfile ev "$GITHUB_EVENT_PATH" --arg event "$EVENT" --arg action "${ACTION:-}" '
+            ($ev[0]) as $e
+            | ($e.repository.full_name) as $repo
+            | def clip($n): if length > $n then .[0:($n - 1)] + "…" else . end;
+            if $event == "push" then
+              ($e.ref | sub("^refs/heads/"; "")) as $branch
+              | ($e.commits // []) as $cs
+              | {
+                  allowed_mentions: {parse: []},
+                  embeds: [{
+                    title: ("⬆️ \($repo) \($branch): \($cs | length) commit\(if ($cs | length) == 1 then "" else "s" end)"),
+                    url: $e.compare,
+                    color: 5793266,
+                    description: (
+                      [$cs[-8:][] | "[`\(.id[0:7])`](\(.url)) \(.message | split("\n")[0] | clip(120)) (\(.author.name))"]
+                      | join("\n")
+                      | if ($cs | length) > 8 then "…and \(($cs | length) - 8) earlier\n" + . else . end
+                      | clip(4000))
+                  }]
+                }
+            elif $event == "pull_request_target" then
+              ($e.pull_request) as $pr
+              | (if $action == "closed" then {verb: "merged", color: 8421631, icon: "🟣"}
+                 else {verb: "opened", color: 3066993, icon: "🟢"} end) as $k
+              | {
+                  allowed_mentions: {parse: []},
+                  embeds: [{
+                    title: ("\($k.icon) \($repo) PR #\($pr.number) \($k.verb)"),
+                    url: $pr.html_url,
+                    description: ($pr.title | clip(200)),
+                    color: $k.color,
+                    fields: [
+                      {name: "Author", value: $pr.user.login, inline: true},
+                      {name: (if $action == "closed" then "Merged by" else "Branch" end),
+                       value: (if $action == "closed"
+                               then ($pr.merged_by.login // "unknown")
+                               else "\($pr.head.ref) → \($pr.base.ref)" end),
+                       inline: true},
+                      {name: "Changes",
+                       value: "+\($pr.additions) / −\($pr.deletions) in \($pr.changed_files) files",
+                       inline: true}
+                    ]
+                  }]
+                }
+            else
+              ($e.issue) as $is
+              | (if $action == "closed" then {verb: "closed", color: 9807270, icon: "✅"}
+                 else {verb: $action, color: 15105570, icon: "📝"} end) as $k
+              | {
+                  allowed_mentions: {parse: []},
+                  embeds: [{
+                    title: ("\($k.icon) \($repo) issue #\($is.number) \($k.verb)"),
+                    url: $is.html_url,
+                    description: ($is.title | clip(200)),
+                    color: $k.color,
+                    fields: [
+                      {name: "By", value: $e.sender.login, inline: true},
+                      {name: "Labels",
+                       value: ([$is.labels[].name] | if length == 0 then "none" else join(", ") end),
+                       inline: true}
+                    ]
+                  }]
+                }
+            end' > payload.json
+          curl -sf -X POST \
+            -H "Authorization: Bot ${DISCORD_BOT_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data @payload.json \
+            "https://discord.com/api/v10/channels/${DISCORD_CHANNEL_ID}/messages" > /dev/null
+          echo "Posted ${EVENT} ${ACTION:-} to Discord."

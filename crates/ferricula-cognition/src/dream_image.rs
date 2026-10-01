@@ -199,13 +199,13 @@ fn collapse_stand_ins(text: &str) -> String {
 mod tests {
     use super::*;
 
-    const DREAM: &str = "Jony is in the garage on Crist Drive. He is holding a stone. Pocket-sized, warm, no screen. \
+    const DREAM: &str = "Tomas is in the boathouse on Kelp Lane. He is holding a stone. Pocket-sized, warm, no screen. \
         He holds it to his ear the way you hold a shell. On Dad's workbench the proteins are folding.";
 
     #[test]
     fn instruction_carries_the_dream_and_the_rules() {
         let p = dream_visual_instruction(DREAM);
-        assert!(p.contains("Crist Drive"));
+        assert!(p.contains("Kelp Lane"));
         assert!(p.contains("40 to 60 words"));
         assert!(p.contains("no names"));
         assert!(p.contains("no written words"));
@@ -244,7 +244,7 @@ mod tests {
     #[test]
     fn candidate_names_skip_sentence_starts() {
         let names = candidate_names(DREAM);
-        assert!(names.contains(&"Crist".to_string()) && names.contains(&"Drive".to_string()), "{names:?}");
+        assert!(names.contains(&"Kelp".to_string()) && names.contains(&"Lane".to_string()), "{names:?}");
         assert!(names.contains(&"Dad".to_string()), "{names:?}");
         assert!(!names.contains(&"He".to_string()) && !names.contains(&"Pocket-sized".to_string()), "{names:?}");
         let names = candidate_names("I met Steve Jobs and Jony Ive in Palo Alto.");

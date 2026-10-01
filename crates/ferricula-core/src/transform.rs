@@ -55,23 +55,43 @@ impl VectorTransform {
     }
 
     /// Encrypt a vector: permute then flip signs.
-    pub fn encrypt(&self, vec: &[f32]) -> Vec<f32> {
+    ///
+    /// `vec.len()` must equal the transform dimension. A longer vector is not
+    /// truncated and a shorter one is not zero-filled; either is an error.
+    pub fn encrypt(&self, vec: &[f32]) -> Result<Vec<f32>> {
         let dim = self.perm.len();
+        if vec.len() != dim {
+            return Err(anyhow!(
+                "vector length {} != transform dimension {}",
+                vec.len(),
+                dim
+            ));
+        }
         let mut out = vec![0.0f32; dim];
-        for i in 0..dim.min(vec.len()) {
+        for i in 0..dim {
             out[self.perm[i]] = vec[i] * self.signs[i] as f32;
         }
-        out
+        Ok(out)
     }
 
     /// Decrypt a vector: reverse sign flips then unpermute.
-    pub fn decrypt(&self, vec: &[f32]) -> Vec<f32> {
+    ///
+    /// `vec.len()` must equal the transform dimension. A mismatch is an error,
+    /// not a truncated or zero-filled result.
+    pub fn decrypt(&self, vec: &[f32]) -> Result<Vec<f32>> {
         let dim = self.perm.len();
+        if vec.len() != dim {
+            return Err(anyhow!(
+                "vector length {} != transform dimension {}",
+                vec.len(),
+                dim
+            ));
+        }
         let mut out = vec![0.0f32; dim];
-        for i in 0..dim.min(vec.len()) {
+        for i in 0..dim {
             out[i] = vec[self.perm[i]] * self.signs[i] as f32;
         }
-        out
+        Ok(out)
     }
 }
 
@@ -108,12 +128,23 @@ mod tests {
         let seed = [42u8; 32];
         let t = VectorTransform::from_seed(&seed, 768).unwrap();
         let original: Vec<f32> = (0..768).map(|i| (i as f32) * 0.01).collect();
-        let encrypted = t.encrypt(&original);
-        let decrypted = t.decrypt(&encrypted);
+        let encrypted = t.encrypt(&original).unwrap();
+        let decrypted = t.decrypt(&encrypted).unwrap();
         for i in 0..768 {
             assert!((original[i] - decrypted[i]).abs() < 1e-6,
                 "mismatch at {}: {} vs {}", i, original[i], decrypted[i]);
         }
+    }
+
+    #[test]
+    fn length_mismatch_errors() {
+        let t = VectorTransform::from_seed(&[3u8; 32], 8).unwrap();
+        let short = vec![1.0f32; 7];
+        let long = vec![1.0f32; 9];
+        assert!(t.encrypt(&short).is_err());
+        assert!(t.decrypt(&short).is_err());
+        assert!(t.encrypt(&long).is_err());
+        assert!(t.decrypt(&long).is_err());
     }
 
     #[test]
@@ -123,7 +154,7 @@ mod tests {
         let a: Vec<f32> = (0..768).map(|i| ((i as f32) * 0.1).sin()).collect();
         let b: Vec<f32> = (0..768).map(|i| ((i as f32) * 0.1 + 0.5).sin()).collect();
         let cos_plain = cosine_f32(&a, &b);
-        let cos_enc = cosine_f32(&t.encrypt(&a), &t.encrypt(&b));
+        let cos_enc = cosine_f32(&t.encrypt(&a).unwrap(), &t.encrypt(&b).unwrap());
         assert!((cos_plain - cos_enc).abs() < 1e-5,
             "cosine diverged: {} vs {}", cos_plain, cos_enc);
     }
@@ -136,7 +167,7 @@ mod tests {
         let b: Vec<f32> = (0..768).map(|i| ((i as f32) * 0.1 + 0.5).sin()).collect();
         let cos_plain = cosine_f32(&a, &b);
         // a encrypted with key1, b encrypted with key2
-        let cos_cross = cosine_f32(&t1.encrypt(&a), &t2.encrypt(&b));
+        let cos_cross = cosine_f32(&t1.encrypt(&a).unwrap(), &t2.encrypt(&b).unwrap());
         // Should be very different from plain cosine
         assert!((cos_plain - cos_cross).abs() > 0.1,
             "cross-key cosine too similar: {} vs {}", cos_plain, cos_cross);

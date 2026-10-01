@@ -17,7 +17,7 @@ fn ingest_research_corpus_timing() {
     files.sort();
     let docs: Vec<_> = files.iter().map(|p| {
         let text = std::fs::read_to_string(p).unwrap();
-        extract(&Source::Text { title: None, text }, &ExtractConfig::default()).unwrap()
+        extract(&Source::Text { title: None, text, origin: None }, &ExtractConfig::default()).unwrap()
     }).collect();
 
     let dir = tempfile::tempdir().unwrap();

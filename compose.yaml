@@ -8,9 +8,11 @@
 #   1. Pick a config. The generic example is mounted by default; point
 #      FERRICULA_CONFIG at your own copy (e.g. ./config/agent.toml, which is
 #      gitignored) for a real deployment.
-#   2. Create the operator token secret file (mode 0600, do not commit):
-#        mkdir -p secrets
-#        openssl rand -hex 32 > secrets/ferricula_operator_token
+#   2. Create the operator token file OUTSIDE the repo (mode 0600):
+#        mkdir -p ~/.config/ferricula
+#        openssl rand -hex 32 > ~/.config/ferricula/operator_token
+#      (or set FERRICULA_SECRETS_DIR to another directory). Operator login is
+#      moving to nuts.services auth; see inbox/UI_PLAN.md.
 #   3. docker compose up -d
 #
 # Environment (all optional, with defaults):
@@ -97,15 +99,38 @@ services:
         max-size: "10m"
         max-file: "5"
 
+  # Fast judges for the gates (Ollaya, upstream image; not built here).
+  # Optional and GPU-only: `docker compose --profile judges up -d`, then pull
+  # the models once: `docker exec ollaya ollaya pull laya`. The agent reaches
+  # it at host.docker.internal:11435 ([life] ollaya_url).
+  ollaya:
+    image: ghcr.io/ollaya-dev/ollaya:cuda
+    container_name: ollaya
+    profiles: ["judges"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11435:11435"
+    volumes:
+      - ollaya-models:/root/.ollaya
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
 secrets:
   ferricula_operator_token:
-    file: ./secrets/ferricula_operator_token
+    file: ${FERRICULA_SECRETS_DIR:-${HOME}/.config/ferricula}/operator_token
   # nutnews_token:
-  #   file: ./secrets/nutnews_token
+  #   file: ${FERRICULA_SECRETS_DIR:-${HOME}/.config/ferricula}/nutnews_token
   # anthropic_api_key:
-  #   file: ./secrets/anthropic_api_key
+  #   file: ${FERRICULA_SECRETS_DIR:-${HOME}/.config/ferricula}/anthropic_api_key
 
 volumes:
+  ollaya-models:
+    name: ollaya-models
   # Pre-existing memory volume. `external: true` means compose will never
   # create, alter, or remove it.
   ferricula-memory:

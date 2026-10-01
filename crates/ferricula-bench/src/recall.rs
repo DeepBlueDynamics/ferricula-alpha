@@ -1,8 +1,11 @@
 //! Suite 4: waking recall over a recovered memory (R2b).
 //!
-//! Hand-written meaning-level queries with gold recovered ids
-//! (`research/bench/steve-recall-queries.json`), run against a COPY of the
-//! recovered memory directory (never the live volume). Arms, each cut at 10:
+//! Hand-written meaning-level queries with gold memory ids. The public set
+//! is synthetic (`research/bench/synthetic/`: invented memories of a
+//! fictional person, built into a temporary store). A real agent's set runs
+//! against a COPY of its recovered memory directory (never the live volume)
+//! and stays out of the repository (`research/bench/private/`, gitignored):
+//! a real person's memories are never test fixtures. Arms, each cut at 10:
 //!
 //! - `lexical`: the server's lexical scorer (`memory::lexical_hits_with`);
 //! - `dense`: cosine top-k over the recovered set of a `MeaningIndex`
@@ -33,7 +36,9 @@ use crate::ledger::{RunContext, display_path, sha256_file};
 use crate::metrics::{j, mrr, percentile, recall_at_k};
 
 pub struct RecallArgs {
-    pub memory_dir: PathBuf,
+    /// A recovered memory directory; None builds the query set's synthetic
+    /// `memories` file into a temporary store.
+    pub memory_dir: Option<PathBuf>,
     pub queries: PathBuf,
     pub shivvr_url: String,
     /// The server's `[recall]` fusion settings the `hybrid` arm mirrors.
@@ -47,7 +52,55 @@ const SWEEP: [(f64, usize); 9] = [(1.0, 0), (1.0, 2), (1.0, 3), (0.5, 0), (0.5, 
 #[derive(Deserialize)]
 struct QuerySet {
     memory: String,
+    /// Synthetic memories (JSONL `{id, text, state}`), relative to the query file.
+    #[serde(default)]
+    memories: Option<String>,
     queries: Vec<GoldQuery>,
+}
+
+#[derive(Deserialize)]
+struct SyntheticMemory {
+    id: u32,
+    text: String,
+    #[serde(default)]
+    state: String,
+}
+
+/// Temporary memory directory, removed on drop.
+struct TempMemory(PathBuf);
+
+impl Drop for TempMemory {
+    fn drop(&mut self) {
+        if let Some(root) = self.0.parent() {
+            let _ = std::fs::remove_dir_all(root);
+        }
+    }
+}
+
+/// Build a synthetic recovered store from `{id, text, state}` lines
+/// (`archived` rows are forgiven then archived, as v1 released them).
+fn build_synthetic(path: &std::path::Path) -> Result<TempMemory> {
+    use ferricula_core::{DurableEngine, MemoryRecord, Row};
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!("ferricula-bench-synthetic-{}-{stamp}", std::process::id())).join("memory");
+    std::fs::create_dir_all(&dir)?;
+    let guard = TempMemory(dir.clone());
+    std::fs::write(dir.join("identity.json"), r#"{"agent_id":"synthetic","name":"Synthetic"}"#)?;
+    let mut engine = DurableEngine::open(&dir)?;
+    let text = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    for (n, line) in text.lines().filter(|l| !l.trim().is_empty()).enumerate() {
+        let m: SyntheticMemory = serde_json::from_str(line).with_context(|| format!("{} line {}", path.display(), n + 1))?;
+        let tags = std::collections::BTreeMap::from([
+            ("channel".to_string(), "thinking".to_string()), ("text".to_string(), m.text)]);
+        let mut record = MemoryRecord::new(m.id);
+        if m.state == "archived" {
+            record.forgive();
+            record.archive();
+        }
+        engine.remember(Row { id: m.id, vector: vec![0.0; 768], refs: None, tags }, record)?;
+    }
+    engine.checkpoint()?;
+    Ok(guard)
 }
 
 #[derive(Deserialize, Clone)]
@@ -62,7 +115,13 @@ const ARMS: [&str; 4] = ["lexical", "dense", "hybrid_rrf", "hybrid"];
 
 pub fn run(ctx: &RunContext, args: &RecallArgs) -> Result<()> {
     let set: QuerySet = serde_json::from_slice(&std::fs::read(&args.queries).with_context(|| format!("read {}", args.queries.display()))?)?;
-    let memory = MemoryRuntime::open(&args.memory_dir).with_context(|| format!("open {}", args.memory_dir.display()))?;
+    let synthetic = match (&args.memory_dir, &set.memories) {
+        (Some(_), _) => None,
+        (None, Some(file)) => Some(build_synthetic(&args.queries.parent().unwrap_or(std::path::Path::new(".")).join(file))?),
+        (None, None) => bail!("{} names a real memory ({}); pass --memory <copy of it>", args.queries.display(), set.memory),
+    };
+    let memory_dir = args.memory_dir.clone().unwrap_or_else(|| synthetic.as_ref().expect("built").0.clone());
+    let memory = MemoryRuntime::open(&memory_dir).with_context(|| format!("open {}", memory_dir.display()))?;
     let catalog = memory.meaning_catalog();
     let states: HashMap<u32, LifecycleState> = catalog.iter().map(|r| (r.id, r.state)).collect();
     for q in &set.queries {

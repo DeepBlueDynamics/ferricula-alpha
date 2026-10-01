@@ -25,6 +25,7 @@ This directory contains the complete technical briefing, empirical analysis, and
 | **[`PAPER_DRAFT.md`](PAPER_DRAFT.md)** | White paper outline | Structure for the Abhidhamma-inspired agentic memory paper; no results claimed. |
 | **[`episode-causal-execution.md`](episode-causal-execution.md)** | Episode causal execution (Paṭṭhāna relations) | Clatter evidence gate, `PatthanaRelation` / `Walk` in `ferricula-episode`, directed projection, consensus rules. |
 | **[`citta-vithi.md`](citta-vithi.md)** | Citta-vīthi: the 17-moment cognitive process | Moment-by-moment mapping to chunking, the santīraṇa quality gate, two-stage registration, vedanā-weighted consolidation. |
+| **[`2607.21604-agentkvshift.md`](2607.21604-agentkvshift.md)** | *AgentKVShift* (Pandey et al., UCSD, arXiv:2607.21604): notes for Ferricula | KV-cache reuse for agentic memory (serving speed, not recall quality); not applicable while Steve runs on a cloud model; points to AMA-Bench (backlog T1). |
 | **[`REFERENCES.md`](REFERENCES.md)** | Paper references | Titles and canonical links for every paper cited here; PDFs are not redistributed. |
 
 ### 1. Architectural Blueprint for an Artificial Mind

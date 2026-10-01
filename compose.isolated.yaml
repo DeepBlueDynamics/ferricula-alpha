@@ -58,7 +58,7 @@ services:
 
 secrets:
   ferricula_operator_token:
-    file: ./secrets/ferricula_operator_token
+    file: ${FERRICULA_SECRETS_DIR:-${HOME}/.config/ferricula}/operator_token
 
 volumes:
   ferricula-memory:

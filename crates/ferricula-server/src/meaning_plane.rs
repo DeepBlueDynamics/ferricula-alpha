@@ -476,17 +476,17 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     const DIM: usize = 64;
-    const PAUL: u32 = 3_802_021_270;
+    const PARENTS: u32 = 900_000_001;
 
     /// Deterministic "meaning": words map to concept buckets (a tiny
-    /// synonym table), stop words are dropped, so "father"/"dad"/"Paul"
-    /// land near "raised by Paul and Clara" without sharing words.
+    /// synonym table), stop words are dropped, so "father"/"dad"/"Otto"
+    /// land near "raised by Otto and Ilse" without sharing words.
     fn concept_vector(text: &str) -> Vec<f32> {
-        const STOP: &[&str] = &["the", "and", "you", "your", "did", "his", "her", "call", "name", "right", "what", "was", "said", "that", "with", "for", "just", "always", "steve"];
+        const STOP: &[&str] = &["the", "and", "you", "your", "did", "his", "her", "call", "name", "right", "what", "was", "said", "that", "with", "for", "just", "always", "mara"];
         let concept = |w: &str| -> String {
             match w {
-                "father" | "dad" | "paul" | "clara" | "parents" | "raised" | "mother" | "adopted" => "PARENT".into(),
-                "phone" | "phones" | "iphone" | "iphones" => "PHONE".into(),
+                "father" | "dad" | "otto" | "ilse" | "parents" | "raised" | "mother" | "adopted" => "PARENT".into(),
+                "bike" | "bikes" | "bicycle" | "bicycles" => "BIKE".into(),
                 "names" | "naming" => "name".into(),
                 other => other.into(),
             }
@@ -538,7 +538,7 @@ mod tests {
             let prompt = body.messages.iter().map(|m| m.content.as_str()).collect::<Vec<_>>().join("\n");
             self.prompts.lock().unwrap().push(prompt.clone());
             let text = if prompt.contains("Now you dream") {
-                "I walk into the garage where the board hums. Paul hands me a machinist's file. Comets fall over an unknown sea.\nQUESTION: none".to_string()
+                "I walk into the garage where the board hums. Otto hands me a glassblower's file. Comets fall over an unknown sea.\nQUESTION: none".to_string()
             } else {
                 "Noted.".to_string()
             };
@@ -557,8 +557,8 @@ mod tests {
         }
     }
 
-    /// A recovered base shaped like Steve's: the parents memory has an
-    /// all-zero placeholder vector and is drowned lexically by "Jobs"
+    /// A recovered base shaped like a real one: the parents memory has an
+    /// all-zero placeholder vector and is drowned lexically by "Voss"
     /// memories; one row keeps a real stored vector; a v1 dream image and
     /// an archived memory must never be evidence by default.
     fn recovered_base() -> Fixture {
@@ -577,13 +577,13 @@ mod tests {
             }
             engine.remember(row, record).unwrap();
         };
-        put(PAUL, "[said] I'm Steve Jobs. Born in San Francisco, 1955. Raised in the Valley by Paul and Clara Jobs, a machinist and a bookkeeper.", vec![0.0; DIM], false);
+        put(PARENTS, "[said] I'm Mara Voss. Born in Bergen, 1961. Raised on the coast by Otto and Ilse Voss, a glassblower and a ferryman.", vec![0.0; DIM], false);
         for i in 0..15u32 {
-            put(10 + i, &format!("Jobs said you did it right, his call on your name was right, did you see it {i}?"), vec![0.0; DIM], false);
+            put(10 + i, &format!("Voss said you did it right, his call on your name was right, did you see it {i}?"), vec![0.0; DIM], false);
         }
-        put(5, "Designing the iMac with Jony", concept_vector("Designing the iMac with Jony"), false);
-        put(7, "[dream image] my father Paul in a garage full of light", vec![0.0; DIM], false);
-        put(8, "My dad Paul fixed cars in the garage; my parents raised me there.", vec![0.0; DIM], true);
+        put(5, "Designing the lamp with Tomas", concept_vector("Designing the lamp with Tomas"), false);
+        put(7, "[dream image] my father Otto in a garage full of light", vec![0.0; DIM], false);
+        put(8, "My dad Otto fixed cars in the garage; my parents raised me there.", vec![0.0; DIM], true);
         engine.checkpoint().unwrap();
         drop(engine);
         Fixture { root }
@@ -597,7 +597,7 @@ mod tests {
         config.overlay.path = config.state_dir.join("overlay.json");
         config.schedule.enabled = false;
         config.require_operator_auth = false;
-        config.operator_name = "Kord".into();
+        config.operator_name = "Rowan".into();
         if embedder.is_some() {
             config.embeddings.backend = EmbeddingBackend::Shivvr;
             config.embeddings.space = "fake@64".into();
@@ -611,7 +611,7 @@ mod tests {
         (AgentRuntime::open_with_embedder(config, inspection, model.clone(), embedder).unwrap(), model)
     }
 
-    const QUESTION: &str = "Did you call your father Dad, or by his name, Paul, right?";
+    const QUESTION: &str = "Did you call your father Dad, or by his name, Otto, right?";
 
     fn memory_ids(recall: &crate::recall::HybridRecall) -> Vec<u32> {
         recall.candidates.iter().filter_map(|c| c.memory.as_ref().map(|m| m.id)).collect()
@@ -632,13 +632,13 @@ mod tests {
         assert_eq!(fake.texts.load(Ordering::SeqCst), 18, "stored vectors are not re-embedded");
 
         let recall = runtime.hybrid_recall(QUESTION, 8);
-        assert!(!recall.hits.iter().any(|h| h.id == PAUL), "lexical alone never reaches it");
+        assert!(!recall.hits.iter().any(|h| h.id == PARENTS), "lexical alone never reaches it");
         assert_eq!(recall.fusion, "rrf_k60+dense+graph");
-        let paul = recall.candidates.iter().find(|c| c.memory.as_ref().is_some_and(|m| m.id == PAUL))
+        let parents = recall.candidates.iter().find(|c| c.memory.as_ref().is_some_and(|m| m.id == PARENTS))
             .expect("dense recall surfaces the parents memory");
-        assert_eq!(paul.arms, ["dense"]);
-        assert!(paul.dense_score.unwrap() > 0.3);
-        assert_eq!(recall.dense_hits[0].id, Some(PAUL));
+        assert_eq!(parents.arms, ["dense"]);
+        assert!(parents.dense_score.unwrap() > 0.3);
+        assert_eq!(recall.dense_hits[0].id, Some(PARENTS));
         let ids = memory_ids(&recall);
         assert!(!ids.contains(&7), "v1 dream images are never evidence");
         assert!(!ids.contains(&8), "archived stays out unless faded recall is on");
@@ -674,7 +674,7 @@ mod tests {
         let a: Vec<String> = recall.candidates.iter().map(|c| c.key()).collect();
         let b: Vec<String> = lexical.iter().map(|c| c.key()).collect();
         assert_eq!(a, b);
-        assert!(!memory_ids(&recall).contains(&PAUL));
+        assert!(!memory_ids(&recall).contains(&PARENTS));
         assert!(runtime.meaning_backfill_blocking("test", &mut |_| {}).is_err());
         assert!(!f.root.join("state/meaning").exists());
         drop(runtime);
@@ -707,37 +707,37 @@ mod tests {
             message: message.into(), reported_origin: InputOrigin::Human,
         };
         let a = Uuid::new_v4();
-        let turn = runtime.converse(say(a, "Steve, it's Kord. I always name my iPhones Steve.")).await.unwrap();
+        let turn = runtime.converse(say(a, "Mara, it's Rowan. I always name my bicycles Mara.")).await.unwrap();
         assert_eq!(turn.status, "completed");
         assert_eq!(turn.remembered_ids.len(), 2);
         let status = runtime.meaning_status().counts;
         assert_eq!((status.experience_total, status.experience_embedded), (2, 2), "embedded at write time");
-        let second = runtime.converse(say(a, "And my iPad?")).await.unwrap();
+        let second = runtime.converse(say(a, "And my canoe?")).await.unwrap();
         let edges = runtime.experience().edges();
         assert!(edges.iter().any(|e| e.from == turn.remembered_ids[1] && e.to == second.remembered_ids[0]
             && e.label == "paccaya:anantara"));
 
-        // A new conversation recalls what Kord said, by meaning and words.
+        // A new conversation recalls what Rowan said, by meaning and words.
         let b = Uuid::new_v4();
-        let asked = runtime.converse(say(b, "What do I name my phones?")).await.unwrap();
+        let asked = runtime.converse(say(b, "What do I name my bikes?")).await.unwrap();
         let heard = turn.remembered_ids[0];
         let candidate = asked.memory_candidates.as_array().unwrap().iter()
             .find(|c| c["id"].as_u64() == Some(u64::from(heard))).expect("hearing row recalled");
         assert_eq!(candidate["kind"], "experience");
         assert!(candidate["arms"].as_array().unwrap().iter().any(|a| a == "dense"));
         let prompts = model.prompts.lock().unwrap();
-        assert!(prompts.last().unwrap().contains("Kord said: Steve, it's Kord. I always name my iPhones Steve."));
+        assert!(prompts.last().unwrap().contains("Rowan said: Mara, it's Rowan. I always name my bicycles Mara."));
         drop(prompts);
 
         // Ingest embeds sections at write time and records near duplicates.
-        let text = "# Garage\nWoz built the board in the garage and we sold fifty of them.\n\n# Shop\nThe shop wanted assembled computers.";
-        let first = runtime.ingest_blocking(ferricula_ingest::Source::Text { title: Some("One".into()), text: text.into() }, None).unwrap();
+        let text = "# Garage\nTomas built the board in the garage and we sold fifty of them.\n\n# Shop\nThe shop wanted assembled computers.";
+        let first = runtime.ingest_blocking(ferricula_ingest::Source::Text { title: Some("One".into()), text: text.into(), origin: None }, None).unwrap();
         assert!(first.near_duplicate_of.is_none());
         let status = runtime.meaning_status().counts;
         assert_eq!(status.sections_embedded, status.sections_total);
         assert!(status.sections_total >= 1);
         let copy = format!("{text}\n");
-        let second = runtime.ingest_blocking(ferricula_ingest::Source::Text { title: Some("Two".into()), text: copy }, None).unwrap();
+        let second = runtime.ingest_blocking(ferricula_ingest::Source::Text { title: Some("Two".into()), text: copy, origin: None }, None).unwrap();
         assert!(!second.duplicate);
         assert_eq!(second.near_duplicate_of.as_deref(), Some(first.doc_id.as_str()));
         assert!(second.near_duplicate_cosine.unwrap() >= 0.97);
@@ -760,23 +760,23 @@ mod tests {
         });
         runtime.meaning_backfill_blocking("test", &mut |_| {}).unwrap();
         // Novelty: a message about something held is less novel than one about nothing held.
-        let known = life::operator_novelty(&runtime.hybrid_recall("Raised by Paul and Clara, machinist, bookkeeper", 8));
+        let known = life::operator_novelty(&runtime.hybrid_recall("Raised by Otto and Ilse, glassblower, ferryman", 8));
         let unknown = life::operator_novelty(&runtime.hybrid_recall("orbital mechanics of distant comets", 8));
         assert!(known < unknown, "{known} !< {unknown}");
         assert!(known < 0.3);
 
         // Outliers: the lone iMac memory and the parents memory are far from
-        // the many look-alike "Jobs" rows.
-        let pool: Vec<ferricula_cognition::life::Trace> = [5u32, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, PAUL].iter()
+        // the many look-alike "Voss" rows.
+        let pool: Vec<ferricula_cognition::life::Trace> = [5u32, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, PARENTS].iter()
             .map(|id| ferricula_cognition::life::Trace { id: format!("m:{id}"), text: String::new(),
                 valence: ferricula_cognition::sati::Valence::Neutral, intensity: 1.0 }).collect();
         let (kept, selection) = runtime.curiosity_outliers(pool).await;
         assert_eq!(selection["method"], "outlier");
         assert_eq!(kept.len(), 3);
-        assert!(kept.iter().any(|t| t.id == "m:5") && kept.iter().any(|t| t.id == format!("m:{PAUL}")));
+        assert!(kept.iter().any(|t| t.id == "m:5") && kept.iter().any(|t| t.id == format!("m:{PARENTS}")));
 
         // Dream: grounded prompt, grounding reported, distant chosen by meaning.
-        runtime.experience().remember("thinking", "Paul and Clara raised me in the garage.", BTreeMap::new(), None, 0.5).unwrap();
+        runtime.experience().remember("thinking", "Otto and Ilse raised me in the garage.", BTreeMap::new(), None, 0.5).unwrap();
         runtime.meaning_sync_writes();
         let entries = runtime.life_force(LifeUrgeRequest::Dream).await.unwrap();
         let dream = entries.iter().find(|e| e["kind"] == "dream").unwrap();
@@ -789,7 +789,7 @@ mod tests {
         let dream_id = dream["memory_id"].as_u64().unwrap() as u32;
         // The dream row is embedded but never dense evidence.
         assert!(runtime.meaning_vector(&MeaningKey::Experience(dream_id)).is_some());
-        let recall = runtime.hybrid_recall("garage board machinist file comets", 12);
+        let recall = runtime.hybrid_recall("garage board glassblower file comets", 12);
         assert!(!recall.dense_hits.iter().any(|h| h.id == Some(dream_id)), "dreams are never dense evidence");
     }
 }
