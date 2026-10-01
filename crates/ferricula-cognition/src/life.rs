@@ -14,8 +14,8 @@
 //! - **Sleep pressure** rises with waking time and with work done (tokens).
 //!   Over its threshold → [`Urge::Sleep`]. Sleep drains it.
 //! - **Sleep** runs bhāvanā (consolidation) and then a dream built from a
-//!   [`DreamProposal`]: the day's residue, weighted by feeling-tone, plus
-//!   distant memories and unresolved observations picked by entropy.
+//!   [`DreamProposal`]: recent residue drawn by entropy, plus distant
+//!   memories and unresolved observations picked by entropy.
 //! - **Waking**: an operator message always wakes; a dream may leave a
 //!   question that wakes the agent if allowed; rested sleep ends on its own.
 //! - **Meditation**: an explicit resting mode. Boredom does not rise and
@@ -366,7 +366,8 @@ pub fn choose_curiosity(open_threads: &[String], memories: &[Trace], entropy: u6
 /// The material a dream is made from.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DreamProposal {
-    /// Today's strongest experiences, by feeling-tone intensity.
+    /// Up to five experiences drawn by entropy from the window the caller
+    /// supplies. A short window yields fewer traces, not repeats.
     pub residue: Vec<Trace>,
     /// Older memories drawn by entropy: where a dream goes "somewhere else".
     pub distant: Vec<Trace>,
@@ -378,16 +379,14 @@ pub struct DreamProposal {
 }
 
 pub fn propose_dream(
-    mut today: Vec<Trace>,
+    today: Vec<Trace>,
     older: &[Trace],
     unresolved: &[Trace],
     seed: u64,
     entropy_source: &str,
 ) -> DreamProposal {
-    today.sort_by(|a, b| b.intensity.total_cmp(&a.intensity));
-    today.truncate(5);
     DreamProposal {
-        residue: today,
+        residue: draw(&today, 5, seed),
         distant: draw(older, 3, seed),
         unresolved: draw(unresolved, 2, seed.rotate_left(17)),
         entropy_source: entropy_source.to_string(),
@@ -718,7 +717,7 @@ mod tests {
         let a = propose_dream(today.clone(), &older, &[], 42, "os");
         let b = propose_dream(today, &older, &[], 42, "os");
         assert_eq!(a, b);
-        assert_eq!(a.residue[0].id, "t2");
+        assert_eq!(a.residue.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["t2", "t3", "t1"]);
         assert_eq!(a.distant.len(), 3);
         let mut ids: Vec<_> = a.distant.iter().map(|t| &t.id).collect();
         ids.dedup();
@@ -726,6 +725,22 @@ mod tests {
         let prompt = a.render_prompt("name = \"Steve\"");
         assert!(prompt.contains("QUESTION:") && prompt.contains("[t2]"));
         assert!(prompt.contains("ONLY from the traces listed below"));
+    }
+
+    #[test]
+    fn a_later_draw_skips_residue_already_taken_and_shrinks_when_short() {
+        let pool: Vec<Trace> = (0..12).map(|i| trace(&format!("r{i}"), 4.0 - i as f32)).collect();
+        let first = propose_dream(pool.clone(), &[], &[], 7, "os");
+        assert_eq!(first.residue.len(), 5);
+        let used: Vec<_> = first.residue.iter().map(|t| t.id.clone()).collect();
+        let rest: Vec<Trace> = pool.into_iter().filter(|t| !used.contains(&t.id)).collect();
+        let second = propose_dream(rest, &[], &[], 11, "os");
+        assert_eq!(second.residue.len(), 5);
+        assert!(second.residue.iter().all(|t| !used.contains(&t.id)));
+        let short = propose_dream(vec![trace("only", 1.0)], &[], &[], 3, "os");
+        assert_eq!(short.residue.len(), 1);
+        assert_eq!(short.residue[0].id, "only");
+        assert!(short.render_prompt("name = \"Steve\"").contains("[only]"));
     }
 
     #[test]

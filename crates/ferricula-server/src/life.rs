@@ -23,7 +23,7 @@
 //! `journal.jsonl` (append-only record of everything life did),
 //! `bhavana-state.json` (cluster index) and `karmic.jsonl` (bhāvanā log).
 use super::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::io::Write as _;
 
 use ferricula_cognition::bhavana::{BhavanaPolicy, BhavanaState, bhavana_cycle};
@@ -964,8 +964,35 @@ impl AgentRuntime {
         }))
     }
 
-    /// Dream: residue of the day + entropy-drawn older memories + unresolved
-    /// episodes → one model call → a `dream`-channel memory (never evidence).
+    /// Residue trace ids chosen by dreams since the current sleep entry.
+    /// A wake ends that sleep, so the next one may draw those rows again.
+    fn residue_used_this_sleep(&self) -> HashSet<String> {
+        let lines = self.life_journal_lines();
+        let mut sleep_at = None;
+        for (i, entry) in lines.iter().enumerate() {
+            match entry.get("kind").and_then(Value::as_str) {
+                Some("sleep") => sleep_at = Some(i),
+                Some("wake") => sleep_at = None,
+                _ => {}
+            }
+        }
+        let Some(start) = sleep_at else {
+            return HashSet::new();
+        };
+        lines.iter().skip(start + 1)
+            .filter(|entry| entry.get("kind").and_then(Value::as_str) == Some("dream"))
+            .flat_map(|entry| {
+                let n = entry.get("residue").and_then(Value::as_u64).unwrap_or(0) as usize;
+                entry.get("trace_ids").and_then(Value::as_array).into_iter().flatten()
+                    .filter_map(Value::as_str).take(n).map(str::to_string)
+            })
+            .collect()
+    }
+
+    /// Dream: residue from the last 30 non-dream experience rows (entropy,
+    /// skipping rows already used in this sleep) + entropy-drawn older
+    /// memories + unresolved episodes → one model call → a `dream`-channel
+    /// memory (never evidence). A short remainder yields fewer residue traces.
     async fn life_dream(self: &Arc<Self>) -> (Value, Option<String>) {
         let t = now();
         let rows = self.experience().rows();
@@ -984,6 +1011,14 @@ impl AgentRuntime {
         // With meaning: "distant" is drawn from memories far from today's
         // residue (low cosine to its centroid), not just older ones.
         let (older, distant_selection) = if dense { self.far_from_residue(&today, older) } else { (older, json!("entropy")) };
+        let used = self.residue_used_this_sleep();
+        let mut residue_pool: Vec<Trace> = rows.iter()
+            .filter(|(row, _)| not_dream(row))
+            .map(|(row, _)| trace_of("x", row.id, &row.tags)).collect();
+        if residue_pool.len() > 30 {
+            residue_pool.drain(0..residue_pool.len() - 30);
+        }
+        residue_pool.retain(|trace| !used.contains(&trace.id));
         let unresolved: Vec<Trace> = {
             let episodes = self.episodes.lock().expect("episode writer poisoned");
             let projection = episodes.projection();
@@ -992,7 +1027,7 @@ impl AgentRuntime {
                 Some(Trace { id: format!("e:{id}"), text: obs.report.content.clone(), valence: Valence::Neutral, intensity: 1.0 })
             }).collect()
         };
-        let proposal = propose_dream(today, &older, &unresolved, draw.value, draw.source.as_str());
+        let proposal = propose_dream(residue_pool, &older, &unresolved, draw.value, draw.source.as_str());
         let trace_ids: Vec<String> = proposal.residue.iter().chain(&proposal.distant).chain(&proposal.unresolved)
             .map(|t| t.id.clone()).collect();
         let persona = crate::recall::truncate_bytes(&self.persona.raw, 1500).to_string();
@@ -1638,6 +1673,40 @@ mod tests {
         assert_eq!(today.0.tags["text"], "today's ink still wet");
         let recovered = f.runtime.memory.sample(1, 5);
         assert!(recovered.iter().any(|h| h.id == 7 && h.tags.get("text").map(String::as_str) == Some("old harbor bell")));
+    }
+
+    fn residue_ids(entry: &Value) -> Vec<String> {
+        let n = entry["residue"].as_u64().unwrap_or(0) as usize;
+        entry["trace_ids"].as_array().expect("trace_ids").iter().take(n)
+            .map(|v| v.as_str().unwrap().to_string()).collect()
+    }
+
+    #[tokio::test]
+    async fn a_second_dream_in_one_sleep_does_not_reuse_residue() {
+        let f = fixture(|c| c.life.drives.boredom_per_min = 0.0);
+        for i in 0..12 {
+            f.runtime.experience().remember("thinking", &format!("experience {i}"), BTreeMap::new(), None, 0.4).unwrap();
+        }
+        let first_entries = f.runtime.life_force(LifeUrgeRequest::Sleep).await.unwrap();
+        let first = first_entries.iter().find(|e| e["kind"] == "dream").expect("first dream");
+        assert!(first["memory_id"].is_number(), "{first}");
+        let first_ids = residue_ids(first);
+        assert_eq!(first_ids.len(), 5, "{first}");
+
+        let second_entries = f.runtime.life_force(LifeUrgeRequest::Dream).await.unwrap();
+        let second = second_entries.iter().find(|e| e["kind"] == "dream").expect("second dream");
+        assert!(second["memory_id"].is_number(), "{second}");
+        let second_ids = residue_ids(second);
+        assert_eq!(second_ids.len(), 5, "{second}");
+        assert!(second_ids.iter().all(|id| !first_ids.contains(id)), "{first_ids:?} {second_ids:?}");
+
+        let third_entries = f.runtime.life_force(LifeUrgeRequest::Dream).await.unwrap();
+        let third = third_entries.iter().find(|e| e["kind"] == "dream").expect("short dream");
+        assert!(third.get("skipped").is_none(), "{third}");
+        assert!(third["memory_id"].is_number(), "{third}");
+        let third_ids = residue_ids(third);
+        assert_eq!(third_ids.len(), 2, "{third}");
+        assert!(third_ids.iter().all(|id| !first_ids.contains(id) && !second_ids.contains(id)));
     }
 
     #[tokio::test]
