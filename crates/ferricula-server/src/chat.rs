@@ -42,6 +42,11 @@ pub struct ChatTurn {
     /// sizes returned, or the error; not the returned text).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_calls: Vec<Value>,
+    /// The vīthi record: one object per stage (contact, feeling,
+    /// recognition, investigation, determining, impulsion, registration),
+    /// the same objects streamed as `stage` events. Absent on older turns.
+    #[serde(default)]
+    pub vithi: Vec<Value>,
 }
 
 /// Document evidence cards per turn and the verbatim bytes kept per card.
@@ -129,15 +134,34 @@ impl AgentRuntime {
         let permit = self.chat.admission.clone().try_acquire_owned()
             .map_err(|_| anyhow::anyhow!("conversation busy; retry after current request finishes"))?;
         events.emit("accepted", json!({ "conversation_id": request.conversation_id }));
+        let vithi = VithiRecord::new(&events);
+        vithi.stage("contact", true,
+            format!("{} bytes, reported origin {} (a caller claim, not verified)",
+                request.message.len(), json!(request.reported_origin).as_str().unwrap_or("unknown")),
+            json!({ "message": request.message, "bytes": request.message.len(),
+                "origin": request.reported_origin, "reported_origin": request.reported_origin,
+                "origin_verified": false, "conversation_id": request.conversation_id }), false);
         // Recovered base + experience store + sections, fused by rank over
         // the lexical, BM25 and (with an embedder) dense and graph arms; the
         // memory list keeps its MemoryHit shape plus `kind`, `arms` and
         // `dense_score`.
         let recalled = self.hybrid_recall_async(&request.message, 16).await;
         // The operator spoke: the drives hear it before the reply.
-        self.life_stimulus(ferricula_cognition::life::Stimulus::Operator {
-            novelty: life::operator_novelty(&recalled),
-        });
+        let novelty = life::operator_novelty(&recalled);
+        self.life_stimulus(ferricula_cognition::life::Stimulus::Operator { novelty });
+        // No feeling-tone value is shown until a calibrated gate produces
+        // one; the vedanā gate is not called for display. Novelty is shown,
+        // labelled as novelty.
+        vithi.stage("feeling", false, "feeling-tone: uncalibrated, not shown",
+            json!({ "feeling_tone": null,
+                "why": "no calibrated vedanā gate yet (calibration target ECE < 0.05); it is not called for display",
+                "novelty": { "value": (f64::from(novelty) * 1e4).round() / 1e4,
+                    "label": "novelty (the boredom-relief measure), not feeling",
+                    "source": if recalled.dense_novelty.is_some_and(f32::is_finite) {
+                        "1 - best dense cosine over memories (dreams excluded)"
+                    } else {
+                        "1 - best lexical score over memories (no embedder); 0.5 when nothing matched"
+                    } } }), true);
         // Dreams are never evidence: they are kept out of the candidates and
         // offered only in a labeled block below.
         let is_dream = |hit: &crate::memory::MemoryHit| hit.tags.get("channel").is_some_and(|c| c == "dream");
@@ -207,6 +231,7 @@ impl AgentRuntime {
                 request, received_at: now(), completed_at: None, status: "pending".into(),
                 reply: None, model: None, memory_candidates: candidates, episode_candidates: episodes, evidence_cards,
                 document_evidence, error: None, remembered_ids: Vec::new(), tool_calls: Vec::new(),
+                vithi: Vec::new(),
             };
             let mut next = turns.clone();
             next.push(turn.clone());
@@ -223,7 +248,9 @@ impl AgentRuntime {
         // Room for memory metadata grows with the route's context (1800
         // bytes on the historical 8k profile, up to 8000).
         let budget = self.chat_input_budget();
-        let metadata = bounded_candidates(&turn.memory_candidates, (budget / 6).clamp(1800, 8000));
+        let metadata_budget = (budget / 6).clamp(1800, 8000);
+        let metadata = bounded_candidates(&turn.memory_candidates, metadata_budget);
+        let memory_fits = bounded_selection(turn.memory_candidates.as_array().map_or(&[][..], Vec::as_slice), metadata_budget);
         // Keep independently sampled unresolved reports visible even when the
         // compatibility hits array is already full of lexical candidates.
         let mut contextual = Vec::new();
@@ -255,6 +282,7 @@ impl AgentRuntime {
             For episode reports, cite [episode event_id] and distinguish the attributed report from its current interpretation. Conversation history records what was said, not proof that it is true.\nRecovered metadata: {}\nEpisode candidates (whole records, omitted_count disclosed): {}\nBefore answering, check these evidence rules: an unresolved report with no supported interpretation establishes NO cause and excludes NO candidate cause. An object not named in that report is not thereby ruled out. A not_seen_in_scope result says only that the target was not seen in the named scope at that time; it cannot establish that the target was absent elsewhere, or that it did not cause an earlier event. If a later missing-object goal could fit an unexplained earlier event, offer that connection explicitly as a possibility to investigate. Do not assert the connection is true or false without evidence. State the retained observation, a possible connection, what remains unknown, and a next check outside any already inspected scope. Do not repeat an unsupported exclusion from earlier assistant messages.",
             format!("{}{}", truncate(&self.persona.raw, 1000), chat_tools::tools_prompt(self.max_tool_calls()) + &self.speak_prompt() + &self.web_tools_prompt() + &email_prompt + &self.code_prompt()), metadata, episode_context
         );
+        let dreams_offered = dreams.len();
         let base_system = if dreams.is_empty() {
             base_system
         } else {
@@ -279,6 +307,9 @@ impl AgentRuntime {
         for card in turn.document_evidence.as_array().into_iter().flatten() {
             events.emit("document", json!({ "card": card }));
         }
+        // Recognition is emitted once the curator (if any) has run.
+        let (recognition_summary, recognition_detail) = recognition_record(
+            &recalled, &turn.memory_candidates, &memory_fits, &turn.document_evidence, dreams_offered);
         let system = base_system + &documents_block;
         while messages.len() > 1 && prompt_bytes(&system, &messages) > prompt_budget {
             messages.drain(..2);
@@ -307,10 +338,17 @@ impl AgentRuntime {
             turn.document_evidence.as_array().map_or(0, Vec::len));
         let worker_tag = tag.clone();
         let worker_events = events.clone();
+        let worker_vithi = vithi.clone();
+        let worker_recognition = (recognition_summary.clone(), recognition_detail.clone());
+        // Each round's reply text, bounded, for the impulsion stage; shared
+        // so it survives a failed turn.
+        let drafts_shared: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let drafts_worker = drafts_shared.clone();
         let result = tokio::task::spawn_blocking(move || {
             let tag = worker_tag;
             let events = worker_events;
             let _permit = permit;
+            let mut curator_record = json!({ "ran": false, "reason": "curator disabled" });
             if runtime.config.curator_enabled {
                 let agent = ferricula_cognition::scope::AgentId::new(
                     runtime.config.expected_agent_id.clone())?;
@@ -328,6 +366,7 @@ impl AgentRuntime {
                         events.emit("curator", json!({ "ok": true }));
                         // No briefing is attached to ChatTurn or written into source memory.
                         let rendered = briefing.render();
+                        curator_record = json!({ "ran": true, "ok": true, "role": "guidance", "briefing": rendered });
                         inference.system.push_str("\nEphemeral memory briefing (guidance, not source evidence):\n");
                         inference.system.push_str(&rendered);
                         inference.estimated_input_tokens = inference.estimated_input_tokens
@@ -335,9 +374,16 @@ impl AgentRuntime {
                     }
                     Err(error) => {
                         eprintln!("chat: curator skipped: {error:#}");
+                        curator_record = json!({ "ran": true, "ok": false, "skipped": true,
+                            "reason": "curator response rejected or failed; the turn went on un-curated" });
                         events.emit("curator", json!({ "ok": false, "skipped": true }));
                     }
                 }
+            }
+            {
+                let (summary, mut detail) = worker_recognition;
+                detail["curator"] = curator_record;
+                worker_vithi.stage("recognition", true, summary, detail, false);
             }
             // Bounded tool loop: every round is a routed, budgeted completion;
             // a reply without a tool call is the answer.
@@ -355,6 +401,10 @@ impl AgentRuntime {
                 let (decision, response) = runtime.chat_completion(&mut inference, &events, round)
                     .with_context(|| format!("chat round {round}"))?;
                 let text = response.text;
+                if let Ok(mut drafts) = drafts_worker.lock() {
+                    let kept = crate::recall::truncate_bytes(&text, DRAFT_BYTES);
+                    drafts.push(json!({ "round": round, "text": kept, "bytes": text.len(), "truncated": kept.len() < text.len() }));
+                }
                 events.emit("round", json!({ "round": round, "secs": secs(round_started), "finish": finish_reason(&response.raw),
                     "reply_bytes": text.len(), "output_tokens": response.output_tokens,
                     "tool_calls": chat_tools::parse_tool_calls(&text).iter().map(|c| c.name.clone()).collect::<Vec<_>>() }));
@@ -440,6 +490,13 @@ impl AgentRuntime {
                         events.emit("gate", json!({ "gate": "speak_modality", "kind": "ollaya", "advisory": true,
                             "verdict": gate.get("mode"), "detail": gate }));
                     }
+                    if let Some(house) = result.get("house_cc").filter(|h| !h.is_null()) {
+                        // The email house gate: a house term, or the Ollaya yes/no.
+                        let by = house.pointer("/why/by").and_then(Value::as_str).unwrap_or("");
+                        events.emit("gate", json!({ "gate": "email_house",
+                            "kind": if by == "term" { "deterministic" } else { "ollaya" }, "advisory": by != "term",
+                            "verdict": if house["copied"] == true { "copied" } else { "not_copied" }, "detail": house }));
+                    }
                     if call.name == "mark_disputed" && result.get("error").is_none() {
                         events.emit("verdict", json!({ "result": result }));
                     }
@@ -481,11 +538,22 @@ impl AgentRuntime {
                         Err(error) => eprintln!("chat: remembering the turn failed: {error:#}"),
                     }
                 }
+                let mut overlay_note = "recall overlay not installed: no citation was counted";
+                let mut counted = Vec::new();
                 if let Some(overlay) = crate::recall_overlay::installed() {
-                    if let Err(error) = record_cited_recalls(&overlay, &reply, &turn.memory_candidates, now()) {
-                        eprintln!("chat: recall overlay: {error:#}");
+                    overlay_note = "counted by the recall overlay";
+                    match record_cited_recalls(&overlay, &reply, &turn.memory_candidates, now()) {
+                        Ok(keys) => counted = keys,
+                        Err(error) => {
+                            overlay_note = "recall overlay write failed: citations may be partly counted";
+                            eprintln!("chat: recall overlay: {error:#}");
+                        }
                     }
                 }
+                vithi_investigation_to_impulsion(&vithi, &events, &drafts_shared, true);
+                let (summary, detail) = registration_record(&turn, &reply, &counted, overlay_note,
+                    self.config.recall.remember_turns, &events);
+                vithi.stage("registration", true, summary, detail, false);
                 turn.reply = Some(reply);
             }
             failure => {
@@ -500,8 +568,19 @@ impl AgentRuntime {
                 // Provider errors may contain sensitive URLs or bodies. Keep the
                 // public durable failure bounded and do not fabricate a reply.
                 turn.error = Some("Local model inference failed or no eligible private-context route exists. Check model configuration and availability.".into());
+                // The stages known so far, then registration unmeasured.
+                if !vithi.has("recognition") {
+                    let mut detail = recognition_detail;
+                    detail["curator"] = json!({ "ran": self.config.curator_enabled, "ok": null,
+                        "reason": "turn failed before recognition was emitted; curator outcome unknown" });
+                    vithi.stage("recognition", true, recognition_summary, detail, false);
+                }
+                vithi_investigation_to_impulsion(&vithi, &events, &drafts_shared, false);
+                vithi.stage("registration", false, "turn failed; nothing registered",
+                    json!({ "remembered_ids": [], "cited": [] }), false);
             }
         }
+        turn.vithi = vithi.take();
         turn.completed_at = Some(now());
         if turn.status == "completed" {
             events.emit("done", json!({ "secs": secs(turn_started), "turn": &turn }));
@@ -669,33 +748,95 @@ const MAX_CHAT_INPUT_BYTES: usize = 400_000;
 /// Live events for one turn (`POST /chat/stream`): each is a JSON object
 /// `{event, request_id, t, ...}` with `t` in ms since the turn began. Plain
 /// `/chat` runs with [`TurnEvents::none`]; emitting never blocks or fails.
+/// Every event is also kept in an in-memory log for the turn, streamed or
+/// not, so the vīthi record is built from the same events the UI sees.
 #[derive(Clone)]
 pub struct TurnEvents {
     tx: Option<tokio::sync::mpsc::UnboundedSender<Value>>,
     started: std::time::Instant,
     request_id: Option<Uuid>,
+    log: Arc<Mutex<Vec<Value>>>,
 }
 
 impl TurnEvents {
     pub fn none() -> Self {
-        Self { tx: None, started: std::time::Instant::now(), request_id: None }
+        Self { tx: None, started: std::time::Instant::now(), request_id: None, log: Default::default() }
     }
 
     pub fn channel(request_id: Uuid) -> (Self, tokio::sync::mpsc::UnboundedReceiver<Value>) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        (Self { tx: Some(tx), started: std::time::Instant::now(), request_id: Some(request_id) }, rx)
+        (Self { tx: Some(tx), started: std::time::Instant::now(), request_id: Some(request_id), log: Default::default() }, rx)
     }
 
     pub fn emit(&self, event: &str, payload: Value) {
-        let Some(tx) = &self.tx else { return };
         let mut object = match payload {
             Value::Object(map) => map,
             other => { let mut map = serde_json::Map::new(); map.insert("value".into(), other); map }
         };
         object.insert("event".into(), json!(event));
         object.insert("request_id".into(), json!(self.request_id));
-        object.insert("t".into(), json!(self.started.elapsed().as_millis() as u64));
-        let _ = tx.send(Value::Object(object));
+        object.insert("t".into(), json!(self.elapsed_ms()));
+        // Stages are built from the log; the final events carry the whole turn.
+        if !matches!(event, "stage" | "done" | "failed") {
+            if let Ok(mut log) = self.log.lock() {
+                log.push(Value::Object(object.clone()));
+            }
+        }
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(Value::Object(object));
+        }
+    }
+
+    fn elapsed_ms(&self) -> u64 {
+        self.started.elapsed().as_millis() as u64
+    }
+
+    /// The events emitted so far this turn, in order (stages excluded).
+    fn logged(&self) -> Vec<Value> {
+        self.log.lock().map(|log| log.clone()).unwrap_or_default()
+    }
+}
+
+/// The seven stages of one turn's vīthi, with their Pāli names.
+const VITHI_STAGES: [(&str, &str); 7] = [
+    ("contact", "phassa"), ("feeling", "vedanā"), ("recognition", "saññā"),
+    ("investigation", "santīraṇa"), ("determining", "voṭṭhapana"),
+    ("impulsion", "javana"), ("registration", "tadārammaṇa"),
+];
+
+/// Bytes kept of each earlier round's draft in the impulsion stage.
+const DRAFT_BYTES: usize = 2000;
+
+/// The turn's stage record: each stage is emitted as a `stage` event the
+/// moment it is known and kept for `ChatTurn::vithi`. Stage values are a
+/// record only; nothing reads them back for ranking or lifecycle.
+#[derive(Clone)]
+struct VithiRecord {
+    stages: Arc<Mutex<Vec<Value>>>,
+    events: TurnEvents,
+}
+
+impl VithiRecord {
+    fn new(events: &TurnEvents) -> Self {
+        Self { stages: Default::default(), events: events.clone() }
+    }
+
+    fn stage(&self, stage: &str, measured: bool, summary: impl Into<String>, detail: Value, advisory: bool) {
+        let pali = VITHI_STAGES.iter().find(|(name, _)| *name == stage).map_or("", |(_, pali)| *pali);
+        let object = json!({ "stage": stage, "pali": pali, "measured": measured, "summary": summary.into(),
+            "detail": detail, "advisory": advisory, "t": self.events.elapsed_ms() });
+        self.events.emit("stage", object.clone());
+        if let Ok(mut stages) = self.stages.lock() {
+            stages.push(object);
+        }
+    }
+
+    fn has(&self, stage: &str) -> bool {
+        self.stages.lock().map(|s| s.iter().any(|v| v["stage"] == stage)).unwrap_or(false)
+    }
+
+    fn take(&self) -> Vec<Value> {
+        self.stages.lock().map(|mut s| std::mem::take(&mut *s)).unwrap_or_default()
     }
 }
 
@@ -724,16 +865,22 @@ fn estimated_tokens(bytes: usize) -> u32 {
 
 fn bounded_candidates(value: &Value, byte_budget: usize) -> String {
     let items = value.as_array().cloned().unwrap_or_default();
-    let mut selected = Vec::new();
+    let fits = bounded_selection(&items, byte_budget);
+    let selected: Vec<Value> = items.iter().zip(&fits).filter(|(_, fit)| **fit).map(|(item, _)| item.clone()).collect();
+    json!({"omitted_count": items.len() - selected.len(), "candidates": selected}).to_string()
+}
+
+/// Which of `items` [`bounded_candidates`] keeps under `byte_budget`.
+fn bounded_selection(items: &[Value], byte_budget: usize) -> Vec<bool> {
     let mut size = 0;
-    for item in &items {
+    items.iter().map(|item| {
         let bytes = item.to_string().len();
-        if size + bytes <= byte_budget {
-            selected.push(item.clone());
+        let fits = size + bytes <= byte_budget;
+        if fits {
             size += bytes;
         }
-    }
-    json!({"omitted_count": items.len() - selected.len(), "candidates": selected}).to_string()
+        fits
+    }).collect()
 }
 
 /// Ids named as `[memory N]` in a completed reply, in order, once each.
@@ -784,18 +931,336 @@ fn key_for_kind(kind: Option<&str>, id: u32) -> Option<String> {
 }
 
 /// Record each memory this reply actually cited. Showing a candidate is
-/// not a recall. The overlay file is the only write.
+/// not a recall. The overlay file is the only write. Returns the overlay
+/// keys counted.
 fn record_cited_recalls(
     overlay: &crate::recall_overlay::RecallOverlay,
     reply: &str,
     candidates: &Value,
     now: u64,
-) -> Result<()> {
+) -> Result<Vec<String>> {
+    let mut counted = Vec::new();
     for id in cited_memory_ids(reply) {
         let Some(key) = overlay_key_for(candidates, id) else { continue };
         overlay.record(&key, now)?;
+        counted.push(key);
     }
-    Ok(())
+    Ok(counted)
+}
+
+fn round4(x: f64) -> f64 {
+    (x * 1e4).round() / 1e4
+}
+
+/// The recognition (saññā) stage: every search's raw list, every fused
+/// candidate with its arms and score, and whether it reached the prompt
+/// (with the reason when it did not). The curator briefing is added once
+/// the curator has run.
+fn recognition_record(
+    recalled: &crate::recall::HybridRecall,
+    memory_candidates: &Value,
+    fits: &[bool],
+    shown_cards: &Value,
+    dreams_offered: usize,
+) -> (String, Value) {
+    use crate::recall::truncate_bytes;
+    let kept = memory_candidates.as_array().map_or(&[][..], Vec::as_slice);
+    let is_dream = |m: &crate::memory::MemoryHit| m.tags.get("channel").is_some_and(|c| c == "dream");
+    let card_shown = |doc: &str, index: u32| shown_cards.as_array().into_iter().flatten()
+        .any(|c| c["doc_id"] == doc && c["section"] == index);
+    let candidates: Vec<Value> = recalled.candidates.iter().enumerate().map(|(i, c)| {
+        let kind = json!(c.kind).as_str().unwrap_or_default().to_string();
+        let mut row = json!({ "rank": i + 1, "kind": kind, "score": (c.score * 1e6).round() / 1e6, "arms": c.arms,
+            "source_rank": c.source_rank, "source_score": round4(c.source_score) });
+        if let Some(d) = c.dense_score {
+            row["dense_score"] = json!(round4(d));
+        }
+        if let Some(f) = c.effective_fidelity {
+            row["effective_fidelity"] = json!(round4(f));
+        }
+        let (in_prompt, why_not): (bool, Option<String>) = if let Some(m) = &c.memory {
+            row["id"] = json!(m.id);
+            row["state"] = json!(m.state);
+            row["keystone"] = json!(m.keystone);
+            row["text"] = json!(truncate_bytes(m.tags.get("text").map_or("", String::as_str), 200));
+            if is_dream(m) {
+                row["dream"] = json!(true);
+            }
+            let same = |v: &Value| v.get("id").and_then(Value::as_u64) == Some(u64::from(m.id))
+                && v.get("kind").and_then(Value::as_str) == Some(kind.as_str());
+            if let Some(at) = kept.iter().position(same) {
+                for key in ["verdicts", "fragment"] {
+                    if let Some(v) = kept[at].get(key) {
+                        row[key] = v.clone();
+                    }
+                }
+                if fits.get(at).copied().unwrap_or(false) {
+                    (true, None)
+                } else {
+                    (false, Some("omitted to fit the prompt's memory metadata budget".into()))
+                }
+            } else if let Some(keeper) = kept.iter().find(|h| h.get("duplicates").and_then(Value::as_array).is_some_and(|d| d.iter().any(same))) {
+                (false, Some(format!("same text as {} {}, which was kept", keeper["kind"].as_str().unwrap_or("memory"), keeper["id"])))
+            } else if is_dream(m) {
+                (false, Some("a dream: never evidence".into()))
+            } else {
+                (false, Some(format!("below the cut ({MEMORY_CANDIDATES} memory candidates per turn)")))
+            }
+        } else if let Some(s) = &c.section {
+            row["doc_id"] = json!(s.doc_id);
+            row["index"] = json!(s.index);
+            row["cite"] = json!(s.cite);
+            if card_shown(&s.doc_id, s.index) {
+                (true, None)
+            } else {
+                (false, Some("not among the document cards shown".into()))
+            }
+        } else {
+            (false, Some("no payload".into()))
+        };
+        row["in_prompt"] = json!(in_prompt);
+        if let Some(why) = why_not {
+            row["why_not"] = json!(why);
+        }
+        row
+    }).collect();
+    let memory_row = |h: &crate::memory::MemoryHit| {
+        let mut row = json!({ "id": h.id, "score": round4(f64::from(h.score)) });
+        if is_dream(h) {
+            row["dream"] = json!(true);
+        }
+        row
+    };
+    let embedder = recalled.fusion != "rrf_k60";
+    let arm_views = |arm: &str| recalled.dense_hits.iter().filter(|d| d.arm == arm)
+        .map(|d| serde_json::to_value(d).unwrap_or(Value::Null)).collect::<Vec<_>>();
+    let (dense, graph) = (arm_views("dense"), arm_views("graph"));
+    let lexical = recalled.hits.len() + recalled.experience_hits.len();
+    let best_dense = recalled.dense_hits.iter().filter(|d| d.arm == "dense").map(|d| d.cosine)
+        .fold(None, |acc: Option<f64>, x| Some(acc.map_or(x, |a| a.max(x))));
+    let in_prompt = candidates.iter().filter(|c| c["in_prompt"] == true).count();
+    let fragments = kept.iter().filter(|h| h["fragment"] == true).count();
+    let duplicates: usize = kept.iter().map(|h| h["duplicates"].as_array().map_or(0, Vec::len)).sum();
+    let top: Vec<Value> = kept.iter().take(5).map(|h| h["id"].clone()).collect();
+    let arm_count = |n: usize| if embedder { json!(n) } else { Value::Null };
+    let summary = format!("{} fused candidates ({}), {} in the prompt; searches: lexical {}, bm25 {}, {}",
+        candidates.len(), recalled.fusion, in_prompt, lexical, recalled.section_hits.len(),
+        if embedder { format!("dense {}, graph {}", dense.len(), graph.len()) } else { "dense and graph off (no embedder)".into() });
+    let detail = json!({
+        "per_arm": { "lexical": lexical, "bm25": recalled.section_hits.len(), "dense": arm_count(dense.len()), "graph": arm_count(graph.len()) },
+        "searches": {
+            "lexical_recovered": recalled.hits.iter().map(memory_row).collect::<Vec<_>>(),
+            "lexical_experience": recalled.experience_hits.iter().map(memory_row).collect::<Vec<_>>(),
+            "bm25_sections": recalled.section_hits.iter().map(|s| json!({ "doc_id": s.doc_id, "index": s.index,
+                "score": round4(s.score), "cite": s.cite })).collect::<Vec<_>>(),
+            "dense": if embedder { json!(dense) } else { Value::Null },
+            "graph": if embedder { json!(graph) } else { Value::Null },
+        },
+        "dense_note": if embedder { Value::Null } else { json!("no embedder: the dense and graph arms did not run") },
+        "fusion": recalled.fusion,
+        "fusion_note": "the fused list is cut at 16; anything below it appears only in `searches`",
+        "candidates": candidates,
+        "in_prompt": in_prompt,
+        "top_memory_ids": top,
+        "best_dense_cosine": best_dense.map(round4),
+        "fragments": fragments,
+        "duplicates_collapsed": duplicates,
+        "dreams_offered": dreams_offered,
+    });
+    (summary, detail)
+}
+
+/// `value` as is when short, else its JSON text cut to `max` bytes.
+fn bounded_value(value: &Value, max: usize) -> Value {
+    let text = value.to_string();
+    if text.len() <= max { value.clone() } else { json!(format!("{}…", crate::recall::truncate_bytes(&text, max))) }
+}
+
+/// Emit investigation, determining and impulsion from the turn's event log
+/// (the same events the stream carried) and the round drafts.
+fn vithi_investigation_to_impulsion(vithi: &VithiRecord, events: &TurnEvents, drafts: &Mutex<Vec<Value>>, completed: bool) {
+    let log = events.logged();
+    let drafts = drafts.lock().map(|d| d.clone()).unwrap_or_default();
+    let name = |e: &Value| e["event"].as_str().unwrap_or_default().to_string();
+
+    // Investigation (santīraṇa): every tool call, in order, by round.
+    let mut round = 0u64;
+    let mut tools: Vec<Value> = Vec::new();
+    let mut parsed_per_round: Vec<(u64, usize)> = Vec::new();
+    for e in &log {
+        match name(e).as_str() {
+            "round_start" => round = e["round"].as_u64().unwrap_or(round),
+            "round" => parsed_per_round.push((round, e["tool_calls"].as_array().map_or(0, Vec::len))),
+            "tool_call" => {
+                let mut row = json!({ "round": round, "n": e["n"], "name": e["name"], "arguments": bounded_value(&e["arguments"], 600) });
+                if !e["parse_error"].is_null() {
+                    row["parse_error"] = e["parse_error"].clone();
+                }
+                tools.push(row);
+            }
+            "tool_result" => {
+                if let Some(row) = tools.iter_mut().rev().find(|t| t["n"] == e["n"]) {
+                    row["secs"] = e["secs"].clone();
+                    row["bytes"] = e["entry"]["result_bytes"].clone();
+                    if !e["entry"]["error"].is_null() {
+                        row["error"] = e["entry"]["error"].clone();
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    // Calls the model wrote that were never run (the tool budget was spent).
+    let mut not_run = Vec::new();
+    for (r, parsed) in &parsed_per_round {
+        let ran = tools.iter().filter(|t| t["round"] == *r).count();
+        if *parsed > ran {
+            not_run.push(json!({ "round": r, "count": parsed - ran, "why": "tool budget for this message was spent" }));
+        }
+    }
+    let errors = tools.iter().filter(|t| t.get("error").is_some()).count();
+    let rounds_with_tools = {
+        let mut r: Vec<&Value> = tools.iter().map(|t| &t["round"]).collect();
+        r.dedup();
+        r.len()
+    };
+    let summary = if tools.is_empty() {
+        "no tools used".to_string()
+    } else {
+        format!("{} tool call(s) in {} round(s), {} with an error", tools.len(), rounds_with_tools, errors)
+    };
+    vithi.stage("investigation", true, summary, json!({ "calls": tools, "not_run": not_run }), false);
+
+    // Determining (voṭṭhapana): the gates that fired, and the curator.
+    let mut gates: Vec<Value> = Vec::new();
+    let mut curator = "disabled or not reached";
+    for e in &log {
+        match name(e).as_str() {
+            "gate" => {
+                let mut g = e.clone();
+                if let Some(map) = g.as_object_mut() {
+                    map.remove("event");
+                    map.remove("request_id");
+                }
+                gates.push(g);
+            }
+            "curator" => curator = if e["ok"] == true { "ok" } else { "skipped" },
+            _ => {}
+        }
+    }
+    let round_events: Vec<&Value> = log.iter().filter(|e| e["event"] == "round").collect();
+    let snapshot = gates.clone();
+    for gate in gates.iter_mut().filter(|g| g["gate"] == "citation_check" && g["verdict"] == "sent_back") {
+        let r = gate["round"].as_u64().unwrap_or(0);
+        let unseen: Vec<String> = gate["unseen"].as_array().into_iter().flatten()
+            .filter_map(Value::as_str).map(str::to_string).collect();
+        let opens = |t: &&Value| matches!(t["name"].as_str(), Some("read_section" | "read_document"))
+            && t["arguments"]["doc_id"].as_str().is_some_and(|d| unseen.iter().any(|u| u == d));
+        let next: Vec<&Value> = tools.iter().filter(|t| t["round"] == r + 1).collect();
+        let then = if next.iter().any(opens) {
+            "opened the document".to_string()
+        } else if !next.is_empty() {
+            format!("used other tools instead ({})", next.iter().filter_map(|t| t["name"].as_str()).collect::<Vec<_>>().join(", "))
+        } else if snapshot.iter().any(|g| g["gate"] == "citation_check" && g["round"] == r + 1 && g["verdict"] != "pass") {
+            "cited it again; let through after one correction".to_string()
+        } else if round_events.iter().any(|e| e["round"] == r + 1) {
+            "backed off: answered without the unread citation".to_string()
+        } else {
+            "unknown: the turn ended".to_string()
+        };
+        gate["then"] = json!(then);
+        gate["opened_later"] = json!(tools.iter().filter(|t| t["round"].as_u64().is_some_and(|x| x > r)).any(|t| opens(&t)));
+    }
+    let names: Vec<&str> = gates.iter().filter_map(|g| g["gate"].as_str()).collect();
+    let summary = if gates.is_empty() {
+        format!("no gates fired; curator {curator}")
+    } else {
+        format!("{} gate decision(s) ({}); curator {curator}", gates.len(), names.join(", "))
+    };
+    vithi.stage("determining", true, summary, json!({ "gates": gates, "curator": curator }), false);
+
+    // Impulsion (javana): the model rounds, each with its draft.
+    let starts: Vec<u64> = log.iter().filter(|e| e["event"] == "round_start").filter_map(|e| e["round"].as_u64()).collect();
+    let last = starts.last().copied();
+    let mut rounds = Vec::new();
+    let mut total_secs = 0.0;
+    for r in &starts {
+        let calls: Vec<Value> = log.iter().filter(|e| e["event"] == "model_call" && e["round"] == *r).map(|e| {
+            // Provider error text can carry URLs or bodies: it was streamed
+            // live, but is not kept in the durable record.
+            json!({ "attempt": e["attempt"], "ok": e["ok"], "secs": e["secs"], "finish": e["finish"],
+                "output_tokens": e["output_tokens"], "model": e["model"], "error_withheld": !e["error"].is_null() })
+        }).collect();
+        let done = round_events.iter().find(|e| e["round"] == *r);
+        let draft = drafts.iter().find(|d| d["round"] == *r).cloned();
+        let sent_back = gates.iter().any(|g| g["gate"] == "citation_check" && g["round"] == *r && g["verdict"] == "sent_back");
+        let nudged = log.iter().any(|e| e["event"] == "nudge" && e["round"] == *r);
+        let wrote_tools = done.is_some_and(|e| e["tool_calls"].as_array().is_some_and(|a| !a.is_empty()));
+        let is_final = completed && Some(*r) == last;
+        let ended = match (done, is_final) {
+            (None, _) => "the model call failed",
+            _ if sent_back => "sent back by the citation check",
+            _ if nudged => "empty reply; asked once for the answer",
+            (_, true) if wrote_tools => "final: tool budget spent, prose kept",
+            (_, true) => "final answer",
+            _ if wrote_tools => "called tools",
+            _ => "ended without an answer",
+        };
+        if let Some(secs) = done.and_then(|e| e["secs"].as_f64()) {
+            total_secs += secs;
+        }
+        rounds.push(json!({ "round": r, "secs": done.map(|e| e["secs"].clone()), "finish": done.map(|e| e["finish"].clone()),
+            "output_tokens": done.map(|e| e["output_tokens"].clone()), "ended": ended, "final": is_final,
+            "draft": draft, "model_calls": calls }));
+    }
+    let retries = log.iter().filter(|e| e["event"] == "model_call" && e["attempt"].as_u64().unwrap_or(1) > 1).count();
+    if rounds.is_empty() {
+        vithi.stage("impulsion", false, "no model round ran", json!({ "rounds": [], "retries": 0 }), false);
+    } else {
+        let summary = format!("{} model round(s), {:.1}s, {} retr{}", rounds.len(), total_secs, retries, if retries == 1 { "y" } else { "ies" });
+        vithi.stage("impulsion", true, summary, json!({ "rounds": rounds, "retries": retries,
+            "draft_bytes_kept": DRAFT_BYTES }), false);
+    }
+}
+
+/// The registration (tadārammaṇa) stage of a completed turn: the rows
+/// saved, verdicts written, and each memory the reply cited with whether
+/// the recall overlay counted it, its state, keystone flag and verdicts.
+fn registration_record(turn: &ChatTurn, reply: &str, counted: &[String], overlay_note: &str,
+    remember_turns: bool, events: &TurnEvents) -> (String, Value)
+{
+    let candidates = turn.memory_candidates.as_array().map_or(&[][..], Vec::as_slice);
+    let cited: Vec<Value> = cited_memory_ids(reply).into_iter().map(|id| {
+        let key = overlay_key_for(&turn.memory_candidates, id);
+        let mut row = json!({ "id": id, "overlay_key": key, "counted": key.as_ref().is_some_and(|k| counted.contains(k)) });
+        let want = Some(u64::from(id));
+        if let Some(hit) = candidates.iter().find(|h| h.get("id").and_then(Value::as_u64) == want) {
+            for field in ["kind", "state", "keystone", "effective_fidelity", "verdicts", "fragment"] {
+                if let Some(v) = hit.get(field) {
+                    row[field] = v.clone();
+                }
+            }
+        } else if let Some(keeper) = candidates.iter().find(|h| h["duplicates"].as_array()
+            .is_some_and(|d| d.iter().any(|x| x.get("id").and_then(Value::as_u64) == want))) {
+            row["duplicate_of"] = keeper["id"].clone();
+        } else {
+            row["why_not_counted"] = json!("not a memory candidate shown this turn");
+        }
+        row
+    }).collect();
+    let verdicts: Vec<Value> = events.logged().into_iter().filter(|e| e["event"] == "verdict")
+        .map(|e| e["result"].clone()).collect();
+    let saved = if !turn.remembered_ids.is_empty() {
+        format!("saved rows {}", turn.remembered_ids.iter().map(u32::to_string).collect::<Vec<_>>().join(", "))
+    } else if remember_turns {
+        "the turn was not saved (remembering failed)".to_string()
+    } else {
+        "nothing saved (remember_turns is off)".to_string()
+    };
+    let counted_n = cited.iter().filter(|c| c["counted"] == true).count();
+    let summary = format!("{saved}; {} cited, {} counted; {} verdict(s) written", cited.len(), counted_n, verdicts.len());
+    (summary, json!({ "remembered_ids": turn.remembered_ids, "remember_turns": remember_turns,
+        "cited": cited, "overlay": overlay_note, "verdicts_written": verdicts }))
 }
 
 /// Display ranking for memory-hit JSON already built for this turn.
@@ -955,6 +1420,7 @@ mod tests {
             status: "pending".into(), reply: None, model: None,
             memory_candidates: json!([]), episode_candidates: json!([]), evidence_cards: json!([]),
             document_evidence: json!([]), error: None, remembered_ids: Vec::new(), tool_calls: Vec::new(),
+            vithi: Vec::new(),
         }]).unwrap();
         let reopened = ChatStore::open(&dir).unwrap();
         let turns = reopened.turns.lock().unwrap();
@@ -1040,6 +1506,12 @@ mod tests {
     }
 
     fn scripted_runtime(script: fn(usize, &str) -> String) -> (Arc<AgentRuntime>, Arc<ScriptedModel>, PathBuf, String) {
+        scripted_runtime_with(script, |_| {})
+    }
+
+    fn scripted_runtime_with(script: fn(usize, &str) -> String, adjust: impl FnOnce(&mut crate::config::RuntimeConfig))
+        -> (Arc<AgentRuntime>, Arc<ScriptedModel>, PathBuf, String)
+    {
         let root = std::env::temp_dir().join(format!("ferricula-chattools-{}", Uuid::new_v4()));
         let memory = root.join("memory");
         fs::create_dir_all(&memory).unwrap();
@@ -1053,6 +1525,7 @@ mod tests {
         let profile = config.models.profiles.iter_mut().find(|p| p.id == "local_ollama").unwrap();
         profile.context_tokens = 131_072;
         profile.reasoning_tokens = 4096;
+        adjust(&mut config);
         let model = Arc::new(ScriptedModel { rounds: Mutex::new(Vec::new()), script });
         let inspection = crate::inspect_data_dir(&memory).unwrap();
         let runtime = AgentRuntime::open_with_transport(config, inspection, model.clone()).unwrap();
@@ -1497,6 +1970,21 @@ mod tests {
         assert_eq!(turn.tool_calls[0]["unseen"][0], "0123456789abcdef");
         assert_eq!(turn.reply.as_deref(), Some("The fence has a back side nobody sees."));
         assert_eq!(model.rounds.lock().unwrap().len(), 3);
+        // Determining records the choice point and what came next.
+        let determining = turn.vithi.iter().find(|s| s["stage"] == "determining").unwrap();
+        let gate = &determining["detail"]["gates"][0];
+        assert_eq!(gate["verdict"], "sent_back", "{determining}");
+        assert_eq!(gate["then"], "used other tools instead (search_documents)");
+        assert_eq!(gate["opened_later"], false);
+        // Impulsion keeps the drafts the answer beat, labelled by round.
+        let impulsion = turn.vithi.iter().find(|s| s["stage"] == "impulsion").unwrap();
+        let rounds = impulsion["detail"]["rounds"].as_array().unwrap();
+        assert_eq!(rounds.len(), 3);
+        assert!(rounds[0]["draft"]["text"].as_str().unwrap().contains("0123456789abcdef"));
+        assert_eq!(rounds[0]["ended"], "sent back by the citation check");
+        assert_eq!(rounds[1]["ended"], "called tools");
+        assert_eq!(rounds[2]["ended"], "final answer");
+        assert_eq!(rounds[2]["final"], true);
         drop(runtime);
         let _ = fs::remove_dir_all(root);
     }
@@ -1516,6 +2004,168 @@ mod tests {
         assert_eq!(model.rounds.lock().unwrap().len(), chat_tools::MAX_TOOL_CALLS + 1);
         drop(runtime);
         let _ = fs::remove_dir_all(root);
+    }
+
+    fn fence_script(round: usize, prompt: &str) -> String {
+        match round {
+            0 => r#"<use_tool>{"name":"search_documents","arguments":{"query":"fence back side"}}</use_tool>"#.into(),
+            _ => {
+                let at = prompt.find("\"doc_id\":\"").expect("search result in prompt") + 10;
+                format!("The fence has a back side nobody sees [doc {}§0].", &prompt[at..at + 16])
+            }
+        }
+    }
+
+    const STAGE_ORDER: [&str; 7] = ["contact", "feeling", "recognition", "investigation", "determining", "impulsion", "registration"];
+
+    #[test]
+    fn scripted_turn_records_the_seven_stages_in_order() {
+        let (runtime, _model, root, doc_id) = scripted_runtime(fence_script);
+        let message = "What did he say about the fence?";
+        let turn = ask(&runtime, message);
+        assert_eq!(turn.status, "completed", "{:?}", turn.error);
+        let names: Vec<&str> = turn.vithi.iter().map(|s| s["stage"].as_str().unwrap()).collect();
+        assert_eq!(names, STAGE_ORDER);
+        for (stage, (_, pali)) in turn.vithi.iter().zip(VITHI_STAGES) {
+            assert_eq!(stage["pali"], pali);
+            assert!(stage["summary"].as_str().is_some_and(|s| !s.is_empty()), "{stage}");
+            assert!(stage["t"].is_u64() && stage["measured"].is_boolean() && stage["advisory"].is_boolean());
+        }
+        let t: Vec<u64> = turn.vithi.iter().map(|s| s["t"].as_u64().unwrap()).collect();
+        assert!(t.windows(2).all(|w| w[0] <= w[1]), "{t:?}");
+        let contact = &turn.vithi[0]["detail"];
+        assert_eq!(contact["message"], message);
+        assert_eq!(contact["bytes"], message.len());
+        assert_eq!(contact["reported_origin"], "human");
+        assert_eq!(contact["origin_verified"], false);
+        assert_eq!(contact["conversation_id"], json!(turn.request.conversation_id));
+        // Recognition: every candidate with arms, score and in_prompt.
+        let recognition = &turn.vithi[2]["detail"];
+        let candidates = recognition["candidates"].as_array().unwrap();
+        assert!(!candidates.is_empty(), "{recognition}");
+        assert!(candidates.iter().all(|c| c["arms"].is_array() && c["score"].is_f64() && c["in_prompt"].is_boolean()));
+        assert!(candidates.iter().filter(|c| c["in_prompt"] == false).all(|c| c["why_not"].is_string()));
+        assert!(recognition["per_arm"]["lexical"].is_u64() && recognition["per_arm"]["bm25"].is_u64());
+        assert_eq!(recognition["curator"]["ran"], false);
+        assert!(recognition["fragments"].is_u64() && recognition["duplicates_collapsed"].is_u64());
+        // Investigation: the search, with timing and size.
+        let investigation = &turn.vithi[3];
+        assert_eq!(investigation["measured"], true);
+        let call = &investigation["detail"]["calls"][0];
+        assert_eq!(call["name"], "search_documents");
+        assert_eq!(call["round"], 1);
+        assert!(call["secs"].is_f64() && call["bytes"].is_u64(), "{call}");
+        // Determining: the citation check passed.
+        let gates = turn.vithi[4]["detail"]["gates"].as_array().unwrap();
+        assert_eq!(gates[0]["gate"], "citation_check");
+        assert_eq!(gates[0]["verdict"], "pass");
+        // Impulsion: two rounds, the first draft was the tool call.
+        let impulsion = &turn.vithi[5]["detail"];
+        assert_eq!(impulsion["rounds"].as_array().unwrap().len(), 2);
+        assert!(impulsion["rounds"][0]["draft"]["text"].as_str().unwrap().contains("<use_tool>"));
+        assert_eq!(impulsion["rounds"][1]["draft"]["text"], json!(turn.reply.as_deref().unwrap()));
+        assert_eq!(impulsion["retries"], 0);
+        // Registration: the saved rows.
+        let registration = &turn.vithi[6];
+        assert_eq!(registration["measured"], true);
+        assert_eq!(registration["detail"]["remembered_ids"], json!(turn.remembered_ids));
+        assert!(turn.reply.as_deref().unwrap().contains(&doc_id));
+        // The durable record carries the same stages.
+        let stored = runtime.conversation(turn.request.conversation_id);
+        assert_eq!(stored[0].vithi, turn.vithi);
+        drop(runtime);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn stage_events_stream_in_order_between_accepted_and_done() {
+        let (runtime, _model, root, _) = scripted_runtime(fence_script);
+        let request_id = Uuid::new_v4();
+        let (events, mut rx) = TurnEvents::channel(request_id);
+        let turn = tokio::runtime::Runtime::new().unwrap().block_on(runtime.converse_with_events(ChatRequest {
+            request_id, conversation_id: Uuid::new_v4(),
+            message: "What did he say about the fence?".into(), reported_origin: InputOrigin::Human,
+        }, events)).unwrap();
+        assert_eq!(turn.status, "completed", "{:?}", turn.error);
+        let seen: Vec<Value> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+        let names: Vec<&str> = seen.iter().map(|e| e["event"].as_str().unwrap()).collect();
+        assert_eq!(names.first(), Some(&"accepted"));
+        assert_eq!(names.last(), Some(&"done"));
+        let stages: Vec<&Value> = seen.iter().filter(|e| e["event"] == "stage").collect();
+        let order: Vec<&str> = stages.iter().map(|e| e["stage"].as_str().unwrap()).collect();
+        assert_eq!(order, STAGE_ORDER);
+        let at = |pred: &dyn Fn(&Value) -> bool| seen.iter().position(pred).unwrap();
+        let stage_at = |name: &str| at(&|e: &Value| e["event"] == "stage" && e["stage"] == name);
+        // Recognition before the first round; investigation after the last.
+        assert!(stage_at("recognition") < at(&|e: &Value| e["event"] == "round_start"));
+        let last_round = seen.iter().rposition(|e| e["event"] == "round").unwrap();
+        assert!(last_round < stage_at("investigation"));
+        assert!(stage_at("registration") < names.len() - 1);
+        // The streamed stage is the stored stage.
+        for (event, stored) in stages.iter().zip(&turn.vithi) {
+            assert_eq!(event["request_id"], json!(request_id));
+            for key in ["stage", "pali", "measured", "summary", "detail", "advisory"] {
+                assert_eq!(event[key], stored[key], "{key}");
+            }
+        }
+        drop(runtime);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn feeling_is_advisory_unmeasured_and_an_unreachable_ollaya_does_not_fail_the_turn() {
+        let (runtime, _model, root, _) = scripted_runtime_with(fence_script,
+            |config| config.life.ollaya_url = "http://127.0.0.1:9".into());
+        let turn = ask(&runtime, "What did he say about the fence?");
+        assert_eq!(turn.status, "completed", "{:?}", turn.error);
+        let feeling = &turn.vithi[1];
+        assert_eq!(feeling["stage"], "feeling");
+        assert_eq!(feeling["advisory"], true);
+        assert_eq!(feeling["measured"], false);
+        assert_eq!(feeling["summary"], "feeling-tone: uncalibrated, not shown");
+        assert!(feeling["detail"]["feeling_tone"].is_null());
+        let novelty = &feeling["detail"]["novelty"];
+        assert!(novelty["value"].as_f64().is_some_and(|v| (0.0..=1.0).contains(&v)), "{feeling}");
+        assert!(novelty["label"].as_str().unwrap().contains("not feeling"));
+        // No valence value anywhere in the record.
+        let text = feeling.to_string();
+        for word in ["sukha", "dukkha", "valence", "intensity"] {
+            assert!(!text.contains(word), "{word} in {text}");
+        }
+        drop(runtime);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn failed_turn_keeps_the_known_stages_and_registers_nothing() {
+        fn script(_: usize, _: &str) -> String { String::new() }
+        let (runtime, _model, root, _) = scripted_runtime(script);
+        let turn = ask(&runtime, "Hello?");
+        assert_eq!(turn.status, "failed");
+        let names: Vec<&str> = turn.vithi.iter().map(|s| s["stage"].as_str().unwrap()).collect();
+        assert_eq!(names, STAGE_ORDER);
+        let registration = &turn.vithi[6];
+        assert_eq!(registration["measured"], false);
+        assert_eq!(registration["summary"], "turn failed; nothing registered");
+        let impulsion = &turn.vithi[5]["detail"];
+        assert_eq!(impulsion["retries"], 1, "{impulsion}");
+        assert_eq!(turn.vithi[3]["summary"], "no tools used");
+        assert_eq!(runtime.conversation(turn.request.conversation_id)[0].vithi, turn.vithi);
+        drop(runtime);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_stored_turn_without_vithi_still_loads() {
+        let old = json!({
+            "request": { "request_id": Uuid::new_v4(), "conversation_id": Uuid::new_v4(),
+                "message": "hi", "reported_origin": "human" },
+            "received_at": 1, "completed_at": 2, "status": "completed", "reply": "hello",
+            "model": "m", "memory_candidates": [], "error": null
+        });
+        let turn: ChatTurn = serde_json::from_value(old).unwrap();
+        assert!(turn.vithi.is_empty());
+        assert_eq!(turn.reply.as_deref(), Some("hello"));
     }
 
     #[test]
