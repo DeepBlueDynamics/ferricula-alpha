@@ -19,7 +19,7 @@ However, Steve flagged a pre-existing **login-CSRF (session planting)** risk: bo
   ```html
   <a id="login" href="/auth/login" hidden>Sign in with nuts.services</a>
   ```
-- In `crates/ferricula-server/src/talk.html:103,146`, client-side script probes `/auth/status`. If `login_enabled` is true and `signed_in` is false, the link is revealed.
+- In `crates/ferricula-server/src/talk.html:103,147`, client-side script probes `/auth/status`. If `login_enabled` is true and `signed_in` is false, the link is revealed.
 - Clicking the link triggers a top-level browser `GET /auth/login` request.
 
 ### 1.2 Redirect to nuts-auth (`/auth/login`)
@@ -76,6 +76,7 @@ However, Steve flagged a pre-existing **login-CSRF (session planting)** risk: bo
   self.break_glass_tokens.lock().unwrap().insert(nonce.clone(), (user_id, expires_at));
   Ok(format!("{origin}/auth/break-glass?token={nonce}"))
   ```
+  Notice that `auth.rs:754` explicitly binds the break-glass link to `self.config.operators[0]`, the senior/primary operator account.
 - **Redemption (`crates/ferricula-server/src/api.rs:1320-1348`)**:
   - The operator (or anyone holding the link) visits `GET /auth/break-glass?token={nonce}`.
   - In `crates/ferricula-server/src/auth.rs:759-775` (`redeem_break_glass_token`), the token is removed from memory, a session is created for `self.config.operators[0]`, and the `ferricula_session` cookie is attached to a `303 See Other` redirect to `/talk`.
@@ -86,11 +87,12 @@ However, Steve flagged a pre-existing **login-CSRF (session planting)** risk: bo
    - Attacker (an allowed operator, or holding a valid operator JWT / break-glass token) generates a valid login link: `https://agent.example.com/auth/callback?token=ATTACKER_VALID_JWT` or `https://agent.example.com/auth/break-glass?token=ATTACKER_BREAK_GLASS_NONCE`.
    - Attacker embeds this link on a third-party webpage (e.g., `<img src="..." />`, hidden iframe, or phished link) visited by the victim.
    - The victim's browser sends a top-level `GET` request to the agent URL.
-   - The agent server accepts the valid token, creates a new session belonging to the attacker's operator account, and sets `ferricula_session` in the victim's browser.
+   - The agent server accepts the valid token, creates a new session belonging to the attacker's operator account (or `operators[0]` in the break-glass case), and sets `ferricula_session` in the victim's browser.
    - The victim is now browsing `/talk` or `/settings` authenticated as the attacker.
 3. **Consequences in Ferricula**:
    - In traditional web applications, login CSRF allows the attacker to view private search queries or order history entered by the victim while trapped in the attacker's account.
    - In Ferricula, conversations (`POST /chat`), ingested private documents (`POST /documents`), memories recalled (`POST /memory/recall`), and meditation triggers (`POST /life/meditate`) performed by the victim will be associated with the attacker's `user_id` and logged in the agent's persistent state. When the attacker later inspects the agent history, all victim activity is exposed.
+   - **Multi-Operator Privilege Contamination**: For break-glass tokens, because `auth.rs:754` redeems `operators[0]`, planting a break-glass session plants the *senior operator account* into a peer operator's browser. In a multi-operator deployment, this allows a secondary/peer operator to be planted into the primary operator identity, which is slightly wider in impact than merely "already an operator".
 
 ---
 
@@ -150,14 +152,24 @@ For a standard OAuth 2.0 / OIDC state parameter (RFC 6749 §4.1.1, §10.12) to f
 - **Mechanics**:
   1. `GET /auth/callback?token={jwt}` does **not** create a session or emit `Set-Cookie`.
   2. Instead, it validates the JWT and returns an HTML confirmation page displaying:
-     > *"Sign in to Ferricula as Operator: {name} ({email})"*
+     > *"Sign in to Ferricula as Operator: {name} ({email})"*  
      > `[ Confirm Sign In ]`
-  3. Clicking the button submits a `POST /auth/session` request (or automatically via JS with a same-origin Origin header) carrying the verified token.
-  4. Because `POST /auth/session` is an unsafe HTTP method, it passes through `csrf_middleware`! Cross-origin requests from an attacker's site are immediately rejected with `403 Forbidden ("cross-origin request forbidden")`.
-  5. Apply the identical pattern to `GET /auth/break-glass?token={nonce}`: renders a confirmation page with a `POST /auth/break-glass` button.
+  3. Clicking the button submits a `POST /auth/session` request carrying the verified token.
+  4. Apply the identical pattern to `GET /auth/break-glass?token={nonce}`: renders a confirmation page with a `POST /auth/break-glass` button.
+- **Critical Security Implementation Note (Correction to CSRF Layer Assumption)**:
+  - It is critical to recognize that **the existing `csrf_middleware` does NOT protect unauthenticated POST requests out of the box**.
+  - In `crates/ferricula-server/src/api.rs:115-116`, `csrf_middleware` explicitly gates its check behind:
+    ```rust
+    if let Some(cookie_session) = crate::auth::extract_session_cookie(req.headers()) { ... }
+    ```
+  - At login time, the victim has **no session cookie yet**—that absence is the foundational premise of login CSRF.
+  - Consequently, an attacker's cross-origin auto-submitting form POST to a new session-creating endpoint would present `cookie_session = None` and would **bypass** the existing `csrf_middleware` check!
+  - **Required Hardening**: To make Option B secure against cross-origin auto-submission:
+    1. **Direct `verify_csrf` Call in Handlers**: The new session-creating POST handlers (`POST /auth/session`, `POST /auth/break-glass`) must explicitly call `crate::auth::verify_csrf(&headers, runtime.auth.config.trust_proxy, runtime.auth.config.public_url.as_deref())` (`crates/ferricula-server/src/auth.rs:821`, `pub`) directly on every incoming request, regardless of cookie presence.
+    2. **Or Middleware Route Expansion**: Alternatively, `csrf_middleware` can be extended to enforce `Origin`/`Referer` validation on explicitly designated unauthenticated session-creation POST routes.
 - **Tradeoffs**:
   - *Pros*: Completely independent of `nuts-auth`; solves login CSRF for **both** `nuts-auth` and `break-glass`; zero reliance on third-party parameter echo.
-  - *Cons*: Introduces an intermediate confirmation click (or auto-submit transition).
+  - *Cons*: Introduces an intermediate confirmation click. Requires explicit CSRF enforcement in the unauthenticated POST handlers.
 
 ### 3.3 Option C: Pre-Login Binding Cookie (Anonymous Device Fingerprint)
 - **Mechanics**:
@@ -177,22 +189,24 @@ For a standard OAuth 2.0 / OIDC state parameter (RFC 6749 §4.1.1, §10.12) to f
     - An unexpired one-time break-glass token generated on the server host.
   - An attacker who already possesses valid operator credentials already has full operator authority over the agent (can invoke `/chat`, `/control/mode`, mutate settings, or call `/memory` directly via Bearer auth).
   - The *only* marginal capability granted by login CSRF is **session planting**: tricking a different operator into using the attacker's session so the attacker can spy on the victim's prompt history.
-  - In single-operator deployments (the primary target for local agent runtimes), the attacker and the victim are the same person; the threat is effectively void. In multi-operator shared environments, the risk exists but is confined to authorized operators attacking peer operators.
+  - In single-operator deployments (the primary target for local agent runtimes), the attacker and the victim are the same person; the threat is effectively void.
+  - **Multi-Operator Scope**: In multi-operator environments, the risk is slightly wider than merely "already an operator". As established in Section 1.4, `auth.rs:754` binds break-glass links directly to `self.config.operators[0]`. Planting a break-glass session plants the *senior/primary operator account* into a peer operator's browser, enabling privilege escalation / account confusion across operators within the allowlist.
 
 ---
 
-## 4. Recommendation
+## 4. Recommendation and Team Consensus
 
-We recommend a **pragmatic, layered approach**:
+We recommend a **pragmatic, proportionate, layered approach** (planned enhancement, not an emergency):
 
-1. **Immediate Step for Break-Glass (Option B)**:
+1. **Immediate Step: Break-Glass Interstitial (Option B)**:
    - Convert `GET /auth/break-glass` to render an HTML confirmation prompt that submits `POST /auth/break-glass`.
-   - *Rationale*: Break-glass links are generated locally and do not involve external services. Requiring an explicit confirmation POST completely eliminates the break-glass planting vector with zero external dependencies.
+   - *Implementation detail*: The `POST /auth/break-glass` handler must explicitly call `verify_csrf` (`crates/ferricula-server/src/auth.rs:821`, `pub`), because the client does not yet possess a session cookie and `csrf_middleware` only inspects requests with existing session cookies.
+   - *Rationale*: Break-glass links are generated locally and do not involve external services. Furthermore, because break-glass redeems `operators[0]` (`auth.rs:754`), securing it eliminates primary-account planting risks across peer operators with zero external dependencies.
 
 2. **Probe `nuts-auth` for State Parameter Support (Option A Probe)**:
-   - Check if `https://auth.nuts.services/login` currently accepts and echoes `&state=...` or preserves query parameters embedded in `return_url`.
-   - If `nuts-auth` already supports `state`, implement **Option A** (State Cookie + Nonce). It provides standard RFC 6749 compliance with zero UX overhead.
-   - If `nuts-auth` does not echo `state` and cannot be easily updated, adopt **Option B** (Interstitial POST confirmation) for `/auth/callback`, ensuring the entire server remains self-reliant and secure.
+   - Probe `https://auth.nuts.services/login` to confirm whether it currently accepts and echoes `&state=...` (or preserves query parameters embedded in `return_url`).
+   - If `nuts-auth` echoes `state`: Implement **Option A** using a `SameSite=Lax` state cookie (`ferricula_oauth_state`). This provides standard RFC 6749 compliance with zero user friction.
+   - If `nuts-auth` does not echo `state`: Adopt **Option B** (Interstitial POST confirmation with explicit `verify_csrf`) on `/auth/callback`, ensuring the server remains self-reliant.
 
 3. **Status Quo Viability**:
-   - Because exploiting this requires possessing valid operator credentials on `[auth.operators]`, this issue is not a privilege escalation vulnerability from an untrusted third party. It can safely be scheduled as a planned enhancement rather than an emergency blocker.
+   - Because exploiting this vulnerability requires possessing valid operator credentials on `[auth.operators]`, this is not an unauthenticated remote code execution or privilege escalation risk from an outsider. It is proportionate to schedule this as a planned enhancement rather than an emergency fix.
