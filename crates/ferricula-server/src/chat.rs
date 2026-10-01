@@ -1078,10 +1078,11 @@ mod tests {
         config.hyperia.url = hyperia;
         config.email.base_url = mail;
         config.email.max_sends_per_day = 1;
+        config.email.always_cc = vec!["kord@example.com".into()];
         let runtime = AgentRuntime::open(config, crate::inspect_data_dir(&memory).unwrap()).unwrap();
         assert!(runtime.email_prompt().contains("steve@agentmail.to"));
         let send = |to: &str| runtime.tool_email("email_send", &json!({ "to": to, "subject": "Hello", "text": "A short note." }), 20_000);
-        let out = send("kord@example.com").unwrap();
+        let out = send("friend@example.com").unwrap();
         assert_eq!(out["ok"], true);
         assert_eq!(out["message_id"], "m1");
         let mut requests = Vec::new();
@@ -1089,9 +1090,10 @@ mod tests {
         let sent = requests.iter().find(|r| r.starts_with("POST /inboxes/steve@agentmail.to/messages/send")).expect("send request");
         assert!(sent.to_ascii_lowercase().contains("authorization: bearer am-test-key"));
         assert!(sent.contains("AI simulation"), "disclosure line appended");
-        assert!(runtime.experience().rows().iter().any(|(r, _)| r.tags.get("text").is_some_and(|t| t.contains("I sent an email to kord@example.com"))));
+        assert!(sent.contains(r#""cc":["kord@example.com"]"#), "operator always copied: {sent}");
+        assert!(runtime.experience().rows().iter().any(|(r, _)| r.tags.get("text").is_some_and(|t| t.contains("I sent an email to friend@example.com"))));
         // Daily cap, and bad input, are refused before any call.
-        assert!(send("kord@example.com").unwrap_err()["error"].as_str().unwrap().contains("daily send limit"));
+        assert!(send("friend@example.com").unwrap_err()["error"].as_str().unwrap().contains("daily send limit"));
         assert!(runtime.tool_email("email_send", &json!({ "to": "nobody", "text": "x" }), 20_000).is_err());
         assert!(runtime.tool_email("email_delete", &json!({ "message_id": "m1" }), 20_000).unwrap_err()["error"].as_str().unwrap().contains("reason"));
         drop(runtime);
