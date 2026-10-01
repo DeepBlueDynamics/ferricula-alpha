@@ -33,6 +33,7 @@ use ferricula_cognition::life::{
     CuriositySeed, Drives, Phase, Stimulus, Trace, Urge, choose_curiosity,
     parse_dream, propose_dream, step,
 };
+use ferricula_cognition::patthana::{DreamPool, LinkEvent};
 use ferricula_cognition::sati::Valence;
 use ferricula_gates::ollaya::OllayaClient;
 
@@ -789,6 +790,14 @@ impl AgentRuntime {
                     match self.experience().remember("thinking", call.text.trim(), tags, None, 0.5) {
                         Ok(id) => {
                             entry["reflection_id"] = json!(id);
+                            for page in &ingested {
+                                let Some(reading) = page.get("memory_id").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok()) else {
+                                    continue;
+                                };
+                                if let Err(error) = self.experience().connect_causal(id, reading, LinkEvent::ReflectedOn) {
+                                    errors.push(format!("link reflection to {reading}: {error:#}"));
+                                }
+                            }
                             self.meaning_after_write().await;
                         }
                         Err(error) => errors.push(format!("store reflection: {error:#}")),
@@ -1010,6 +1019,11 @@ impl AgentRuntime {
                 match self.experience().remember("dream", &text, tags, None, 0.3) {
                     Ok(id) => {
                         entry["memory_id"] = json!(id);
+                        let mut link_errors = Vec::new();
+                        self.link_dream(id, &proposal, &mut link_errors);
+                        if !link_errors.is_empty() {
+                            entry["link_errors"] = json!(link_errors);
+                        }
                         self.meaning_after_write().await;
                     }
                     Err(error) => entry["error"] = json!(format!("store dream: {error:#}")),
@@ -1031,6 +1045,37 @@ impl AgentRuntime {
             }
         }
     }
+
+    /// New causal edges from a dream row to the traces it drew on.
+    /// Residue is purejāta, a distant trace is upanissaya, and an unresolved
+    /// observation is not an edge. `m:` targets are stored on this experience
+    /// graph, as a verdict already links to a recovered id. `e:` ids are not
+    /// memory rows.
+    fn link_dream(&self, dream_id: u32, proposal: &ferricula_cognition::life::DreamProposal, errors: &mut Vec<String>) {
+        let pools = [
+            (DreamPool::Residue, proposal.residue.as_slice()),
+            (DreamPool::Distant, proposal.distant.as_slice()),
+            (DreamPool::Unresolved, proposal.unresolved.as_slice()),
+        ];
+        for (pool, traces) in pools {
+            let Some(event) = pool.link_event() else { continue };
+            for trace in traces {
+                let Some(target) = memory_id_of_trace(&trace.id) else { continue };
+                if let Err(error) = self.experience().connect_causal(dream_id, target, event) {
+                    errors.push(format!("{}: {error:#}", trace.id));
+                }
+            }
+        }
+    }
+}
+
+/// Experience (`x:`) or recovered (`m:`) id. Episode ids are not endpoints.
+fn memory_id_of_trace(id: &str) -> Option<u32> {
+    let (prefix, raw) = id.split_once(':')?;
+    if prefix != "x" && prefix != "m" {
+        return None;
+    }
+    raw.parse().ok()
 }
 
 impl AgentRuntime {
@@ -1471,6 +1516,18 @@ mod tests {
         assert_eq!(reading.0.tags["note"], "curiosity: Jony Ive OpenAI device");
         let thinking = rows.iter().find(|(r, _)| r.tags["channel"] == "thinking" && r.tags.get("source").is_some_and(|s| s == "curiosity")).unwrap();
         assert_eq!(thinking.0.tags["doc_ids"].split(',').count(), 2);
+        let reflection_id = curiosity["reflection_id"].as_u64().unwrap() as u32;
+        let purejata = LinkEvent::ReflectedOn.condition().label();
+        let edges = f.runtime.experience().edges();
+        for page in curiosity["ingested"].as_array().unwrap() {
+            let reading_id = page["memory_id"].as_u64().unwrap() as u32;
+            assert!(
+                edges.iter().any(|e| e.from == reflection_id && e.to == reading_id && e.label == purejata),
+                "missing purejata from {reflection_id} to {reading_id}: {edges:?}"
+            );
+            let row = rows.iter().find(|(r, _)| r.id == reading_id).unwrap();
+            assert!(row.0.tags["text"].starts_with("Read "), "reading text was rewritten");
+        }
         let status = f.runtime.life_status(10);
         assert_eq!(status["phase"], "resting");
         assert_eq!(status["curiosity_today"], 1);
@@ -1520,6 +1577,67 @@ mod tests {
         assert_eq!(f.runtime.status().mode, ActivityMode::Engaged);
         let status = f.runtime.life_status(20);
         assert_eq!(status["last_dream"]["question"], "what does a device without a screen owe you?");
+    }
+
+    #[tokio::test]
+    async fn dream_links_follow_the_pool_and_skip_unresolved() {
+        let root = std::env::temp_dir().join(format!("ferricula-life-{}", Uuid::new_v4()));
+        let memory = root.join("memory");
+        fs::create_dir_all(&memory).unwrap();
+        {
+            let mut engine = ferricula_core::DurableEngine::open(&memory).unwrap();
+            let row = ferricula_core::Row {
+                id: 7,
+                vector: vec![1.0, 0.0],
+                refs: None,
+                tags: BTreeMap::from([("text".to_string(), "old harbor bell".to_string())]),
+            };
+            engine.remember(row, ferricula_core::MemoryRecord::new(7)).unwrap();
+            engine.checkpoint().unwrap();
+        }
+        let f = fixture_at(root, |c| c.life.drives.boredom_per_min = 0.0);
+        let today_id = f.runtime.experience()
+            .remember("thinking", "today's ink still wet", BTreeMap::new(), None, 0.5).unwrap();
+        let episode_id = f.runtime.commit_episode(ferricula_episode::EpisodeItem::Observation(
+            ferricula_episode::ObservationReport {
+                report_id: "rep-bell".into(),
+                event_time: None,
+                ingested_at: 0,
+                modality: ferricula_episode::SensoryModality::Sound,
+                location: "harbor".into(),
+                task_context: "listening".into(),
+                content: "a bell with no source".into(),
+                scoped_search: None,
+                source_actor: "test".into(),
+                is_unresolved: true,
+                tags: Vec::new(),
+            },
+        )).unwrap();
+        let entries = f.runtime.life_force(LifeUrgeRequest::Dream).await.unwrap();
+        let dream = entries.iter().find(|e| e["kind"] == "dream").expect("dream");
+        assert!(dream.get("link_errors").is_none(), "{dream}");
+        assert!(dream["residue"].as_u64().unwrap() >= 1, "{dream}");
+        assert!(dream["distant"].as_u64().unwrap() >= 1, "{dream}");
+        assert!(dream["unresolved"].as_u64().unwrap() >= 1, "{dream}");
+        let dream_id = dream["memory_id"].as_u64().unwrap() as u32;
+        let edges = f.runtime.experience().edges();
+        let from_dream: Vec<_> = edges.iter().filter(|e| e.from == dream_id).collect();
+        assert!(
+            from_dream.iter().any(|e| e.to == today_id && e.label == LinkEvent::DreamedFromResidue.condition().label()),
+            "residue edge missing: {from_dream:?}"
+        );
+        assert!(
+            from_dream.iter().any(|e| e.to == 7 && e.label == LinkEvent::DreamedFromDistant.condition().label()),
+            "distant edge missing: {from_dream:?}"
+        );
+        assert!(
+            from_dream.iter().all(|e| e.to == today_id || e.to == 7),
+            "unexpected dream edge (unresolved {episode_id} must have none): {from_dream:?}"
+        );
+        let today = f.runtime.experience().rows().into_iter().find(|(r, _)| r.id == today_id).unwrap();
+        assert_eq!(today.0.tags["text"], "today's ink still wet");
+        let recovered = f.runtime.memory.sample(1, 5);
+        assert!(recovered.iter().any(|h| h.id == 7 && h.tags.get("text").map(String::as_str) == Some("old harbor bell")));
     }
 
     #[tokio::test]

@@ -571,6 +571,31 @@ impl ExperienceStore {
         inner.engine.graph().all_edges()
     }
 
+    /// A causal edge for a new link, written with the same `engine.connect`
+    /// path as a verdict or a turn. Neither row's text is touched. If this
+    /// pair already has an edge, that edge is left as stored and this
+    /// returns `Ok(false)`.
+    pub fn connect_causal(
+        &self,
+        from: u32,
+        to: u32,
+        event: ferricula_cognition::patthana::LinkEvent,
+    ) -> Result<bool> {
+        if from == to {
+            bail!("a causal link needs two rows");
+        }
+        let mut inner = self.inner.lock().expect("experience store poisoned");
+        let occupied = inner.engine.graph().all_edges().iter().any(|edge| {
+            (edge.from == from && edge.to == to) || (edge.from == to && edge.to == from)
+        });
+        if occupied {
+            return Ok(false);
+        }
+        inner.engine.connect(from, to, event.condition().label(), 1.0, EdgeKind::Causal)?;
+        inner.engine.checkpoint()?;
+        Ok(true)
+    }
+
     /// Record one general experience (a thought, a dream, ...) under
     /// `channel`; returns its id. `tags` may add fields; `channel` and
     /// `text` always win.
