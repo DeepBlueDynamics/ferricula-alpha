@@ -625,9 +625,110 @@ function render() {
   });
   renderInstruments();
 }
+let liveTurn = null;
+function momentRows(turn) {
+  const root=el('moments');root.replaceChildren();
+  const stages=array(turn?.vithi).filter(e=>e.stage);
+  if(!stages.length){root.append(node('p',turn === liveTurn && liveTurn ? 'Waiting for the moment record (server side in progress).' : 'No moment record for this turn (recorded before 2026-10-01).','fine'));return;}
+  const pali={contact:'phassa',feeling:'vedanā',recognition:'saññā',investigation:'santīraṇa',determining:'voṭṭhapana',impulsion:'javana',registration:'tadārammaṇa'};
+  for(const e of stages){
+    const row=node('div',null,'record'),d=e.detail??{};
+    row.append(node('p',e.stage+' · '+text(e.pali??pali[e.stage])+' · measured: '+(e.measured===true?'yes':'no')+(e.advisory||e.stage==='feeling'?' · advisory':'')));
+    row.append(node('p',e.summary,e.measured===true?'':'fine'));
+    if(e.stage==='contact'){
+      row.append(node('p',d.message??turn.request?.message,'candidate-text'));
+      row.append(node('p','origin: '+text(d.reported_origin??d.origin??turn.request?.reported_origin)+' · verified: '+text(d.origin_verified??turn.request?.origin_verified??'not recorded'),'metadata'));
+    }
+    if(e.stage==='recognition'){
+      for(const [arm,value] of Object.entries(d.searches??d.per_arm??d.arm_counts??{}))row.append(node('p',arm+': '+(value===0||Array.isArray(value)&&!value.length?'empty search':text(typeof value==='object'?JSON.stringify(value):value)),'metadata'));
+    }
+    if(e.stage==='determining'&&(d.briefing??d.curator_briefing??d.guidance)!=null){const guidance=node('div',null,'record');guidance.append(node('p','guidance','metadata'),node('p',d.briefing??d.curator_briefing??d.guidance,'candidate-text'));row.append(guidance);}
+    if(e.stage==='impulsion')for(const draft of array(d.drafts??d.rounds).filter(x=>(x.text??x.reply??x.draft)!=null)){const item=node('details');item.append(node('summary','round '+text(draft.round)+' draft'),node('p',draft.text??draft.reply??draft.draft,'candidate-text'));row.append(item);}
+    if(e.stage==='feeling'){
+      if(d.novelty!=null)row.append(node('p','novelty: '+text(d.novelty),'metadata'));
+    }else details(row,'Recorded stage details',d);
+    root.append(row);
+  }
+}
+function eventSections(section,turn) {
+  const events=turn._events ? array(turn._events) : array(turn.vithi).flatMap(e=>{
+    const d=e.detail??{},entries=[e];
+    if(e.stage==='impulsion')for(const r of array(d.rounds))entries.push({...r,event:'round'});
+    if(e.stage==='investigation')for(const t of array(d.tools??d.tool_calls))entries.push({...t,event:'tool_result'});
+    if(e.stage==='determining')for(const g of array(d.gates))entries.push({...g,event:'gate'});
+    return entries;
+  });
+  const group=(title,names)=>section(title,root=>{
+    const selected=events.filter(e=>names.includes(e.event));
+    if(!selected.length)root.append(node('p','No '+title.toLowerCase()+' recorded.','fine'));
+    for(const e of selected){
+      const row=node('div',null,'record');
+      if(e.event==='round_start'){
+        const ended=events.some(x=>x.event==='round'&&x.round===e.round);
+        row.append(node('p','round '+e.round+(ended?' · started':' · running '+Math.max(0,Math.floor((Date.now()-(e._received??Date.now()))/1000))+'s')));
+      }else if(e.event==='round')row.append(node('p','round '+e.round+' · '+text(e.secs)+'s · finish: '+text(e.finish)+' · output tokens: '+text(e.output_tokens)));
+      else row.append(node('p',text(e.name??e.gate??e.event)+(e.advisory?' · advisory':'')));
+      if(e.event==='model_call'&&e.attempt===2)row.append(node('p','retry: ran out of reasoning room'));
+      details(row,'Recorded event',e);root.append(row);
+    }
+  });
+  group('Rounds',['round_start','model_call','round','nudge']);
+  group('Tools',['tool_call','tool_result']);
+  group('Gates',['gate','verdict']);
+  section('Reply',root=>{
+    for(const e of events.filter(e=>e.event==='round'&&(e.reply??e.text??e.draft)!=null)){
+      const d=node('details');d.append(node('summary','round '+e.round+' draft'),node('p',e.reply??e.text??e.draft,'candidate-text'));root.append(d);
+    }
+    if(turn.reply!=null)root.append(node('p',turn.reply,'candidate-text'));
+    else root.append(node('p','Waiting for the reply.','fine'));
+  });
+}
+async function streamChat(request,signal) {
+  let accepted=false;
+  const headers={'Content-Type':'application/json'};
+  if(token)headers.Authorization='Bearer '+token;
+  try{
+    const response=await fetch('/chat/stream',{method:'POST',credentials:'same-origin',headers,body:JSON.stringify(request),cache:'no-store',redirect:'error',signal});
+    if(response.status===401||response.status===403){authFailure(response.status);throw Error('Authentication required.');}
+    if(!response.ok||!response.body)throw Error('Stream unavailable (HTTP '+response.status+').');
+    const reader=response.body.getReader(),decoder=new TextDecoder();
+    let buffer='',doneTurn=null;
+    const frame=raw=>{
+      let name='',data=[];
+      for(const line of raw.split('\n')){
+        if(line.startsWith('event:'))name=line.slice(6).trim();
+        if(line.startsWith('data:'))data.push(line.slice(5).trimStart());
+      }
+      if(!data.length)return;
+      const payload=JSON.parse(data.join('\n')),e={...payload,event:payload.event??name,_received:Date.now()};
+      if(e.event==='accepted'){accepted=true;notice('Turn accepted. Watching the live record.');}
+      liveTurn._events.push(e);
+      if(e.event==='stage')liveTurn.vithi.push(e);
+      if(e.event==='candidate')liveTurn.memory_candidates.push(payload.candidate??payload);
+      if(e.event==='document')liveTurn.document_evidence.push(payload.card??payload.document??payload);
+      if(e.event==='curator')liveTurn.curator=payload;
+      if(e.event==='done')doneTurn=payload.turn??payload;
+      if(e.event==='failed')throw Error(text(payload.error??payload.message??'Turn failed.'));
+      renderInstruments();
+    };
+    while(true){
+      const chunk=await reader.read();buffer+=decoder.decode(chunk.value??new Uint8Array(),{stream:!chunk.done}).replace(/\r\n/g,'\n');
+      let match;
+      while((match=/\r?\n\r?\n/.exec(buffer))){frame(buffer.slice(0,match.index));buffer=buffer.slice(match.index+match[0].length);}
+      if(chunk.done)break;
+    }
+    if(buffer.trim())frame(buffer);
+    if(!doneTurn)throw Error('Stream ended before the completed turn.');
+    return doneTurn;
+  }catch(error){
+    if(!accepted&&error.name!=='AbortError'&&connected)return api('/chat',request,false,signal);
+    throw error;
+  }
+}
 function renderInstruments() {
   const index = inspectedIndex == null ? turns.length-1 : Math.min(inspectedIndex,turns.length-1);
-  const turn = turns[index], root = el('turn-instruments');root.replaceChildren();
+  const turn = inspectedIndex == null && liveTurn ? liveTurn : turns[index], root = el('turn-instruments');root.replaceChildren();
+  momentRows(turn);
   el('inspected-turn').textContent = index === turns.length-1 ? 'last turn' : 'turn ' + (index+1);
   if (!turn) { root.append(node('p','No turn to inspect yet.','fine'),node('h3','Searches & reading')); const curiosity=node('div');curiosity.id='curiosity-reading';root.append(curiosity);renderCuriosity();el('recalled').textContent='—';el('searches').textContent='—';return; }
   const section = (title, render) => {
@@ -641,6 +742,9 @@ function renderInstruments() {
   for (const c of array(turn.memory_candidates)) {
     const entry=node('div',null,'record');entry.append(node('p',memoryKind(c),'candidate-title'),node('p',memoryText(c),'candidate-text'));
     const labels = [...new Set(array(c.arms).map(a => ({dense:'found by meaning',lexical:'by words',bm25:'by words',graph:'linked'})[a] || a))];
+    if(c.in_prompt===false)labels.push('not used');
+    if(c.score!=null)labels.push('score '+text(c.score));
+    if(c.kind==='dream')labels.push('dream');
     if (typeof c.fidelity === 'number' && Number.isFinite(c.fidelity)) {
       const track=node('div',null,'fidelity-track'),fill=node('div',null,'fidelity-fill');fill.style.width=Math.max(0,Math.min(1,c.fidelity))*100+'%';track.append(fill);entry.append(track);
       labels.push('fidelity ' + c.fidelity.toFixed(2));
@@ -660,6 +764,8 @@ function renderInstruments() {
   items.slice(0,3).forEach(n=>recalled.append(n));
   if(items.length>3){const more=node('details');more.append(node('summary',(items.length-3)+' more'));items.slice(3).forEach(n=>more.append(n));recalled.append(more);}
   });
+  if(turn.curator) section('Guidance', root => { root.append(node('p',turn.curator.briefing??turn.curator.guidance??turn.curator.text,'candidate-text'));details(root,'Recorded curator guidance',turn.curator); });
+  eventSections(section,turn);
   section('Searches & reading', activity => {
   for(const call of array(turn.tool_calls).filter(c=>c.name!=='speak_summary')){
     const record=node('div',null,'record');
@@ -788,9 +894,11 @@ el('composer').onsubmit = async event => {
   event.preventDefault(); if (el('send').disabled) return;
   const request = {request_id:uuid(),conversation_id:conversationId,message:el('message').value,reported_origin:'human'};
   replyController=new AbortController();
+  liveTurn={request,status:'pending',vithi:[],_events:[],memory_candidates:[],document_evidence:[],tool_calls:[]};inspectedIndex=null;renderInstruments();
   busy = true; awaiting = true; uncertainId = request.request_id; controls(); notice('Waiting for the complete reply.');
   try {
-    const turn = await api('/chat',request,false,replyController.signal);
+    const turn = await streamChat(request,replyController.signal);
+    liveTurn=null;
     if (turn.request?.request_id !== request.request_id || !turn.status) throw Error('Reply response was not recognized.');
     turns.push(turn); inspectedIndex = null; pending = turn.status === 'pending'; render();
     if (turn.status === 'completed') { el('message').value = ''; uncertainId = null; notice('Reply received.'); }
@@ -798,7 +906,7 @@ el('composer').onsubmit = async event => {
   } catch (error) {
     needsReload = true;
     notice((error.name==='AbortError'?'Stopped waiting. The reply may still finish; it will appear when you reload.':'Request not confirmed: '+error.message+' The reply may still finish.') + ' Draft retained. Reload history before sending again. Request: ' + request.request_id,true);
-  } finally { replyController=null; busy = false; awaiting = false; controls(); el('message').focus(); }
+  } finally { liveTurn=null;replyController=null; busy = false; awaiting = false; renderInstruments();controls(); el('message').focus(); }
 };
 el('documents-header').onclick=()=>openDocumentList();
 el('documents-panel').onclick=()=>openDocumentList();
@@ -842,7 +950,7 @@ el('close-settings').onclick = () => el('connection-dialog').close();
 el('instruments-toggle').onclick = () => { const open=el('instruments').hidden; setInstruments(open,open&&matchMedia('(max-width:760px)').matches); };
 setInstruments(matchMedia('(min-width:761px)').matches);
 el('date-line').textContent = new Date().toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'});
-el('moments').append(node('p',"Not measured yet: the moment-by-moment record (vīthi) isn't wired into chat turns (backlog X2).",'fine'));
+setInterval(()=>{if(liveTurn)renderInstruments();},1000);
 showId(); render(); controls();
 connect();
 setInterval(pollLife, 30000);
