@@ -1109,6 +1109,7 @@ mod tests {
                 actor: Some("reader-agent".to_string()),
                 role: "reader".to_string(),
                 via: "ahp".to_string(),
+                via_cookie: false,
             },
         );
 
@@ -1121,6 +1122,7 @@ mod tests {
                 actor: Some("operator-agent".to_string()),
                 role: "operator".to_string(),
                 via: "ahp".to_string(),
+                via_cookie: false,
             },
         );
 

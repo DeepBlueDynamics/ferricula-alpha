@@ -77,6 +77,8 @@ pub struct AuthIdentity {
     pub actor: Option<String>,
     pub role: String, // "operator" or "reader"
     pub via: String,  // "static", "session", "jwt", "ahp", "break-glass", "none"
+    #[serde(default)]
+    pub via_cookie: bool,
 }
 
 impl AuthIdentity {
@@ -88,6 +90,7 @@ impl AuthIdentity {
             actor: None,
             role: "operator".to_string(),
             via: "static".to_string(),
+            via_cookie: false,
         }
     }
 
@@ -99,6 +102,7 @@ impl AuthIdentity {
             actor: None,
             role: "operator".to_string(),
             via: "none".to_string(),
+            via_cookie: false,
         }
     }
 
@@ -108,6 +112,10 @@ impl AuthIdentity {
 
     pub fn is_reader(&self) -> bool {
         self.role == "reader"
+    }
+
+    pub fn is_cookie_session(&self) -> bool {
+        self.via_cookie
     }
 }
 
@@ -563,6 +571,7 @@ impl AuthManager {
             actor: parsed.actor,
             role,
             via: "ahp".to_string(),
+            via_cookie: false,
         };
 
         // Cache positive result
@@ -625,6 +634,7 @@ impl AuthManager {
                                 actor: None,
                                 role: "operator".to_string(),
                                 via: session.via,
+                                via_cookie: true,
                             });
                         } else {
                             return AuthCheckResult::Forbidden("not an operator for this agent".to_string());
@@ -655,6 +665,7 @@ impl AuthManager {
                                 actor: None,
                                 role: "operator".to_string(),
                                 via: session.via,
+                                via_cookie: true,
                             });
                         } else {
                             return AuthCheckResult::Forbidden("not an operator for this agent".to_string());
@@ -686,6 +697,7 @@ impl AuthManager {
                         actor: None,
                         role: "operator".to_string(),
                         via: "jwt".to_string(),
+                        via_cookie: false,
                     })
                 } else {
                     AuthCheckResult::Forbidden("not an operator for this agent".to_string())
@@ -961,7 +973,7 @@ mod tests {
 
         // 1. Static operator token succeeds
         let res_static = manager.check_authorization(Some("my-secret-token"), None, Some("my-secret-token"));
-        assert!(matches!(res_static, AuthCheckResult::Authorized(ref id) if id.via == "static"));
+        assert!(matches!(res_static, AuthCheckResult::Authorized(ref id) if id.via == "static" && !id.via_cookie));
 
         // 2. Wrong static token fails
         let res_bad = manager.check_authorization(Some("wrong-token"), None, Some("my-secret-token"));
@@ -970,7 +982,7 @@ mod tests {
         // 3. Create session for operator and verify session cookie succeeds
         let (raw_id, _) = manager.create_session("operator-uuid", "op@test.org", None, "nuts-auth", now_secs() + 1800).unwrap();
         let res_cookie = manager.check_authorization(None, Some(&raw_id), Some("my-secret-token"));
-        assert!(matches!(res_cookie, AuthCheckResult::Authorized(ref id) if id.user_id == "operator-uuid" && id.via == "nuts-auth"));
+        assert!(matches!(res_cookie, AuthCheckResult::Authorized(ref id) if id.user_id == "operator-uuid" && id.via == "nuts-auth" && id.via_cookie));
 
         // 4. Session for non-operator returns 403 Forbidden
         let (non_op_raw_id, _) = manager.create_session("guest-uuid", "guest@test.org", None, "nuts-auth", now_secs() + 1800).unwrap();

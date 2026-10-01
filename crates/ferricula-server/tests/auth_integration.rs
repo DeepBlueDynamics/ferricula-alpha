@@ -525,6 +525,7 @@ async fn test_reader_role_enforcement_and_operator_unchanged() {
             actor: Some("test-reader-actor".to_string()),
             role: "reader".to_string(),
             via: "ahp".to_string(),
+            via_cookie: false,
         },
     );
 
@@ -537,6 +538,7 @@ async fn test_reader_role_enforcement_and_operator_unchanged() {
             actor: Some("test-operator-actor".to_string()),
             role: "operator".to_string(),
             via: "ahp".to_string(),
+            via_cookie: false,
         },
     );
 
@@ -833,4 +835,163 @@ async fn test_session_non_operator_refused_on_write() {
         .unwrap();
 
     assert_eq!(res_chat.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_csrf_protection_for_cookie_session_and_bearer_exemption() {
+    let (_dir, runtime) = setup_test_runtime(AuthMode::Both);
+    let app = api::router(runtime.clone());
+
+    // 1. Create a valid operator session cookie (via "nuts-auth")
+    let (raw_session_id, session) = runtime
+        .auth
+        .create_session(
+            KORD_USER_ID,
+            "kord@test.org",
+            Some("Kord"),
+            "nuts-auth",
+            now_secs() + 3600,
+        )
+        .unwrap();
+    assert_eq!(session.via, "nuts-auth");
+
+    let post_body = serde_json::json!({
+        "mode": "awake"
+    }).to_string();
+
+    // 1a. Cookie session POST without CSRF (cross-origin Origin: evil.com) -> 403 Forbidden
+    let res_evil_origin = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/mode")
+                .header(header::COOKIE, format!("ferricula_session={raw_session_id}"))
+                .header(header::HOST, "127.0.0.1:18875")
+                .header(header::ORIGIN, "http://evil.com")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(post_body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_evil_origin.status(), StatusCode::FORBIDDEN);
+    let body_bytes = axum::body::to_bytes(res_evil_origin.into_body(), usize::MAX).await.unwrap();
+    let body_json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(body_json["error"], "cross-origin request forbidden");
+
+    // 1b. Cookie session POST with cross-origin Referer -> 403 Forbidden
+    let res_evil_referer = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/mode")
+                .header(header::COOKIE, format!("ferricula_session={raw_session_id}"))
+                .header(header::HOST, "127.0.0.1:18875")
+                .header(header::REFERER, "http://evil.com/talk")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(post_body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_evil_referer.status(), StatusCode::FORBIDDEN);
+    let body_bytes = axum::body::to_bytes(res_evil_referer.into_body(), usize::MAX).await.unwrap();
+    let body_json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(body_json["error"], "cross-origin referer forbidden");
+
+    // 2. Cookie session POST with valid CSRF (same-origin Origin) -> 200 OK
+    let res_valid_csrf = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/mode")
+                .header(header::COOKIE, format!("ferricula_session={raw_session_id}"))
+                .header(header::HOST, "127.0.0.1:18875")
+                .header(header::ORIGIN, "http://127.0.0.1:18875")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(post_body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_valid_csrf.status(), StatusCode::OK);
+
+    // 3. Break-glass session cookie (via "break-glass") also enforces CSRF
+    let link = runtime.auth.create_break_glass_link("http://127.0.0.1:18875").unwrap();
+    let token = link.split("token=").nth(1).unwrap();
+    let (bg_raw_id, bg_session) = runtime.auth.redeem_break_glass_token(token).unwrap();
+    assert_eq!(bg_session.via, "break-glass");
+
+    let res_bg_evil = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/mode")
+                .header(header::COOKIE, format!("ferricula_session={bg_raw_id}"))
+                .header(header::HOST, "127.0.0.1:18875")
+                .header(header::ORIGIN, "http://evil.com")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(post_body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_bg_evil.status(), StatusCode::FORBIDDEN);
+
+    let res_bg_ok = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/mode")
+                .header(header::COOKIE, format!("ferricula_session={bg_raw_id}"))
+                .header(header::HOST, "127.0.0.1:18875")
+                .header(header::ORIGIN, "http://127.0.0.1:18875")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(post_body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_bg_ok.status(), StatusCode::OK);
+
+    // 4. Bearer JWT POST is unaffected (CSRF exempt, even with cross-origin Origin) -> 200 OK
+    let operator_jwt = make_test_jwt(KORD_USER_ID, "kord@test.org", now_secs() + 1800, Some("nuts-auth-key-1"));
+    let res_bearer_jwt = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/mode")
+                .header(header::AUTHORIZATION, format!("Bearer {operator_jwt}"))
+                .header(header::HOST, "127.0.0.1:18875")
+                .header(header::ORIGIN, "http://evil.com")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(post_body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_bearer_jwt.status(), StatusCode::OK);
+
+    // 5. Static Bearer token POST is unaffected (CSRF exempt) -> 200 OK
+    let res_static_bearer = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/mode")
+                .header(header::AUTHORIZATION, format!("Bearer {STATIC_OPERATOR_TOKEN}"))
+                .header(header::HOST, "127.0.0.1:18875")
+                .header(header::ORIGIN, "http://evil.com")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(post_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_static_bearer.status(), StatusCode::OK);
 }

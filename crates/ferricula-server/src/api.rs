@@ -1070,7 +1070,7 @@ fn require_operator_identity(
 
     match runtime.auth.check_authorization(bearer, cookie_session, expected_static.as_deref()) {
         crate::auth::AuthCheckResult::Authorized(identity) => {
-            if identity.via == "session" {
+            if identity.via_cookie {
                 if let Err(csrf_err) = crate::auth::verify_csrf(headers) {
                     return Err((
                         StatusCode::FORBIDDEN,
@@ -1470,6 +1470,7 @@ mod tests {
             actor: None,
             role: "reader".into(),
             via: "session".into(),
+            via_cookie: true,
         };
         assert!(!identity.is_operator());
         let err = require_write(&identity).unwrap_err();
