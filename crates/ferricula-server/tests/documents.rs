@@ -4,14 +4,21 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
 use ferricula_core::{DurableEngine, MemoryRecord, Row};
 use ferricula_ingest::Source;
+use ferricula_server::api;
 use ferricula_server::config::RuntimeConfig;
 use ferricula_server::inspect_data_dir;
 use ferricula_server::memory::EXPERIENCE_ID_BASE;
 use ferricula_server::recall::CandidateKind;
 use ferricula_server::runtime::AgentRuntime;
+use http_body_util::BodyExt;
+use serde_json::{Value, json};
+use tower::ServiceExt;
 
 const DOC: &str = "# Virtual context\n\
 MemGPT pages information between a bounded main context and external storage, \
@@ -80,7 +87,7 @@ async fn ingest_recall_restart_and_recovered_base_untouched() {
     let (doc_id, memory_id) = {
         let runtime = open(&config);
         let outcome = runtime.ingest(
-            Source::Text { title: None, text: DOC.into() },
+            Source::Text { title: None, text: DOC.into(), origin: None },
             Some("compare this with how you remember".into()),
         ).await.unwrap();
         assert_eq!(outcome.title, "Virtual context");
@@ -89,7 +96,7 @@ async fn ingest_recall_restart_and_recovered_base_untouched() {
         // Experience ids cannot collide with recovered ids (3, 41).
         assert_eq!(outcome.memory_id, EXPERIENCE_ID_BASE + 1);
 
-        let again = runtime.ingest(Source::Text { title: None, text: DOC.into() }, None).await.unwrap();
+        let again = runtime.ingest(Source::Text { title: None, text: DOC.into(), origin: None }, None).await.unwrap();
         assert!(again.duplicate);
         assert_eq!(again.memory_id, outcome.memory_id);
         assert_eq!(runtime.experience_len(), 1);
@@ -161,7 +168,7 @@ async fn disabled_documents_and_urls_are_refused() {
     drop(runtime);
     config.documents.enabled = false;
     let runtime = open(&config);
-    assert!(runtime.ingest(Source::Text { title: None, text: "x".into() }, None).await.is_err());
+    assert!(runtime.ingest(Source::Text { title: None, text: "x".into(), origin: None }, None).await.is_err());
 }
 
 /// A real PDF with one line of text per page (same approach as
@@ -200,4 +207,106 @@ fn pdf(pages: &[&str]) -> Vec<u8> {
     let mut bytes = Vec::new();
     doc.save_to(&mut bytes).unwrap();
     bytes
+}
+
+/// Same shape as the helper in `chat.rs` tests: every request gets `reply`.
+fn stub_server(reply: String) -> (String, std::sync::mpsc::Receiver<String>) {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let (mut head, mut length) = (String::new(), 0usize);
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 { break; }
+                if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = v.trim().parse().unwrap_or(0);
+                }
+                head.push_str(&line);
+                if line == "\r\n" { break; }
+            }
+            let mut body = vec![0; length];
+            let _ = reader.read_exact(&mut body);
+            let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}", reply.len());
+            let _ = tx.send(format!("{head}{}", String::from_utf8_lossy(&body)));
+        }
+    });
+    (url, rx)
+}
+
+async fn post_documents(runtime: Arc<AgentRuntime>, body: Value) -> (StatusCode, Value) {
+    let response = api::router(runtime).oneshot(
+        Request::builder()
+            .method("POST")
+            .uri("/documents")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap(),
+    ).await.unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let value = serde_json::from_slice(&bytes).unwrap_or(json!({
+        "raw": String::from_utf8_lossy(&bytes).to_string(),
+    }));
+    (status, value)
+}
+
+#[tokio::test]
+async fn pane_ingest_stores_the_rendered_page_with_its_url_as_origin() {
+    let pane = "9c13cb35-8de0-45ef-a19b-d66dc04b969d";
+    let page_url = "https://www.nytimes.com/2026/10/01/example.html";
+    let reply = json!({
+        "windows": [{ "tabs": [{ "panes": [
+            { "kind": "web", "paneId": pane, "title": "A Times Article" }
+        ] }] }],
+        "success": true,
+        "url": page_url,
+        "title": "A Times Article",
+        "markdown": "# A Times Article\nThe rendered paragraph the pane showed."
+    }).to_string();
+    let (hyperia, seen) = stub_server(reply);
+    // SAFETY: this binary's other tests do not read HYPERIA_TOKEN.
+    unsafe { std::env::set_var(ferricula_server::hyperia::TOKEN_ENV, "hyp_agent_test"); }
+    let (_root, mut config) = fixture();
+    config.hyperia.enabled = true;
+    config.hyperia.url = hyperia;
+    let runtime = open(&config);
+    let (status, body) = post_documents(runtime.clone(), json!({
+        "kind": "pane",
+        "pane": "9c13cb35",
+        "note": "kept from the pane"
+    })).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["origin"], page_url);
+    assert_eq!(body["title"], "A Times Article");
+    assert_eq!(body["source_kind"], "text");
+    assert_eq!(body["duplicate"], false);
+    let doc_id = body["doc_id"].as_str().unwrap();
+    let record = runtime.document(doc_id).unwrap();
+    assert_eq!(record.meta.origin, page_url);
+    let text = record.sections.iter().map(|s| s.text.as_str()).collect::<Vec<_>>().join("\n");
+    assert!(text.contains("The rendered paragraph the pane showed."), "{text}");
+    let requests: Vec<String> = seen.try_iter().collect();
+    let first: Vec<&str> = requests.iter().filter_map(|r| r.lines().next()).collect();
+    assert!(first.iter().any(|r| r.starts_with(&format!("POST /api/web-pane/content?pane={pane}"))), "{first:?}");
+}
+
+#[tokio::test]
+async fn url_ingest_failure_puts_the_error_text_in_the_422_body() {
+    let (grub, _seen) = stub_server(r#"{"success":false,"blocked":true,"block_reason":"captcha"}"#.into());
+    let (_root, mut config) = fixture();
+    config.documents.grub_base_url = grub;
+    config.documents.timeout_secs = 5;
+    let runtime = open(&config);
+    let (status, body) = post_documents(runtime, json!({
+        "kind": "url",
+        "url": "https://www.nytimes.com/2026/10/01/blocked.html"
+    })).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    let error = body["error"].as_str().unwrap_or("");
+    assert!(error.contains("blocked by captcha"), "{body}");
 }

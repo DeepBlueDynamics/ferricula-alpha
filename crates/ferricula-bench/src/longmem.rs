@@ -115,7 +115,7 @@ pub fn run(ctx: &RunContext, args: &LongmemArgs) -> Result<()> {
         let mut doc_to_session = BTreeMap::new();
         for i in 0..item.haystack_sessions.len().min(item.haystack_session_ids.len()) {
             let text = session_text(item, i);
-            let extracted = extract(&Source::Text { title: Some(item.haystack_session_ids[i].clone()), text }, &config)?;
+            let extracted = extract(&Source::Text { title: Some(item.haystack_session_ids[i].clone()), text, origin: None }, &config)?;
             if let Ok(ing) = store.ingest(&extracted, "text") {
                 doc_to_session.insert(ing.record.meta.doc_id.clone(), item.haystack_session_ids[i].clone());
             }
