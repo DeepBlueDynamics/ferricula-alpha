@@ -249,7 +249,7 @@ impl AgentRuntime {
             A candidate whose `state` is forgiven or archived is a faded memory: still yours, held less firmly. A candidate with `verdicts` is one you have judged before (disputed, or superseded by evidence): when you use it, say so and give the verdict its weight. \
             Candidates with source `conversation` are what your operator told you (channel hearing) or what you answered (channel thinking) in earlier conversations; you may rely on them as what was said, not as proof it is true. \
             For episode reports, cite [episode event_id] and distinguish the attributed report from its current interpretation. Conversation history records what was said, not proof that it is true.\nRecovered metadata: {}\nEpisode candidates (whole records, omitted_count disclosed): {}\nBefore answering, check these evidence rules: an unresolved report with no supported interpretation establishes NO cause and excludes NO candidate cause. An object not named in that report is not thereby ruled out. A not_seen_in_scope result says only that the target was not seen in the named scope at that time; it cannot establish that the target was absent elsewhere, or that it did not cause an earlier event. If a later missing-object goal could fit an unexplained earlier event, offer that connection explicitly as a possibility to investigate. Do not assert the connection is true or false without evidence. State the retained observation, a possible connection, what remains unknown, and a next check outside any already inspected scope. Do not repeat an unsupported exclusion from earlier assistant messages.",
-            format!("{}{}", truncate(&self.persona.raw, 1000), chat_tools::tools_prompt(chat_tools::MAX_TOOL_CALLS) + &self.speak_prompt() + &self.web_tools_prompt() + &email_prompt), metadata, episode_context
+            format!("{}{}", truncate(&self.persona.raw, 1000), chat_tools::tools_prompt(self.max_tool_calls()) + &self.speak_prompt() + &self.web_tools_prompt() + &email_prompt + &self.code_prompt()), metadata, episode_context
         );
         let base_system = if dreams.is_empty() {
             base_system
@@ -347,7 +347,7 @@ impl AgentRuntime {
                 *tool_log_worker.lock().expect("tool log poisoned") = tool_log.clone();
                 let round_started = std::time::Instant::now();
                 events.emit("round_start", json!({ "round": round, "prompt_tokens_est": inference.estimated_input_tokens,
-                    "tool_calls_left": chat_tools::MAX_TOOL_CALLS.saturating_sub(calls_made) }));
+                    "tool_calls_left": runtime.max_tool_calls().saturating_sub(calls_made) }));
                 let (decision, response) = runtime.chat_completion(&mut inference, &events, round)
                     .with_context(|| format!("chat round {round}"))?;
                 let text = response.text;
@@ -399,14 +399,14 @@ impl AgentRuntime {
                     inference.estimated_input_tokens = estimated_tokens(prompt_bytes(&inference.system, &inference.messages));
                     continue;
                 }
-                if calls_made >= chat_tools::MAX_TOOL_CALLS {
+                if calls_made >= runtime.max_tool_calls() {
                     // Budget spent: keep the prose, never show raw calls.
                     break (decision.model, chat_tools::strip_tool_calls(&text));
                 }
                 inference.messages.push(ChatMessage { role: "assistant".into(), content: text.clone() });
                 let mut results = Vec::new();
                 for call in chat_tools::parse_tool_calls(&text) {
-                    if calls_made >= chat_tools::MAX_TOOL_CALLS {
+                    if calls_made >= runtime.max_tool_calls() {
                         results.push(chat_tools::render_result(calls_made + 1, &call.name,
                             &json!({ "error": "tool budget for this message is spent; answer with what you have" })));
                         continue;
@@ -442,7 +442,7 @@ impl AgentRuntime {
                     tool_log.push(entry);
                     results.push(rendered);
                 }
-                let left = chat_tools::MAX_TOOL_CALLS - calls_made;
+                let left = runtime.max_tool_calls().saturating_sub(calls_made);
                 let footer = if left == 0 {
                     "Tool budget for this message is spent: answer the operator now, with no <use_tool>.".to_string()
                 } else {
@@ -1098,6 +1098,42 @@ mod tests {
         assert!(send("friend@example.com").unwrap_err()["error"].as_str().unwrap().contains("daily send limit"));
         assert!(runtime.tool_email("email_send", &json!({ "to": "nobody", "text": "x" }), 20_000).is_err());
         assert!(runtime.tool_email("email_delete", &json!({ "message_id": "m1" }), 20_000).unwrap_err()["error"].as_str().unwrap().contains("reason"));
+        drop(runtime);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn code_tools_read_search_and_stay_inside_the_root() {
+        let root = std::env::temp_dir().join(format!("ferricula-code-{}", Uuid::new_v4()));
+        let src = root.join("repo/crates/demo/src");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("lib.rs"), "// demo\npub fn decay_fidelity(x: f32) -> f32 {\n    x * 0.9\n}\n").unwrap();
+        fs::create_dir_all(root.join("repo/target")).unwrap();
+        fs::write(root.join("repo/target/junk.rs"), "pub fn decay_fidelity() {}").unwrap();
+        fs::write(root.join("secret.txt"), "outside").unwrap();
+        let memory = root.join("memory");
+        fs::create_dir_all(&memory).unwrap();
+        fs::write(memory.join("identity.json"), r#"{"agent_id":"ferricula-agent","name":"T"}"#).unwrap();
+        let mut config = crate::config::RuntimeConfig::default();
+        config.memory_dir = memory.clone();
+        config.state_dir = root.join("state");
+        config.overlay.path = config.state_dir.join("overlay.json");
+        config.schedule.enabled = false;
+        config.code.root = root.join("repo").to_string_lossy().into_owned();
+        config.max_tool_calls = Some(8);
+        let runtime = AgentRuntime::open(config, crate::inspect_data_dir(&memory).unwrap()).unwrap();
+        assert_eq!(runtime.max_tool_calls(), 8);
+        assert!(runtime.code_prompt().contains("code_read"));
+        let found = runtime.tool_code("code_search", &json!({ "query": "decay fidelity" }), 20_000).unwrap();
+        assert_eq!(found["results"][0]["path"], "crates/demo/src/lib.rs");
+        assert_eq!(found["results"][0]["line"], 2);
+        assert_eq!(found["matches"], 1, "target/ is skipped");
+        let read = runtime.tool_code("code_read", &json!({ "path": "crates/demo/src/lib.rs", "from_line": 2, "lines": 2 }), 20_000).unwrap();
+        assert!(read["text"].as_str().unwrap().contains("    2 pub fn decay_fidelity"));
+        assert_eq!(read["next_from"], 4);
+        assert!(runtime.tool_code("code_read", &json!({ "path": "../secret.txt" }), 20_000).is_err());
+        let tree = runtime.tool_code("code_tree", &json!({}), 20_000).unwrap();
+        assert!(tree.to_string().contains("crates") && !tree.to_string().contains("target"));
         drop(runtime);
         let _ = fs::remove_dir_all(root);
     }

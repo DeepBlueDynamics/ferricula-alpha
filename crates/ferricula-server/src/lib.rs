@@ -11,6 +11,7 @@ pub mod harness;
 pub mod hyperia;
 pub mod email;
 pub mod discord;
+pub mod code;
 pub mod jev;
 pub mod comfy;
 pub mod curation;

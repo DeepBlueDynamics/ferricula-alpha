@@ -187,8 +187,9 @@ impl AgentRuntime {
             "ingest_url" => self.tool_ingest_url(&call.arguments),
             "read_url" => self.tool_read_url(&call.arguments, room),
             "email_check" | "email_read" | "email_send" | "email_delete" | "email_label" => self.tool_email(&call.name, &call.arguments, room),
+            "code_tree" | "code_search" | "code_read" | "pr_list" | "pr_diff" => self.tool_code(&call.name, &call.arguments, room),
             other => Err(error(format!(
-                "unknown tool `{other}`; available: search_documents, read_section, read_document, search_memory, mark_disputed, and when enabled speak_summary, read_web_pane, read_url, ingest_url, email_check, email_read, email_send, email_label, email_delete"
+                "unknown tool `{other}`; available: search_documents, read_section, read_document, search_memory, mark_disputed, and when enabled speak_summary, read_web_pane, read_url, ingest_url, email_check, email_read, email_send, email_label, email_delete, code_tree, code_search, code_read, pr_list, pr_diff"
             ))),
         };
         result.unwrap_or_else(|e| e)

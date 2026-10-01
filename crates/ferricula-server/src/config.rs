@@ -84,6 +84,10 @@ pub struct RuntimeConfig {
     pub email: crate::email::EmailConfig,
     /// `[discord]`: notices to Discord rooms. Active only when `DISCORD_BOT_TOKEN` is set.
     pub discord: crate::discord::DiscordConfig,
+    /// `[code]`: read-only source access and PR diffs for the agent.
+    pub code: crate::code::CodeConfig,
+    /// Tool calls allowed per chat message (default 4; code review needs more).
+    pub max_tool_calls: Option<usize>,
     /// How the agent names its operator in conversation memories
     /// ("<operator_name> said: ..."). Persona-neutral default.
     pub operator_name: String,
@@ -315,6 +319,8 @@ impl Default for RuntimeConfig {
             hyperia: HyperiaConfig::default(),
             email: crate::email::EmailConfig::default(),
             discord: crate::discord::DiscordConfig::default(),
+            code: crate::code::CodeConfig::default(),
+            max_tool_calls: None,
             operator_name: "The operator".into(),
             auth: AuthConfig::default(),
         }

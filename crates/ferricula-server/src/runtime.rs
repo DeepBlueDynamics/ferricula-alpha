@@ -69,6 +69,8 @@ pub use embeddings::{EmbeddingsState, EmbeddingsStatus};
 mod meaning_plane;
 pub use meaning_plane::{BackfillStatus, MeaningStatus};
 
+pub(crate) const MAX_TOOL_CALLS_DEFAULT: usize = 4;
+
 pub(crate) fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
