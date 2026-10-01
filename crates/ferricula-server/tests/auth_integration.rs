@@ -76,7 +76,11 @@ fn make_test_jwt(user_id: &str, sub: &str, exp: u64, kid: Option<&str>) -> Strin
     jsonwebtoken::encode(&header, &claims, &key).unwrap()
 }
 
-fn setup_test_runtime(mode: AuthMode) -> (tempfile::TempDir, Arc<AgentRuntime>) {
+fn setup_test_runtime_custom(
+    mode: AuthMode,
+    trust_proxy: bool,
+    public_url: Option<String>,
+) -> (tempfile::TempDir, Arc<AgentRuntime>) {
     let root = tempfile::tempdir().unwrap();
     let memory = root.path().join("memory");
     let state = root.path().join("state");
@@ -127,8 +131,8 @@ fn setup_test_runtime(mode: AuthMode) -> (tempfile::TempDir, Arc<AgentRuntime>) 
         login_url: "https://auth.nuts.services/login".to_string(),
         jwks_url: "https://auth.nuts.services/.well-known/jwks.json".to_string(),
         validate_url: "https://auth.nuts.services/api/validate".to_string(),
-        public_url: Some("http://127.0.0.1:18875".to_string()),
-        trust_proxy: false,
+        public_url,
+        trust_proxy,
         require_iss: false,
         require_aud: false,
         expected_iss: None,
@@ -140,6 +144,10 @@ fn setup_test_runtime(mode: AuthMode) -> (tempfile::TempDir, Arc<AgentRuntime>) 
 
     let runtime = AgentRuntime::open(config, inspection).unwrap();
     (root, runtime)
+}
+
+fn setup_test_runtime(mode: AuthMode) -> (tempfile::TempDir, Arc<AgentRuntime>) {
+    setup_test_runtime_custom(mode, false, Some("http://127.0.0.1:18875".to_string()))
 }
 
 #[tokio::test]
@@ -340,6 +348,8 @@ async fn test_auth_callback_flow_and_exit_criteria() {
             Request::builder()
                 .uri("/status")
                 .header(header::COOKIE, format!("ferricula_session={session_val}"))
+                .header(header::HOST, "127.0.0.1:18875")
+                .header(header::ORIGIN, "http://127.0.0.1:18875")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -355,6 +365,8 @@ async fn test_auth_callback_flow_and_exit_criteria() {
                 .method("POST")
                 .uri("/auth/logout")
                 .header(header::COOKIE, format!("ferricula_session={session_val}"))
+                .header(header::HOST, "127.0.0.1:18875")
+                .header(header::ORIGIN, "http://127.0.0.1:18875")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -901,6 +913,45 @@ async fn test_csrf_protection_for_cookie_session_and_bearer_exemption() {
     let body_json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
     assert_eq!(body_json["error"], "cross-origin referer forbidden");
 
+    // 1c. Cookie session POST without Origin and without Referer -> 403 Forbidden ("missing origin or referer")
+    let res_missing_both = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/mode")
+                .header(header::COOKIE, format!("ferricula_session={raw_session_id}"))
+                .header(header::HOST, "127.0.0.1:18875")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(post_body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_missing_both.status(), StatusCode::FORBIDDEN);
+    let body_bytes = axum::body::to_bytes(res_missing_both.into_body(), usize::MAX).await.unwrap();
+    let body_json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(body_json["error"], "missing origin or referer");
+
+    // 1d. trust_proxy is false (default): X-Forwarded-Host is ignored, Host is enforced -> 403 Forbidden
+    let res_proxy_ignored = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/mode")
+                .header(header::COOKIE, format!("ferricula_session={raw_session_id}"))
+                .header(header::HOST, "127.0.0.1:18875")
+                .header("x-forwarded-host", "agent.example.com")
+                .header(header::ORIGIN, "https://agent.example.com")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(post_body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_proxy_ignored.status(), StatusCode::FORBIDDEN);
+
     // 2. Cookie session POST with valid CSRF (same-origin Origin) -> 200 OK
     let res_valid_csrf = app
         .clone()
@@ -980,6 +1031,7 @@ async fn test_csrf_protection_for_cookie_session_and_bearer_exemption() {
 
     // 5. Static Bearer token POST is unaffected (CSRF exempt) -> 200 OK
     let res_static_bearer = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -994,4 +1046,190 @@ async fn test_csrf_protection_for_cookie_session_and_bearer_exemption() {
         .await
         .unwrap();
     assert_eq!(res_static_bearer.status(), StatusCode::OK);
+
+    // 6. trust_proxy = true: respects X-Forwarded-Host and public_url
+    let (_proxy_dir, proxy_runtime) = setup_test_runtime_custom(AuthMode::Both, true, None);
+    let proxy_app = api::router(proxy_runtime.clone());
+
+    let (proxy_session_id, _) = proxy_runtime
+        .auth
+        .create_session(
+            KORD_USER_ID,
+            "kord@test.org",
+            Some("Kord"),
+            "nuts-auth",
+            now_secs() + 3600,
+        )
+        .unwrap();
+
+    // 6a. Matching X-Forwarded-Host gives 200 OK
+    let res_proxy_ok = proxy_app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/mode")
+                .header(header::COOKIE, format!("ferricula_session={proxy_session_id}"))
+                .header(header::HOST, "internal:18875")
+                .header("x-forwarded-host", "agent.example.com")
+                .header(header::ORIGIN, "https://agent.example.com")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::json!({"mode": "awake"}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_proxy_ok.status(), StatusCode::OK);
+
+    // 6b. Mismatching X-Forwarded-Host gives 403 Forbidden
+    let res_proxy_mismatch = proxy_app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/mode")
+                .header(header::COOKIE, format!("ferricula_session={proxy_session_id}"))
+                .header(header::HOST, "internal:18875")
+                .header("x-forwarded-host", "agent.example.com")
+                .header(header::ORIGIN, "https://evil.com")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::json!({"mode": "awake"}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_proxy_mismatch.status(), StatusCode::FORBIDDEN);
+
+    // 6c. trust_proxy = true with public_url fallback when X-Forwarded-Host absent -> 200 OK
+    let (_pub_dir, pub_runtime) = setup_test_runtime_custom(
+        AuthMode::Both,
+        true,
+        Some("https://agent.example.com".to_string()),
+    );
+    let pub_app = api::router(pub_runtime.clone());
+    let (pub_session_id, _) = pub_runtime
+        .auth
+        .create_session(
+            KORD_USER_ID,
+            "kord@test.org",
+            Some("Kord"),
+            "nuts-auth",
+            now_secs() + 3600,
+        )
+        .unwrap();
+
+    let res_pub_url_ok = pub_app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/mode")
+                .header(header::COOKIE, format!("ferricula_session={pub_session_id}"))
+                .header(header::HOST, "internal:18875")
+                .header(header::ORIGIN, "https://agent.example.com")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::json!({"mode": "awake"}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_pub_url_ok.status(), StatusCode::OK);
+
+    // 7. POST /auth/logout CSRF gate
+    // 7a. Logout with cross-origin Origin gives 403 Forbidden
+    let res_logout_evil = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/logout")
+                .header(header::COOKIE, format!("ferricula_session={raw_session_id}"))
+                .header(header::HOST, "127.0.0.1:18875")
+                .header(header::ORIGIN, "http://evil.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_logout_evil.status(), StatusCode::FORBIDDEN);
+    let body_bytes = axum::body::to_bytes(res_logout_evil.into_body(), usize::MAX).await.unwrap();
+    let body_json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(body_json["error"], "cross-origin request forbidden");
+
+    // 7b. Logout with matching same-origin Origin gives 200 OK
+    let res_logout_ok = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/logout")
+                .header(header::COOKIE, format!("ferricula_session={raw_session_id}"))
+                .header(header::HOST, "127.0.0.1:18875")
+                .header(header::ORIGIN, "http://127.0.0.1:18875")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_logout_ok.status(), StatusCode::OK);
+
+    // 8. Safe methods (GET, HEAD, OPTIONS) are exempt from CSRF:
+    // Create an active session (since raw_session_id was logged out above)
+    let (nav_session_id, _) = runtime
+        .auth
+        .create_session(
+            KORD_USER_ID,
+            "kord@test.org",
+            Some("Kord"),
+            "nuts-auth",
+            now_secs() + 3600,
+        )
+        .unwrap();
+
+    // 8a. GET /settings with cookie session and NO Origin and NO Referer gives 200 OK (page loads on plain navigation)
+    let res_get_settings = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/settings")
+                .header(header::COOKIE, format!("ferricula_session={nav_session_id}"))
+                .header(header::HOST, "127.0.0.1:18875")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_get_settings.status(), StatusCode::OK);
+    let settings_html = axum::body::to_bytes(res_get_settings.into_body(), usize::MAX).await.unwrap();
+    assert!(String::from_utf8_lossy(&settings_html).to_lowercase().contains("<!doctype html>"));
+
+    // 8b. GET /life with cookie session and NO Origin and NO Referer gives 200 OK
+    let res_get_life = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/life")
+                .header(header::COOKIE, format!("ferricula_session={nav_session_id}"))
+                .header(header::HOST, "127.0.0.1:18875")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_get_life.status(), StatusCode::OK);
+
+    // 8c. Plain navigation to GET /talk loads without error
+    let res_get_talk = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/talk")
+                .header(header::COOKIE, format!("ferricula_session={nav_session_id}"))
+                .header(header::HOST, "127.0.0.1:18875")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_get_talk.status(), StatusCode::OK);
 }

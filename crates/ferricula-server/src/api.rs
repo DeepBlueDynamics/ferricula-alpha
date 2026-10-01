@@ -9,7 +9,8 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::extract::{DefaultBodyLimit, Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, Method, StatusCode};
+use axum::middleware::{Next, from_fn_with_state};
 use axum::routing::{get, post};
 use axum::{Json, Router, response::IntoResponse};
 use ferricula_cognition::WhisperContext;
@@ -90,7 +91,59 @@ pub fn router(runtime: Arc<AgentRuntime>) -> Router {
         .route("/settings/jev/probe", post(jev_probe))
         .route("/settings/discord/channels", get(discord_channels))
         .route("/wisdom/preview", post(wisdom_preview))
+        .layer(from_fn_with_state(runtime.clone(), csrf_middleware))
         .with_state(runtime)
+}
+
+async fn csrf_middleware(
+    State(runtime): State<Arc<AgentRuntime>>,
+    req: axum::extract::Request,
+    next: Next,
+) -> Result<axum::response::Response, ApiError> {
+    if !runtime.config.require_operator_auth {
+        return Ok(next.run(req).await);
+    }
+
+    let is_safe = matches!(
+        *req.method(),
+        Method::GET | Method::HEAD | Method::OPTIONS
+    );
+
+    if !is_safe {
+        if let Some(cookie_session) = crate::auth::extract_session_cookie(req.headers()) {
+            let authorization = req
+                .headers()
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|value| value.to_str().ok());
+            let bearer = authorization.and_then(|h| h.strip_prefix("Bearer "));
+            let expected_static = std::env::var(&runtime.config.operator_token_env).ok();
+
+            let auth_res = runtime.auth.check_authorization(
+                bearer,
+                Some(cookie_session),
+                expected_static.as_deref(),
+            );
+            let is_cookie_auth = match auth_res {
+                crate::auth::AuthCheckResult::Authorized(ref identity) => identity.via_cookie,
+                _ => bearer.is_none(),
+            };
+
+            if is_cookie_auth {
+                if let Err(csrf_err) = crate::auth::verify_csrf(
+                    req.headers(),
+                    runtime.auth.config.trust_proxy,
+                    runtime.auth.config.public_url.as_deref(),
+                ) {
+                    return Err((
+                        StatusCode::FORBIDDEN,
+                        Json(json!({ "error": csrf_err })),
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(next.run(req).await)
 }
 
 // --- Documents (R1 sense door) ---------------------------------------------
@@ -1069,17 +1122,7 @@ fn require_operator_identity(
     let expected_static = std::env::var(&runtime.config.operator_token_env).ok();
 
     match runtime.auth.check_authorization(bearer, cookie_session, expected_static.as_deref()) {
-        crate::auth::AuthCheckResult::Authorized(identity) => {
-            if identity.via_cookie {
-                if let Err(csrf_err) = crate::auth::verify_csrf(headers) {
-                    return Err((
-                        StatusCode::FORBIDDEN,
-                        Json(json!({ "error": csrf_err })),
-                    ));
-                }
-            }
-            Ok(identity)
-        }
+        crate::auth::AuthCheckResult::Authorized(identity) => Ok(identity),
         crate::auth::AuthCheckResult::Forbidden(reason) => Err((
             StatusCode::FORBIDDEN,
             Json(json!({ "error": reason })),
